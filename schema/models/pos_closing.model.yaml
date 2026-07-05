@@ -1,0 +1,80 @@
+# =============================================================================
+# Domain: POS
+# Entity: PosClosingEntry (the Z-report)
+# Description: Closes a cashier session: for each tender method, expected (opening
+# float + Σ tenders) vs counted (what's in the drawer) → difference. The session
+# reconciles when submitted; over/short becomes a write-off post (via billing/
+# accounting). `totals_by_method` holds the per-method breakdown.
+# =============================================================================
+
+models:
+  - name: PosClosingEntry
+    collection: pos_closing_entries
+    description: "A cashier close (Z-report) over a session"
+
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique closing id"
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Books owner # logical FK to organization.Company.id"
+      pos_profile_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "The register # logical FK to PosProfile.id"
+      opening_entry_id:
+        type: uuid
+        attributes: ["@required", "@foreign_key(PosOpeningEntry.id)"]
+        description: "The session being closed"
+      closed_at:
+        type: datetime
+        attributes: ["@required"]
+        description: "When the till closed"
+      cashier_party_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Cashier # logical FK to party.Party.id"
+      totals_by_method:
+        type: json?
+        description: "Per method — [{ method, expected, counted, difference }]"
+      grand_total:
+        type: decimal
+        attributes: ["@default(0)", "@precision(18,2)", "@non_negative"]
+        description: "Σ recognised sales in the session"
+      invoice_count:
+        type: int
+        attributes: ["@default(0)"]
+        description: "Number of paid tickets in the session"
+      difference_total:
+        type: decimal
+        attributes: ["@default(0)", "@precision(18,2)"]
+        description: "Σ over/short across methods (0 when the drawer balances)"
+      status:
+        type: PosClosingStatus
+        attributes: ["@default(draft)"]
+        description: "Close lifecycle"
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+
+    indexes:
+      - type: index
+        fields: [company_id, pos_profile_id, status]
+      - type: index
+        fields: [opening_entry_id]
+
+enums:
+  - name: PosClosingStatus
+    description: "Cashier-close lifecycle"
+    variants:
+      - name: draft
+        description: "Counted, not yet finalised"
+        default: true
+      - name: submitted
+        description: "Finalised; session closed"
+      - name: reconciled
+        description: "Over/short written off"

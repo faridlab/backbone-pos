@@ -1,0 +1,127 @@
+# =============================================================================
+# Domain: POS
+# Entities: PosProfile (register config) + PosOpeningEntry (till open / session)
+# Description: A PosProfile configures a register (the outlet + the GL accounts the
+# sale/tender handoff needs). A PosOpeningEntry opens a cashier session with an
+# opening float per tender method; sales ring against the open session, and it is
+# reconciled at close. POS carries the account refs it hands to billing/payment —
+# it never posts the GL itself.
+# =============================================================================
+
+models:
+  - name: PosProfile
+    collection: pos_profiles
+    description: "Register configuration for a POS outlet"
+
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique profile id"
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Books owner # logical FK to organization.Company.id"
+      branch_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "Outlet # logical FK to organization.Branch.id"
+      name:
+        type: string
+        attributes: ["@required", "@max(140)"]
+        description: "Register name"
+      default_customer_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "Walk-in default customer # logical FK to party.Party.id"
+      currency:
+        type: string
+        attributes: ["@default(\"IDR\")", "@max(3)"]
+        description: "ISO currency code"
+      income_account_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "Revenue account for the sale # logical FK to accounting.Account.id"
+      receivable_account_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "A/R control the sale debits (settled immediately by tender) # logical FK to accounting.Account.id"
+      cash_account_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "Cash/Bank the tender lands in # logical FK to accounting.Account.id"
+      write_off_account_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "Over/short write-off at close # logical FK to accounting.Account.id"
+      allow_discount:
+        type: bool
+        attributes: ["@default(true)"]
+        description: "Whether line discounts are permitted"
+      is_active:
+        type: bool
+        attributes: ["@default(true)"]
+        description: "Available for opening a session"
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+
+    indexes:
+      - type: index
+        fields: [company_id, is_active]
+
+  - name: PosOpeningEntry
+    collection: pos_opening_entries
+    description: "A cashier session (till open) — sales ring against it until it closes"
+
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique session id"
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Books owner # logical FK to organization.Company.id"
+      pos_profile_id:
+        type: uuid
+        attributes: ["@required", "@foreign_key(PosProfile.id)"]
+        description: "The register"
+      branch_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "Outlet # logical FK to organization.Branch.id"
+      cashier_party_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Cashier # logical FK to party.Party.id"
+      opened_at:
+        type: datetime
+        attributes: ["@required"]
+        description: "When the till opened"
+      opening_balances:
+        type: json?
+        description: "Opening float per method — [{ method, amount }]"
+      status:
+        type: PosSessionStatus
+        attributes: ["@default(open)"]
+        description: "Session state"
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+
+    indexes:
+      - type: index
+        fields: [company_id, pos_profile_id, status]
+
+enums:
+  - name: PosSessionStatus
+    description: "Cashier session state"
+    variants:
+      - name: open
+        description: "Accepting sales"
+        default: true
+      - name: closed
+        description: "Reconciled + closed"
