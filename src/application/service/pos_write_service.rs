@@ -64,6 +64,36 @@ pub struct NewSale {
     pub round_to: Option<Decimal>,
 }
 
+/// One ticket line to be priced by the promo cart pricer — list price + the dimensions promo matches
+/// bundles/rules on (item group, brand), which a plain `NewSaleLine` does not carry.
+#[derive(Debug, Clone)]
+pub struct CartSaleLine {
+    pub item_id: Uuid,
+    pub item_group_id: Option<Uuid>,
+    pub brand_id: Option<Uuid>,
+    pub revenue_account_id: Option<Uuid>,
+    pub description: Option<String>,
+    pub list_price: Decimal,
+    pub quantity: Decimal,
+}
+
+/// A ticket rung through the promo cart seam (`ring_sale_priced`).
+#[derive(Debug, Clone)]
+pub struct NewCartSale {
+    pub company_id: Uuid,
+    pub pos_profile_id: Uuid,
+    pub opening_entry_id: Uuid,
+    pub branch_id: Option<Uuid>,
+    pub customer_id: Option<Uuid>,
+    pub customer_group_id: Option<Uuid>,
+    pub coupon_code: Option<String>,
+    pub receipt_number: String,
+    pub posting_at: chrono::NaiveDateTime,
+    pub tax_total: Decimal,
+    pub round_to: Option<Decimal>,
+    pub lines: Vec<CartSaleLine>,
+}
+
 #[derive(Debug, Clone)]
 pub struct NewClose {
     pub company_id: Uuid,
@@ -127,6 +157,7 @@ pub enum PosError {
     SessionNotFound(Uuid),
     BillingRejected { code: String, message: String },
     PaymentRejected { code: String, message: String },
+    PricingRejected { code: String, message: String },
     Db(sqlx::Error),
 }
 
@@ -146,6 +177,7 @@ impl PosError {
             PosError::SessionNotFound(_) => "session_not_found".into(),
             PosError::BillingRejected { code, .. } => code.clone(),
             PosError::PaymentRejected { code, .. } => code.clone(),
+            PosError::PricingRejected { code, .. } => code.clone(),
             PosError::Db(_) => "internal_error".into(),
         }
     }
@@ -259,6 +291,93 @@ impl PosWriteService {
         }
         tx.commit().await?;
         Ok(id)
+    }
+
+    /// Ring a ticket whose prices are resolved by promo's CART pricer (the cart seam, ADR-002). POS
+    /// hands the whole basket (list prices + item dimensions + optional coupon) to the `CartPricingPort`;
+    /// promo returns per-line nets folding in line rules, order-total discounts, and bundles. POS maps
+    /// each net back to a `unit_price`/`discount_amount` pair so `ring_sale`'s own math reproduces the
+    /// conserved cart total. Zero normal Cargo edge to promo.
+    pub async fn ring_sale_priced(
+        &self,
+        o: NewCartSale,
+        pricing: &dyn crate::application::service::pos_cart_pricing::CartPricingPort,
+    ) -> Result<Uuid, PosError> {
+        use crate::application::service::pos_cart_pricing::{CartPriceLine, CartPriceRequest};
+        if o.lines.is_empty() {
+            return Err(PosError::EmptyDocument);
+        }
+        let refs: Vec<Uuid> = o.lines.iter().map(|_| Uuid::new_v4()).collect();
+        let req = CartPriceRequest {
+            company_id: o.company_id,
+            customer_id: o.customer_id,
+            customer_group_id: o.customer_group_id,
+            coupon_code: o.coupon_code.clone(),
+            lines: o
+                .lines
+                .iter()
+                .zip(&refs)
+                .map(|(l, r)| CartPriceLine {
+                    line_ref: *r,
+                    item_id: l.item_id,
+                    item_group_id: l.item_group_id,
+                    brand_id: l.brand_id,
+                    list_price: l.list_price,
+                    quantity: l.quantity,
+                })
+                .collect(),
+        };
+        let priced = pricing
+            .price_cart(&req)
+            .await
+            .map_err(|e| PosError::PricingRejected { code: e.code, message: e.message })?;
+
+        let mut lines = Vec::with_capacity(o.lines.len());
+        for (l, r) in o.lines.iter().zip(&refs) {
+            let pl = priced
+                .lines
+                .iter()
+                .find(|p| p.line_ref == *r)
+                .ok_or_else(|| PosError::PricingRejected {
+                    code: "pricing_line_missing".into(),
+                    message: "pricer omitted a line".into(),
+                })?;
+            let gross = money(pl.unit_price * l.quantity);
+            let discount_amount = (gross - pl.net_line_total).max(Decimal::ZERO);
+            lines.push(NewSaleLine {
+                item_id: l.item_id,
+                revenue_account_id: l.revenue_account_id,
+                description: l.description.clone(),
+                quantity: l.quantity,
+                unit_price: pl.unit_price,
+                discount_amount,
+            });
+        }
+        // Buy-X-get-Y: ring the free goods as zero-priced lines (they don't change the ticket total).
+        for rl in &priced.reward_lines {
+            lines.push(NewSaleLine {
+                item_id: rl.item_id,
+                revenue_account_id: None,
+                description: Some("promo reward (free)".into()),
+                quantity: rl.quantity,
+                unit_price: Decimal::ZERO,
+                discount_amount: Decimal::ZERO,
+            });
+        }
+
+        self.ring_sale(NewSale {
+            company_id: o.company_id,
+            pos_profile_id: o.pos_profile_id,
+            opening_entry_id: o.opening_entry_id,
+            branch_id: o.branch_id,
+            customer_id: o.customer_id,
+            receipt_number: o.receipt_number,
+            posting_at: o.posting_at,
+            lines,
+            tax_total: o.tax_total,
+            round_to: o.round_to,
+        })
+        .await
     }
 
     // ---- tender -------------------------------------------------------------

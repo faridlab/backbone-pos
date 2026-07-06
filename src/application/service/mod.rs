@@ -17,6 +17,7 @@ pub mod pos_opening_entry_service;
 // <<< CUSTOM
 pub mod pos_events;
 pub mod pos_ports;
+pub mod pos_cart_pricing;
 pub mod pos_write_service;
 // END CUSTOM
 
@@ -35,8 +36,12 @@ pub use pos_ports::{
     BillingPort, CreditNoteRequest, InvoiceAck, PaymentPort, PosRejected, RefundRequest, ReversalAck,
     SaleInvoiceRequest, SaleLine, SettlementAck, SettlementRequest,
 };
+pub use pos_cart_pricing::{
+    CartPriceLine, CartPriceRequest, CartPricingError, CartPricingPort, PricedCart, PricedCartLine,
+    PricedRewardLine,
+};
 pub use pos_write_service::{
-    CloseOutcome, MethodRecon, NewClose, NewSale, NewSaleLine, NewSession, PosError, PosWriteService,
-    RecognizeOutcome, ReturnOutcome, TenderOutcome,
+    CartSaleLine, CloseOutcome, MethodRecon, NewCartSale, NewClose, NewSale, NewSaleLine, NewSession,
+    PosError, PosWriteService, RecognizeOutcome, ReturnOutcome, TenderOutcome,
 };
 // END CUSTOM
