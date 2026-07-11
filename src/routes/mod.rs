@@ -12,11 +12,17 @@ use std::sync::Arc;
 // Import handlers
 use crate::presentation::http::{
     create_pos_closing_entry_routes,
+    create_pos_closing_entry_read_routes,
     create_pos_invoice_routes,
+    create_pos_invoice_read_routes,
     create_pos_invoice_item_routes,
+    create_pos_invoice_item_read_routes,
     create_pos_payment_routes,
+    create_pos_payment_read_routes,
     create_pos_profile_routes,
-    create_pos_opening_entry_routes
+    create_pos_profile_read_routes,
+    create_pos_opening_entry_routes,
+    create_pos_opening_entry_read_routes
 };
 
 // Import AppState for stateful routes
@@ -46,6 +52,21 @@ pub fn create_stateless_routes(module: &crate::PosModule) -> Router<()> {
         .merge(create_pos_payment_routes(module.pos_payment_service.clone()))
         .merge(create_pos_profile_routes(module.pos_profile_service.clone()))
         .merge(create_pos_opening_entry_routes(module.pos_opening_entry_service.clone()))
+}
+
+/// Read-only routes for the Pos module — every entity mounted READ-ONLY (the guarded base).
+///
+/// The generic `create_stateless_routes` exposes full mutable CRUD with no domain
+/// validation; this exposes only reads, so generic mutation can't bypass a write
+/// service's invariants. Extend it: `create_readonly_pos_routes(m).merge(my_validated_writes)`.
+pub fn create_readonly_pos_routes(module: &crate::PosModule) -> Router<()> {
+    Router::new()
+        .merge(create_pos_closing_entry_read_routes(module.pos_closing_entry_service.clone()))
+        .merge(create_pos_invoice_read_routes(module.pos_invoice_service.clone()))
+        .merge(create_pos_invoice_item_read_routes(module.pos_invoice_item_service.clone()))
+        .merge(create_pos_payment_read_routes(module.pos_payment_service.clone()))
+        .merge(create_pos_profile_read_routes(module.pos_profile_service.clone()))
+        .merge(create_pos_opening_entry_read_routes(module.pos_opening_entry_service.clone()))
 }
 
 /// Get all routes (stateless) for the Pos module.
