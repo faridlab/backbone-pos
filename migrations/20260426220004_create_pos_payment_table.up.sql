@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS pos.pos_payments (
     id UUID NOT NULL DEFAULT gen_random_uuid(),
     pos_invoice_id UUID NOT NULL,
     payment_method pos_payment_method NOT NULL,
-    amount NUMERIC NOT NULL,
+    amount NUMERIC(18, 2) NOT NULL CHECK (amount >= 0),
     reference_no TEXT,
     payment_entry_id UUID,
     metadata JSONB NOT NULL DEFAULT '{"created_at":null,"updated_at":null,"deleted_at":null,"created_by":null,"updated_by":null,"deleted_by":null}'::jsonb,

@@ -20,9 +20,9 @@ CREATE TABLE IF NOT EXISTS pos.pos_closing_entries (
     closed_at TIMESTAMPTZ NOT NULL,
     cashier_party_id UUID NOT NULL,
     totals_by_method JSONB,
-    grand_total NUMERIC NOT NULL DEFAULT 0,
+    grand_total NUMERIC(18, 2) NOT NULL DEFAULT 0 CHECK (grand_total >= 0),
     invoice_count INTEGER NOT NULL DEFAULT 0,
-    difference_total NUMERIC NOT NULL DEFAULT 0,
+    difference_total NUMERIC(18, 2) NOT NULL DEFAULT 0,
     status pos_closing_status NOT NULL DEFAULT 'draft',
     metadata JSONB NOT NULL DEFAULT '{"created_at":null,"updated_at":null,"deleted_at":null,"created_by":null,"updated_by":null,"deleted_by":null}'::jsonb,
     PRIMARY KEY (id)
