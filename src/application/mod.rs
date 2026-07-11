@@ -13,7 +13,6 @@
 
 pub mod service;
 pub mod validator;
-pub mod workflows;
 
 // Re-exports
 pub use service::*;

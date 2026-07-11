@@ -38,9 +38,6 @@ pub use application::service::PosPaymentService;
 pub use application::service::PosProfileService;
 pub use application::service::PosOpeningEntryService;
 
-// Re-exports - Workflows
-pub use application::workflows::*;
-
 use std::sync::Arc;
 use axum::Router;
 use sqlx::PgPool;
