@@ -76,12 +76,13 @@ struct RingSaleBody {
     receipt_number: String,
     posting_at: chrono::NaiveDateTime,
     lines: Vec<SaleLineBody>,
-    #[serde(default)] tax_total: Decimal,
     #[serde(default)] round_to: Option<Decimal>,
 }
 async fn ring_sale(State(svc): State<Arc<PosWriteService>>, tenant: TenantContext, Json(b): Json<RingSaleBody>) -> axum::response::Response {
     // Tenant from the principal — `ring_sale` scopes the session lookup by this company_id, so a token
     // for company A cannot ring against company B's opening_entry_id (the cross-tenant write is closed).
+    // Tax is NOT taken from the client: PPN is server-owned (refused until a profile tax account exists,
+    // ADR-001:41). `tax_total` is set to zero here; server-side PPN computation lands with the PPN work.
     let sale = NewSale {
         company_id: tenant.company_id, pos_profile_id: b.pos_profile_id, opening_entry_id: b.opening_entry_id,
         branch_id: tenant.branch_id, customer_id: b.customer_id, receipt_number: b.receipt_number, posting_at: b.posting_at,
@@ -89,7 +90,7 @@ async fn ring_sale(State(svc): State<Arc<PosWriteService>>, tenant: TenantContex
             item_id: l.item_id, revenue_account_id: l.revenue_account_id, description: l.description,
             quantity: l.quantity, unit_price: l.unit_price, discount_amount: l.discount_amount,
         }).collect(),
-        tax_total: b.tax_total, round_to: b.round_to,
+        tax_total: Decimal::ZERO, round_to: b.round_to,
     };
     match svc.ring_sale(sale).await {
         Ok(id) => (StatusCode::CREATED, Json(IdResponse { id })).into_response(),
