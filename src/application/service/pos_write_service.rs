@@ -294,7 +294,13 @@ impl PosWriteService {
             priced.push((l, net));
         }
         let net_total = money(net_total);
-        let tax_total = money(sale.tax_total);
+        // PPN is server-owned: compute it from the register's configured rate (0 for a non-PKP till).
+        // The `sale.tax_total` input is ignored — a merchant can neither omit nor overstate the VAT.
+        let tax_rate: Decimal = sqlx::query_scalar(
+            "SELECT tax_rate FROM pos.pos_profiles WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL",
+        ).bind(sale.pos_profile_id).bind(sale.company_id).fetch_optional(&self.db_pool).await?
+            .ok_or(PosError::ProfileNotFound(sale.pos_profile_id))?;
+        let tax_total = money(net_total * tax_rate);
         let grand = net_total + tax_total;
         let rounded = round_to(grand, sale.round_to.unwrap_or(Decimal::ZERO));
         let rounding_adjustment = rounded - grand;
@@ -449,7 +455,8 @@ impl PosWriteService {
         let inv = sqlx::query(
             r#"SELECT i.company_id, i.customer_id, i.pos_profile_id, i.posting_at, i.rounded_total, i.grand_total,
                       i.tax_total, i.paid_total, i.billing_invoice_id,
-                      p.receivable_account_id, p.income_account_id, p.cash_account_id, p.currency, p.default_customer_id
+                      p.receivable_account_id, p.income_account_id, p.cash_account_id, p.tax_account_id, p.tax_rate,
+                      p.currency, p.default_customer_id
                FROM pos.pos_invoices i JOIN pos.pos_profiles p ON p.id = i.pos_profile_id
                WHERE i.id=$1 AND i.status='draft'::pos_invoice_status AND (i.metadata->>'deleted_at') IS NULL"#,
         ).bind(pos_invoice_id).fetch_optional(&self.db_pool).await?.ok_or(PosError::InvoiceNotFound(pos_invoice_id))?;
@@ -460,7 +467,12 @@ impl PosWriteService {
             return Err(PosError::NotFullyTendered { rounded_total, paid_total });
         }
         let tax_total: Decimal = inv.get("tax_total");
-        if tax_total > Decimal::ZERO { return Err(PosError::MissingAccount("tax account (PPN not yet configured on the profile)")); }
+        let tax_account_id: Option<Uuid> = inv.get("tax_account_id");
+        let tax_rate: Decimal = inv.get("tax_rate");
+        // A ticket carrying PPN must have a tax liability account on its register to credit it to.
+        if tax_total > Decimal::ZERO && tax_account_id.is_none() {
+            return Err(PosError::MissingAccount("tax_account_id (register charges PPN but has no tax account)"));
+        }
         let company_id: Uuid = inv.get("company_id");
         let currency: String = inv.get("currency");
         let receivable: Uuid = inv.get::<Option<Uuid>, _>("receivable_account_id").ok_or(PosError::MissingAccount("receivable_account_id"))?;
@@ -493,7 +505,7 @@ impl PosWriteService {
             }
             let ack = billing.raise_and_post(&SaleInvoiceRequest {
                 company_id, customer_id: customer, currency: currency.clone(), source_pos_id: pos_invoice_id,
-                receivable_account_id: receivable, posting_date, lines, tax_total: Decimal::ZERO, tax_account_id: None,
+                receivable_account_id: receivable, posting_date, lines, tax_total, tax_account_id, tax_rate,
             }).await.map_err(|e| PosError::BillingRejected { code: e.code, message: e.message })?;
             // Persist the link WHILE STILL DRAFT — before settle — so any retry reuses this invoice.
             sqlx::query("UPDATE pos.pos_invoices SET billing_invoice_id=$2 WHERE id=$1 AND status='draft'::pos_invoice_status")

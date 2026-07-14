@@ -34,6 +34,9 @@ pub struct SaleInvoiceRequest {
     /// Supplied PPN (tax) total + the account it credits (0 / None for a tax-free sale).
     pub tax_total: Decimal,
     pub tax_account_id: Option<Uuid>,
+    /// The PPN rate that produced `tax_total` (e.g. 0.11 for 11%); 0 for a tax-free sale. Informational
+    /// for the billing tax line + the receipt — billing books GL off `tax_total`, not this.
+    pub tax_rate: Decimal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

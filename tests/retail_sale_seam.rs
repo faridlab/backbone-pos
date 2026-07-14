@@ -27,7 +27,7 @@ use backbone_billing::application::service::billing_gl::{
     AccountingPostEnvelope as BillEnv, GlPostAck as BillAck, GlPostRejected as BillRej, GlPostSink as BillSink,
 };
 use backbone_billing::application::service::billing_write_service::{
-    BillingWriteService, NewInvoiceLine, NewSalesInvoice,
+    BillingWriteService, NewInvoiceLine, NewSalesInvoice, NewTaxLine,
 };
 use backbone_payment::application::service::payment_gl::{
     AccountingPostEnvelope as PayEnv, GlPostAck as PayAck, GlPostRejected as PayRej, GlPostSink as PaySink,
@@ -81,13 +81,23 @@ struct BillingAdapter { billing: BillingWriteService, gl: Arc<GlAdapter> }
 #[async_trait::async_trait]
 impl BillingPort for BillingAdapter {
     async fn raise_and_post(&self, req: &SaleInvoiceRequest) -> Result<InvoiceAck, PosRejected> {
-        let grand: Decimal = req.lines.iter().map(|l| l.quantity * l.unit_price).sum();
+        let net: Decimal = req.lines.iter().map(|l| l.quantity * l.unit_price).sum();
+        let grand: Decimal = net + req.tax_total;
+        // PPN: when POS supplies a tax total + its output-tax account, book it as an `output` tax line so
+        // billing posts `Dr A/R (grand) · Cr Revenue (net) · Cr PPN Output (tax)`.
+        let tax_lines = match (req.tax_account_id, req.tax_total > Decimal::ZERO) {
+            (Some(account_id), true) => vec![NewTaxLine {
+                account_id, basis: "output".into(), description: Some("PPN".into()),
+                rate: req.tax_rate, tax_amount: req.tax_total,
+            }],
+            _ => vec![],
+        };
         let inv = self.billing.create_sales_invoice(NewSalesInvoice {
             invoice_number: uq("SI"), company_id: req.company_id, branch_id: None, customer_id: req.customer_id,
             source_so_id: Some(req.source_pos_id), posting_date: req.posting_date, due_date: None,
             currency: Some(req.currency.clone()), receivable_account_id: req.receivable_account_id,
             lines: req.lines.iter().map(|l| NewInvoiceLine { item_id: l.item_id, account_id: l.revenue_account_id, description: None, quantity: l.quantity, unit_price: l.unit_price }).collect(),
-            tax_lines: vec![],
+            tax_lines,
         }).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
         let out = self.billing.post_sales_invoice(inv, &*self.gl).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
         Ok(InvoiceAck { invoice_id: inv, journal_id: out.journal_id, grand_total: grand })
@@ -272,4 +282,54 @@ async fn retail_return_reverses_both_legs_and_is_idempotent() {
     assert_eq!(balance(&pool, coa["4000"]).await, d("0.00"), "no double credit note");
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pos.pos_invoices WHERE return_against=$1 AND is_return=true").bind(sale).fetch_one(&pool).await.unwrap();
     assert_eq!(n, 1, "exactly one return ticket");
+}
+
+/// RSSEAM-3 (PPN, 2026-07-14): a PKP register charges 11% output tax, computed SERVER-side from the
+/// profile (the client sends no tax). Billing books `Dr A/R 111,000 · Cr Revenue 100,000 · Cr PPN
+/// Output 11,000`; payment settles the grand in cash. A/R nets to zero, revenue holds the net, cash
+/// holds the grand, and the PPN liability holds the tax.
+#[tokio::test]
+async fn retail_ppn_sale_books_output_tax() {
+    let pool = pool().await;
+    let (company, coa) = seed_coa(&pool).await;
+    let customer = Uuid::new_v4();
+    let item = Uuid::new_v4();
+
+    // PPN output-tax liability account (credit-normal).
+    let ppn = Uuid::new_v4();
+    sqlx::query(r#"INSERT INTO accounting.accounts (id, company_id, account_number, account_code, name, account_type, account_subtype, normal_balance, is_header, is_detail, status)
+        VALUES ($1,$2,'2130','2130','Utang PPN Keluaran','liability'::account_type,'tax'::account_subtype,'credit'::normal_balance,false,true,'active'::account_status)"#)
+        .bind(ppn).bind(company).execute(&pool).await.unwrap();
+
+    // PKP register: 11% PPN wired to the output-tax account.
+    let prof = Uuid::new_v4();
+    sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, receivable_account_id, income_account_id, cash_account_id, tax_account_id, tax_rate, default_customer_id, allow_discount, is_active)
+        VALUES ($1,$2,'PKP Register','IDR',$3,$4,$5,$6,0.1100,$7,true,true)"#)
+        .bind(prof).bind(company).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(ppn).bind(customer).execute(&pool).await.unwrap();
+
+    let pos = PosWriteService::new(pool.clone());
+    let gl = Arc::new(GlAdapter { svc: PostingService::new(pool.clone()) });
+    let billing_port = BillingAdapter { billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
+    let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
+
+    let session = pos.open_session(NewSession { company_id: company, pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(), opened_at: at(), opening_balances: vec![] }).await.unwrap();
+    let sale = pos.ring_sale(NewSale {
+        company_id: company, pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
+        receipt_number: uq("R"), posting_at: at(),
+        lines: vec![NewSaleLine { item_id: item, revenue_account_id: None, description: None, quantity: d("1"), unit_price: d("100000"), discount_amount: Decimal::ZERO }],
+        tax_total: Decimal::ZERO, round_to: None, // ignored — server computes PPN from the profile
+    }).await.unwrap();
+
+    // The ticket carries server-computed PPN: net 100,000, tax 11,000, grand 111,000.
+    let (net, tax, grand): (Decimal, Decimal, Decimal) = sqlx::query_as("SELECT net_total, tax_total, rounded_total FROM pos.pos_invoices WHERE id=$1").bind(sale).fetch_one(&pool).await.unwrap();
+    assert_eq!((net, tax, grand), (d("100000.00"), d("11000.00"), d("111000.00")), "server-side PPN on the ticket");
+
+    let t = pos.add_tender(sale, "cash", d("111000"), None).await.unwrap();
+    assert!(t.fully_tendered);
+    pos.recognize_sale(sale, &billing_port, &payment_port).await.unwrap();
+
+    assert_eq!(balance(&pool, coa["1200"]).await, d("0.00"), "A/R nets to zero at the counter");
+    assert_eq!(balance(&pool, coa["4000"]).await, d("-100000.00"), "revenue holds the net (credit)");
+    assert_eq!(balance(&pool, coa["1110"]).await, d("111000.00"), "cash holds the grand (incl PPN)");
+    assert_eq!(balance(&pool, ppn).await, d("-11000.00"), "PPN output-tax liability holds the tax (credit)");
 }
