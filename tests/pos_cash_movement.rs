@@ -8,6 +8,7 @@ use uuid::Uuid;
 use backbone_pos::application::service::pos_write_service::{
     NewCashMovement, NewClose, NewSession, PosError, PosWriteService,
 };
+use backbone_pos::application::service::pos_write_service::XReport;
 
 fn d(s: &str) -> Decimal { Decimal::from_str_exact(s).unwrap() }
 fn at() -> chrono::NaiveDateTime { chrono::NaiveDate::from_ymd_opt(2026, 7, 14).unwrap().and_hms_opt(9, 0, 0).unwrap() }
@@ -51,6 +52,40 @@ async fn cash_movements_fold_into_the_expected_drawer() {
     let cash = out.by_method.iter().find(|r| r.method == "cash").unwrap();
     assert_eq!(cash.expected, d("370000.00"), "movements must be reflected in expected cash");
     assert_eq!(out.difference_total, d("0.00"), "drawer balances once movements are recorded");
+}
+
+/// XR-1: the X-report shows the same expected drawer as a close (incl. cash movements) WITHOUT closing
+/// the session, and is idempotent (a cashier can pull it repeatedly mid-shift).
+#[tokio::test]
+async fn x_report_reads_the_drawer_without_closing() {
+    let pool = pool().await;
+    let w = PosWriteService::new(pool.clone());
+    let company = Uuid::new_v4();
+    let other = Uuid::new_v4();
+    let prof = Uuid::new_v4();
+    let session = open(&w, company, prof, "500000").await;
+    w.record_cash_movement(mv(company, prof, session, "pay_in", "100000")).await.unwrap();
+    w.record_cash_movement(mv(company, prof, session, "drop", "200000")).await.unwrap();
+
+    let check = |r: XReport| {
+        let cash = r.by_method.iter().find(|m| m.method == "cash").unwrap();
+        assert_eq!(cash.expected, d("400000.00"), "expected cash = 500k + 100k − 200k");
+        assert_eq!(r.invoice_count, 0);
+    };
+    check(w.x_report(company, session).await.unwrap());
+    // idempotent — pulling again gives the same numbers, session stays OPEN.
+    check(w.x_report(company, session).await.unwrap());
+    let st: String = sqlx::query_scalar("SELECT status::text FROM pos.pos_opening_entries WHERE id=$1").bind(session).fetch_one(&pool).await.unwrap();
+    assert_eq!(st, "open", "x-report must not close the session");
+
+    // scoping: another tenant cannot read this session's drawer.
+    assert!(matches!(w.x_report(other, session).await.unwrap_err(), PosError::SessionNotFound(_)));
+    // a non-existent session.
+    assert!(matches!(w.x_report(company, Uuid::new_v4()).await.unwrap_err(), PosError::SessionNotFound(_)));
+
+    // after close, the X-report (open-only) is refused.
+    w.close_session(NewClose { company_id: company, opening_entry_id: session, cashier_party_id: Uuid::new_v4(), closed_at: at(), counted: vec![("cash".into(), d("400000"))] }).await.unwrap();
+    assert!(matches!(w.x_report(company, session).await.unwrap_err(), PosError::SessionNotOpen));
 }
 
 /// PCM-2: without recording the movements, the same physical drawer reads as a variance.

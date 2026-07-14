@@ -154,6 +154,22 @@ pub struct CloseOutcome {
     pub by_method: Vec<MethodRecon>,
 }
 
+#[derive(Debug, Clone)]
+pub struct MethodExpected {
+    pub method: String,
+    pub expected: Decimal,
+}
+
+/// A mid-shift drawer read (X-report): expected drawer per method + running session totals, with no
+/// counting and no close.
+#[derive(Debug, Clone)]
+pub struct XReport {
+    pub opening_entry_id: Uuid,
+    pub by_method: Vec<MethodExpected>,
+    pub grand_total: Decimal,
+    pub invoice_count: i64,
+}
+
 // --- errors ------------------------------------------------------------------
 
 #[derive(Debug)]
@@ -613,16 +629,17 @@ impl PosWriteService {
         Ok(id)
     }
 
-    // ---- close (drawer reconciliation) -------------------------------------
+    // ---- drawer read (shared by close + X-report) --------------------------
 
-    /// Close a session: for each tender method, `expected = opening_float + Σ recognised tenders`
-    /// (cash also `− Σ change_due`); `difference = counted − expected`. Persist the per-method
-    /// breakdown + the session's grand total, mark the session closed, emit `PosSessionClosed`.
-    pub async fn close_session(&self, c: NewClose) -> Result<CloseOutcome, PosError> {
+    /// Compute the expected drawer for a session: per-method `expected = opening_float + Σ recognised
+    /// tenders` (cash also `− Σ change_due + Σ cash-movement net`), plus the recognised grand total and
+    /// paid-ticket count. Tenant-scoped, read-only — shared by `close_session` (Z-report) and
+    /// `x_report` (mid-shift read) so the two can never drift.
+    async fn compute_drawer(&self, company_id: Uuid, opening_entry_id: Uuid) -> Result<(BTreeMap<String, Decimal>, Decimal, i64), PosError> {
         let opening_json: Option<sqlx::types::Json<serde_json::Value>> = sqlx::query_scalar(
             "SELECT opening_balances FROM pos.pos_opening_entries WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL",
-        ).bind(c.opening_entry_id).bind(c.company_id).fetch_optional(&self.db_pool).await?
-            .ok_or(PosError::SessionNotFound(c.opening_entry_id))?;
+        ).bind(opening_entry_id).bind(company_id).fetch_optional(&self.db_pool).await?
+            .ok_or(PosError::SessionNotFound(opening_entry_id))?;
         let mut expected: BTreeMap<String, Decimal> = BTreeMap::new();
         if let Some(sqlx::types::Json(serde_json::Value::Array(arr))) = opening_json {
             for e in arr {
@@ -637,14 +654,14 @@ impl PosWriteService {
                FROM pos.pos_payments pay JOIN pos.pos_invoices i ON i.id = pay.pos_invoice_id
                WHERE i.opening_entry_id=$1 AND i.status='paid'::pos_invoice_status AND (pay.metadata->>'deleted_at') IS NULL
                GROUP BY pay.payment_method"#,
-        ).bind(c.opening_entry_id).fetch_all(&self.db_pool).await?;
+        ).bind(opening_entry_id).fetch_all(&self.db_pool).await?;
         for r in &tender_rows {
             *expected.entry(r.get::<String, _>("method")).or_insert(Decimal::ZERO) += r.get::<Decimal, _>("total");
         }
         // Cash change reduces the drawer.
         let cash_change: Decimal = sqlx::query_scalar(
             "SELECT COALESCE(SUM(change_due),0) FROM pos.pos_invoices WHERE opening_entry_id=$1 AND status='paid'::pos_invoice_status AND (metadata->>'deleted_at') IS NULL",
-        ).bind(c.opening_entry_id).fetch_one(&self.db_pool).await?;
+        ).bind(opening_entry_id).fetch_one(&self.db_pool).await?;
         if cash_change > Decimal::ZERO {
             *expected.entry("cash".to_string()).or_insert(Decimal::ZERO) -= cash_change;
         }
@@ -658,14 +675,40 @@ impl PosWriteService {
                     ELSE 0 END), 0)
                FROM pos.pos_cash_movements
                WHERE opening_entry_id=$1 AND (metadata->>'deleted_at') IS NULL"#,
-        ).bind(c.opening_entry_id).fetch_one(&self.db_pool).await?;
+        ).bind(opening_entry_id).fetch_one(&self.db_pool).await?;
         if cash_movement_net != Decimal::ZERO {
             *expected.entry("cash".to_string()).or_insert(Decimal::ZERO) += cash_movement_net;
         }
-        // Session totals.
         let (grand_total, invoice_count): (Decimal, i64) = sqlx::query_as(
             "SELECT COALESCE(SUM(rounded_total),0), COUNT(*) FROM pos.pos_invoices WHERE opening_entry_id=$1 AND status='paid'::pos_invoice_status AND (metadata->>'deleted_at') IS NULL",
-        ).bind(c.opening_entry_id).fetch_one(&self.db_pool).await?;
+        ).bind(opening_entry_id).fetch_one(&self.db_pool).await?;
+        Ok((expected, grand_total, invoice_count))
+    }
+
+    /// Mid-shift drawer read (X-report): the SAME expected drawer + running totals as the Z-report, but
+    /// without counting, closing the session, or writing anything. Read-only + idempotent — a cashier
+    /// can pull it any number of times during the shift. Requires an OPEN session in the caller's tenant.
+    pub async fn x_report(&self, company_id: Uuid, opening_entry_id: Uuid) -> Result<XReport, PosError> {
+        let st: Option<String> = sqlx::query_scalar(
+            "SELECT status::text FROM pos.pos_opening_entries WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL",
+        ).bind(opening_entry_id).bind(company_id).fetch_optional(&self.db_pool).await?;
+        match st.as_deref() {
+            None => return Err(PosError::SessionNotFound(opening_entry_id)),
+            Some("open") => {}
+            Some(_) => return Err(PosError::SessionNotOpen),
+        }
+        let (expected, grand_total, invoice_count) = self.compute_drawer(company_id, opening_entry_id).await?;
+        let by_method = expected.into_iter().map(|(method, exp)| MethodExpected { method, expected: money(exp) }).collect();
+        Ok(XReport { opening_entry_id, by_method, grand_total: money(grand_total), invoice_count })
+    }
+
+    // ---- close (drawer reconciliation) -------------------------------------
+
+    /// Close a session: for each tender method, `expected = opening_float + Σ recognised tenders`
+    /// (cash also `− Σ change_due`); `difference = counted − expected`. Persist the per-method
+    /// breakdown + the session's grand total, mark the session closed, emit `PosSessionClosed`.
+    pub async fn close_session(&self, c: NewClose) -> Result<CloseOutcome, PosError> {
+        let (expected, grand_total, invoice_count) = self.compute_drawer(c.company_id, c.opening_entry_id).await?;
 
         let counted: BTreeMap<String, Decimal> = c.counted.iter().map(|(m, a)| (m.clone(), money(*a))).collect();
         let mut methods: std::collections::BTreeSet<String> = expected.keys().cloned().collect();

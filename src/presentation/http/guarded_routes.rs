@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use axum::{extract::State, http::StatusCode, middleware::from_fn_with_state, response::IntoResponse, routing::post, Json, Router};
+use axum::{extract::{Path, State}, http::StatusCode, middleware::from_fn_with_state, response::IntoResponse, routing::{get, post}, Json, Router};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -236,12 +236,25 @@ async fn record_cash_movement(State(svc): State<Arc<PosWriteService>>, tenant: T
     }
 }
 
+async fn x_report(State(svc): State<Arc<PosWriteService>>, tenant: TenantContext, Path(opening_entry_id): Path<Uuid>) -> axum::response::Response {
+    match svc.x_report(tenant.company_id, opening_entry_id).await {
+        Ok(r) => (StatusCode::OK, Json(serde_json::json!({
+            "openingEntryId": r.opening_entry_id,
+            "grandTotal": r.grand_total,
+            "invoiceCount": r.invoice_count,
+            "byMethod": r.by_method.iter().map(|m| serde_json::json!({ "method": m.method, "expected": m.expected })).collect::<Vec<_>>(),
+        }))).into_response(),
+        Err(e) => err(e),
+    }
+}
+
 fn write_routes(svc: Arc<PosWriteService>, verifier: TenantVerifier) -> Router {
     Router::new()
         .route("/pos-sessions", post(open_session))
         .route("/pos-sales", post(ring_sale))
         .route("/pos-tenders", post(add_tender))
         .route("/pos-cash-movements", post(record_cash_movement))
+        .route("/pos-sessions/:opening_entry_id/x-report", get(x_report))
         .route("/pos-sessions/close", post(close_session))
         // Every write requires a valid Bearer token carrying a company_id claim; the layer inserts the
         // TenantContext the handlers extract. Unauthenticated writes get 401 before touching the service.
