@@ -13,8 +13,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::application::service::pos_cart_pricing::CartPricingPort;
 use crate::application::service::pos_write_service::{
-    NewClose, NewSale, NewSaleLine, NewSession, PosError, PosWriteService,
+    CartSaleLine, NewCartSale, NewClose, NewSale, NewSaleLine, NewSession, PosError, PosWriteService,
 };
 use crate::PosModule;
 
@@ -138,6 +139,75 @@ async fn close_session(State(svc): State<Arc<PosWriteService>>, tenant: TenantCo
         }))).into_response(),
         Err(e) => err(e),
     }
+}
+
+// ---- priced ring (the promo cart seam) ---------------------------------------
+//
+// `POST /pos-sales/priced` rings a ticket whose per-line prices are RESOLVED by promo (server-side
+// discounts + order rules + bundles) instead of taken from the client. The composing service supplies a
+// `CartPricingPort` implemented over promo's `resolve_cart`. The client still sends a `listPrice` per
+// line (no price master exists yet — base price is not server-owned), but the DISCOUNT it pays is
+// server-authoritative: a client cannot fake a promo. Tax stays server-owned (zero until PPN).
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PricedSaleLineBody {
+    item_id: Uuid,
+    #[serde(default)] item_group_id: Option<Uuid>,
+    #[serde(default)] brand_id: Option<Uuid>,
+    #[serde(default)] revenue_account_id: Option<Uuid>,
+    #[serde(default)] description: Option<String>,
+    list_price: Decimal,
+    quantity: Decimal,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RingSalePricedBody {
+    pos_profile_id: Uuid,
+    opening_entry_id: Uuid,
+    #[serde(default)] customer_id: Option<Uuid>,
+    #[serde(default)] customer_group_id: Option<Uuid>,
+    #[serde(default)] coupon_code: Option<String>,
+    receipt_number: String,
+    posting_at: chrono::NaiveDateTime,
+    lines: Vec<PricedSaleLineBody>,
+    #[serde(default)] round_to: Option<Decimal>,
+}
+
+/// State for the priced route: the write service + the promo-backed pricer.
+#[derive(Clone)]
+struct PricedState {
+    svc: Arc<PosWriteService>,
+    pricing: Arc<dyn CartPricingPort>,
+}
+
+async fn ring_sale_priced(State(st): State<PricedState>, tenant: TenantContext, Json(b): Json<RingSalePricedBody>) -> axum::response::Response {
+    let cart = NewCartSale {
+        company_id: tenant.company_id, pos_profile_id: b.pos_profile_id, opening_entry_id: b.opening_entry_id,
+        branch_id: tenant.branch_id, customer_id: b.customer_id, customer_group_id: b.customer_group_id,
+        coupon_code: b.coupon_code, receipt_number: b.receipt_number, posting_at: b.posting_at,
+        tax_total: Decimal::ZERO, round_to: b.round_to,
+        lines: b.lines.into_iter().map(|l| CartSaleLine {
+            item_id: l.item_id, item_group_id: l.item_group_id, brand_id: l.brand_id,
+            revenue_account_id: l.revenue_account_id, description: l.description,
+            list_price: l.list_price, quantity: l.quantity,
+        }).collect(),
+    };
+    match st.svc.ring_sale_priced(cart, &*st.pricing).await {
+        Ok(id) => (StatusCode::CREATED, Json(IdResponse { id })).into_response(),
+        Err(e) => err(e),
+    }
+}
+
+/// Mount ONLY the promo-priced ring route (`POST /pos-sales/priced`), authenticated. Merge this in
+/// addition to `create_guarded_pos_routes` when the service has a promo-backed `CartPricingPort`.
+pub fn create_guarded_pos_priced_route(pool: PgPool, verifier: TenantVerifier, pricing: Arc<dyn CartPricingPort>) -> Router {
+    let st = PricedState { svc: Arc::new(PosWriteService::new(pool)), pricing };
+    Router::new()
+        .route("/pos-sales/priced", post(ring_sale_priced))
+        .layer(from_fn_with_state(verifier, tenant_auth))
+        .with_state(st)
 }
 
 fn write_routes(svc: Arc<PosWriteService>, verifier: TenantVerifier) -> Router {

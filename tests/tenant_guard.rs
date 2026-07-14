@@ -18,9 +18,15 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+use backbone_pos::application::service::pos_cart_pricing::{
+    CartPriceRequest, CartPricingError, CartPricingPort, PricedCart, PricedCartLine,
+};
 use backbone_pos::application::service::pos_write_service::{NewSession, PosWriteService};
-use backbone_pos::presentation::http::{create_guarded_pos_routes, TenantVerifier};
+use backbone_pos::presentation::http::{
+    create_guarded_pos_priced_route, create_guarded_pos_routes, TenantVerifier,
+};
 use backbone_pos::PosModule;
+use std::sync::Arc;
 
 const SECRET: &[u8] = b"tenant-guard-test-secret";
 
@@ -123,4 +129,70 @@ async fn pos_write_surface_enforces_tenant_from_principal() {
         .await
         .unwrap();
     assert_eq!(r.status(), StatusCode::CREATED, "TG-4: authenticated same-tenant ring must succeed");
+}
+
+/// A stand-in pricer: 50% off every line. Proves the priced route rings from the PRICER's result, not
+/// the client's listPrice (the real service wires promo's resolve_cart here).
+struct HalfOffPricer;
+#[async_trait::async_trait]
+impl CartPricingPort for HalfOffPricer {
+    async fn price_cart(&self, req: &CartPriceRequest) -> Result<PricedCart, CartPricingError> {
+        let lines: Vec<PricedCartLine> = req
+            .lines
+            .iter()
+            .map(|l| {
+                let unit = l.list_price / rust_decimal::Decimal::from(2);
+                PricedCartLine { line_ref: l.line_ref, unit_price: unit, net_line_total: unit * l.quantity }
+            })
+            .collect();
+        let total = lines.iter().map(|l| l.net_line_total).sum();
+        Ok(PricedCart { lines, reward_lines: vec![], total })
+    }
+}
+
+#[tokio::test]
+async fn priced_route_rings_from_the_server_pricer_not_the_client_price() {
+    let pool = pool().await;
+    let company_a = Uuid::new_v4();
+    let profile = Uuid::new_v4();
+
+    let svc = PosWriteService::new(pool.clone());
+    let session_a = svc
+        .open_session(NewSession {
+            company_id: company_a,
+            pos_profile_id: profile,
+            branch_id: None,
+            cashier_party_id: Uuid::new_v4(),
+            opened_at: at(),
+            opening_balances: vec![],
+        })
+        .await
+        .expect("seed open session");
+
+    let app = create_guarded_pos_priced_route(pool.clone(), TenantVerifier::hs256(SECRET), Arc::new(HalfOffPricer));
+    let receipt = format!("RP-{}", &Uuid::new_v4().simple().to_string()[..8]);
+    let body = json!({
+        "posProfileId": profile,
+        "openingEntryId": session_a,
+        "receiptNumber": receipt,
+        "postingAt": "2026-07-14T09:00:00",
+        "lines": [{ "itemId": Uuid::new_v4(), "listPrice": "100000", "quantity": "1" }],
+    })
+    .to_string();
+
+    // Unauthenticated → 401 (auth applies to the priced route too).
+    let r = app.clone().oneshot(post("/pos-sales/priced", body.clone(), None)).await.unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED, "priced route must require auth");
+
+    // Authenticated → 201, and the ticket nets 50,000 (pricer-resolved), NOT the 100,000 listPrice.
+    let r = app.oneshot(post("/pos-sales/priced", body, Some(&token(Some(company_a))))).await.unwrap();
+    assert_eq!(r.status(), StatusCode::CREATED, "priced ring must succeed");
+
+    let net: rust_decimal::Decimal =
+        sqlx::query_scalar("SELECT net_total FROM pos.pos_invoices WHERE receipt_number=$1")
+            .bind(&receipt)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(net.to_string(), "50000.00", "ticket net must reflect the server pricer (50% off), not the client listPrice");
 }

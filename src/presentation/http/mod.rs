@@ -25,6 +25,6 @@ pub use pos_payment_handler::{create_pos_payment_routes, create_pos_payment_read
 pub use pos_profile_handler::{create_pos_profile_routes, create_pos_profile_read_routes, create_pos_profile_write_routes};
 pub use pos_opening_entry_handler::{create_pos_opening_entry_routes, create_pos_opening_entry_read_routes, create_pos_opening_entry_write_routes};
 // <<< CUSTOM
-pub use guarded_routes::create_guarded_pos_routes;
+pub use guarded_routes::{create_guarded_pos_priced_route, create_guarded_pos_routes};
 pub use tenant::{tenant_auth, TenantClaims, TenantContext, TenantVerifier};
 // END CUSTOM
