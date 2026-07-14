@@ -21,6 +21,7 @@
 --     paid_total,
 --     change_due,
 --     billing_invoice_id,
+--     payment_entry_id,
 --     is_return,
 --     return_against,
 --     status,

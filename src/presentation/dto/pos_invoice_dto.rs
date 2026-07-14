@@ -70,6 +70,8 @@ pub struct CreatePosInvoiceDto {
     pub change_due: Decimal,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "billing_invoice_id")]
     pub billing_invoice_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "payment_entry_id")]
+    pub payment_entry_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = true))]
     #[serde(alias = "is_return")]
     pub is_return: bool,
@@ -127,6 +129,8 @@ pub struct UpdatePosInvoiceDto {
     pub change_due: Decimal,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "billing_invoice_id")]
     pub billing_invoice_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "payment_entry_id")]
+    pub payment_entry_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = true))]
     #[serde(alias = "is_return")]
     pub is_return: bool,
@@ -184,6 +188,8 @@ pub struct PatchPosInvoiceDto {
     pub change_due: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "billing_invoice_id")]
     pub billing_invoice_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "payment_entry_id")]
+    pub payment_entry_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = true))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "is_return")]
     pub is_return: Option<bool>,
@@ -196,7 +202,7 @@ pub struct PatchPosInvoiceDto {
 impl PatchPosInvoiceDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.pos_profile_id.is_some() || self.opening_entry_id.is_some() || self.branch_id.is_some() || self.customer_id.is_some() || self.receipt_number.is_some() || self.posting_at.is_some() || self.net_total.is_some() || self.tax_total.is_some() || self.grand_total.is_some() || self.rounding_adjustment.is_some() || self.rounded_total.is_some() || self.paid_total.is_some() || self.change_due.is_some() || self.billing_invoice_id.is_some() || self.is_return.is_some() || self.return_against.is_some() || self.status.is_some()
+        self.company_id.is_some() || self.pos_profile_id.is_some() || self.opening_entry_id.is_some() || self.branch_id.is_some() || self.customer_id.is_some() || self.receipt_number.is_some() || self.posting_at.is_some() || self.net_total.is_some() || self.tax_total.is_some() || self.grand_total.is_some() || self.rounding_adjustment.is_some() || self.rounded_total.is_some() || self.paid_total.is_some() || self.change_due.is_some() || self.billing_invoice_id.is_some() || self.payment_entry_id.is_some() || self.is_return.is_some() || self.return_against.is_some() || self.status.is_some()
     }
 }
 
@@ -234,6 +240,7 @@ pub struct PosInvoiceResponseDto {
     pub paid_total: Decimal,
     pub change_due: Decimal,
     pub billing_invoice_id: Option<Uuid>,
+    pub payment_entry_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = true))]
     pub is_return: bool,
     pub return_against: Option<Uuid>,
@@ -324,6 +331,7 @@ impl From<PosInvoice> for PosInvoiceResponseDto {
             paid_total: entity.paid_total,
             change_due: entity.change_due,
             billing_invoice_id: entity.billing_invoice_id,
+            payment_entry_id: entity.payment_entry_id,
             is_return: entity.is_return,
             return_against: entity.return_against,
             status: entity.status,
@@ -364,6 +372,7 @@ impl From<CreatePosInvoiceDto> for PosInvoice {
             paid_total: dto.paid_total,
             change_due: dto.change_due,
             billing_invoice_id: dto.billing_invoice_id,
+            payment_entry_id: dto.payment_entry_id,
             is_return: dto.is_return,
             return_against: dto.return_against,
             status: dto.status,
@@ -391,6 +400,7 @@ impl From<&PosInvoice> for PosInvoiceResponseDto {
             paid_total: entity.paid_total.clone(),
             change_due: entity.change_due.clone(),
             billing_invoice_id: entity.billing_invoice_id.clone(),
+            payment_entry_id: entity.payment_entry_id.clone(),
             is_return: entity.is_return.clone(),
             return_against: entity.return_against.clone(),
             status: entity.status.clone(),
@@ -422,6 +432,7 @@ impl backbone_core::ApplyUpdateDto<UpdatePosInvoiceDto> for PosInvoice {
         self.paid_total = dto.paid_total;
         self.change_due = dto.change_due;
         self.billing_invoice_id = dto.billing_invoice_id;
+        self.payment_entry_id = dto.payment_entry_id;
         self.is_return = dto.is_return;
         self.return_against = dto.return_against;
         self.status = dto.status;

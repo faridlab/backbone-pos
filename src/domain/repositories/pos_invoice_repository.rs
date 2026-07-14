@@ -51,6 +51,7 @@ pub struct PosInvoiceFilter {
     pub customer_id: Option<Uuid>,
     pub receipt_number: Option<String>,
     pub billing_invoice_id: Option<Uuid>,
+    pub payment_entry_id: Option<Uuid>,
     pub is_return: Option<bool>,
     pub return_against: Option<Uuid>,
     pub status: Option<PosInvoiceStatus>,
@@ -59,7 +60,7 @@ pub struct PosInvoiceFilter {
 impl PosInvoiceFilter {
     /// Check if any filter is set
     pub fn has_filters(&self) -> bool {
-        self.company_id.is_some() || self.pos_profile_id.is_some() || self.opening_entry_id.is_some() || self.branch_id.is_some() || self.customer_id.is_some() || self.receipt_number.is_some() || self.billing_invoice_id.is_some() || self.is_return.is_some() || self.return_against.is_some() || self.status.is_some()
+        self.company_id.is_some() || self.pos_profile_id.is_some() || self.opening_entry_id.is_some() || self.branch_id.is_some() || self.customer_id.is_some() || self.receipt_number.is_some() || self.billing_invoice_id.is_some() || self.payment_entry_id.is_some() || self.is_return.is_some() || self.return_against.is_some() || self.status.is_some()
     }
 }
 

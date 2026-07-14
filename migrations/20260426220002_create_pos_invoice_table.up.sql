@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS pos.pos_invoices (
     paid_total NUMERIC(18, 2) NOT NULL DEFAULT 0 CHECK (paid_total >= 0),
     change_due NUMERIC(18, 2) NOT NULL DEFAULT 0 CHECK (change_due >= 0),
     billing_invoice_id UUID,
+    payment_entry_id UUID,
     is_return BOOLEAN NOT NULL DEFAULT FALSE,
     return_against UUID,
     status pos_invoice_status NOT NULL DEFAULT 'draft',

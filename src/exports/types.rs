@@ -128,6 +128,7 @@ pub struct PosInvoiceDto {
     pub paid_total: Decimal,
     pub change_due: Decimal,
     pub billing_invoice_id: Option<Uuid>,
+    pub payment_entry_id: Option<Uuid>,
     pub is_return: bool,
     pub return_against: Option<Uuid>,
     pub status: PosInvoiceStatus,

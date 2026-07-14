@@ -66,6 +66,7 @@ pub struct PosInvoice {
     pub paid_total: Decimal,
     pub change_due: Decimal,
     pub billing_invoice_id: Option<Uuid>,
+    pub payment_entry_id: Option<Uuid>,
     pub is_return: bool,
     pub return_against: Option<Uuid>,
     pub status: PosInvoiceStatus,
@@ -99,6 +100,7 @@ impl PosInvoice {
             paid_total,
             change_due,
             billing_invoice_id: None,
+            payment_entry_id: None,
             is_return,
             return_against: None,
             status,
@@ -184,6 +186,12 @@ impl PosInvoice {
         self
     }
 
+    /// Set the payment_entry_id field (chainable)
+    pub fn with_payment_entry_id(mut self, value: Uuid) -> Self {
+        self.payment_entry_id = Some(value);
+        self
+    }
+
     /// Set the return_against field (chainable)
     pub fn with_return_against(mut self, value: Uuid) -> Self {
         self.return_against = Some(value);
@@ -242,6 +250,9 @@ impl PosInvoice {
                 }
                 "billing_invoice_id" => {
                     if let Ok(v) = serde_json::from_value(value) { self.billing_invoice_id = v; }
+                }
+                "payment_entry_id" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.payment_entry_id = v; }
                 }
                 "is_return" => {
                     if let Ok(v) = serde_json::from_value(value) { self.is_return = v; }
@@ -312,6 +323,7 @@ impl backbone_orm::EntityRepoMeta for PosInvoice {
         m.insert("branch_id".to_string(), "uuid".to_string());
         m.insert("customer_id".to_string(), "uuid".to_string());
         m.insert("billing_invoice_id".to_string(), "uuid".to_string());
+        m.insert("payment_entry_id".to_string(), "uuid".to_string());
         m.insert("status".to_string(), "pos_invoice_status".to_string());
         m
     }
@@ -341,6 +353,7 @@ pub struct PosInvoiceBuilder {
     paid_total: Option<Decimal>,
     change_due: Option<Decimal>,
     billing_invoice_id: Option<Uuid>,
+    payment_entry_id: Option<Uuid>,
     is_return: Option<bool>,
     return_against: Option<Uuid>,
     status: Option<PosInvoiceStatus>,
@@ -437,6 +450,12 @@ impl PosInvoiceBuilder {
         self
     }
 
+    /// Set the payment_entry_id field (optional)
+    pub fn payment_entry_id(mut self, value: Uuid) -> Self {
+        self.payment_entry_id = Some(value);
+        self
+    }
+
     /// Set the is_return field (default: `false`)
     pub fn is_return(mut self, value: bool) -> Self {
         self.is_return = Some(value);
@@ -482,6 +501,7 @@ impl PosInvoiceBuilder {
             paid_total: self.paid_total.unwrap_or(Decimal::from(0)),
             change_due: self.change_due.unwrap_or(Decimal::from(0)),
             billing_invoice_id: self.billing_invoice_id,
+            payment_entry_id: self.payment_entry_id,
             is_return: self.is_return.unwrap_or(false),
             return_against: self.return_against,
             status: self.status.unwrap_or(PosInvoiceStatus::default()),
