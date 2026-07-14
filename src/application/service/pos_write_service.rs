@@ -105,6 +105,20 @@ pub struct NewClose {
 }
 
 #[derive(Debug, Clone)]
+pub struct NewCashMovement {
+    pub company_id: Uuid,
+    pub pos_profile_id: Uuid,
+    pub opening_entry_id: Uuid,
+    pub cashier_party_id: Uuid,
+    /// One of: `pay_in`, `pay_out`, `drop`, `no_sale`.
+    pub movement_type: String,
+    /// Positive cash amount; must be 0 for `no_sale`.
+    pub amount: Decimal,
+    pub reason: Option<String>,
+    pub moved_at: chrono::NaiveDateTime,
+}
+
+#[derive(Debug, Clone)]
 pub struct TenderOutcome {
     pub paid_total: Decimal,
     pub change_due: Decimal,
@@ -158,6 +172,7 @@ pub enum PosError {
     BillingRejected { code: String, message: String },
     PaymentRejected { code: String, message: String },
     PricingRejected { code: String, message: String },
+    InvalidCashMovement(&'static str),
     Db(sqlx::Error),
 }
 
@@ -178,6 +193,7 @@ impl PosError {
             PosError::BillingRejected { code, .. } => code.clone(),
             PosError::PaymentRejected { code, .. } => code.clone(),
             PosError::PricingRejected { code, .. } => code.clone(),
+            PosError::InvalidCashMovement(_) => "invalid_cash_movement".into(),
             PosError::Db(_) => "internal_error".into(),
         }
     }
@@ -565,6 +581,38 @@ impl PosWriteService {
         Ok(ReturnOutcome { pos_invoice_id: original_pos_invoice_id, return_ticket_id, billing_invoice_id })
     }
 
+    // ---- cash movements (non-sale drawer in/out) ---------------------------
+
+    /// Record a non-sale cash drawer movement (`pay_in` / `pay_out` / `drop` / `no_sale`) against an
+    /// OPEN session in the caller's tenant. `close_session` folds pay-ins into and pay-outs/drops out of
+    /// the expected cash drawer, so a mid-shift movement no longer surfaces as an unexplained variance.
+    pub async fn record_cash_movement(&self, m: NewCashMovement) -> Result<Uuid, PosError> {
+        // Validate the kind + amount rule: no_sale carries no cash; the others are strictly positive.
+        let amount = money(m.amount);
+        match m.movement_type.as_str() {
+            "no_sale" if amount != Decimal::ZERO => return Err(PosError::InvalidCashMovement("no_sale must have amount 0")),
+            "pay_in" | "pay_out" | "drop" if amount <= Decimal::ZERO => return Err(PosError::InvalidCashMovement("amount must be positive")),
+            "no_sale" | "pay_in" | "pay_out" | "drop" => {}
+            _ => return Err(PosError::InvalidCashMovement("unknown movement_type")),
+        }
+        // Session must be OPEN and belong to the caller's tenant (same scope as ring_sale / close).
+        let st: Option<String> = sqlx::query_scalar(
+            "SELECT status::text FROM pos.pos_opening_entries WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL",
+        ).bind(m.opening_entry_id).bind(m.company_id).fetch_optional(&self.db_pool).await?;
+        if st.as_deref() != Some("open") { return Err(PosError::SessionNotOpen); }
+
+        let id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO pos.pos_cash_movements
+                (id, company_id, pos_profile_id, opening_entry_id, cashier_party_id, movement_type, amount, reason, moved_at)
+               VALUES ($1,$2,$3,$4,$5,$6::pos_cash_movement_type,$7,$8,$9)"#,
+        )
+        .bind(id).bind(m.company_id).bind(m.pos_profile_id).bind(m.opening_entry_id).bind(m.cashier_party_id)
+        .bind(&m.movement_type).bind(amount).bind(&m.reason).bind(m.moved_at)
+        .execute(&self.db_pool).await?;
+        Ok(id)
+    }
+
     // ---- close (drawer reconciliation) -------------------------------------
 
     /// Close a session: for each tender method, `expected = opening_float + Σ recognised tenders`
@@ -599,6 +647,20 @@ impl PosWriteService {
         ).bind(c.opening_entry_id).fetch_one(&self.db_pool).await?;
         if cash_change > Decimal::ZERO {
             *expected.entry("cash".to_string()).or_insert(Decimal::ZERO) -= cash_change;
+        }
+        // Non-sale cash movements: pay-ins add to the drawer, pay-outs and drops remove from it
+        // (no_sale has no cash effect). Folding the net in here means these no longer read as variance.
+        let cash_movement_net: Decimal = sqlx::query_scalar(
+            r#"SELECT COALESCE(SUM(CASE movement_type
+                    WHEN 'pay_in' THEN amount
+                    WHEN 'pay_out' THEN -amount
+                    WHEN 'drop' THEN -amount
+                    ELSE 0 END), 0)
+               FROM pos.pos_cash_movements
+               WHERE opening_entry_id=$1 AND (metadata->>'deleted_at') IS NULL"#,
+        ).bind(c.opening_entry_id).fetch_one(&self.db_pool).await?;
+        if cash_movement_net != Decimal::ZERO {
+            *expected.entry("cash".to_string()).or_insert(Decimal::ZERO) += cash_movement_net;
         }
         // Session totals.
         let (grand_total, invoice_count): (Decimal, i64) = sqlx::query_as(
