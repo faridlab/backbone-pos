@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use rust_decimal::Decimal;
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use backbone_pos::application::service::pos_events::{PosEvent, PosEventSink};
@@ -99,7 +99,13 @@ impl BillingPort for BillingAdapter {
     }
 }
 /// PaymentPort over the real payment service: settle the tender + draw the invoice down in billing.
-struct PaymentAdapter { payment: PaymentWriteService, billing: BillingWriteService, gl: Arc<GlAdapter>, pool: PgPool }
+///
+/// Probe (2026-07-14): this adapter no longer holds a `pool`. The refund path used to resolve the
+/// settling payment with a cross-schema `SELECT ... FROM payment.payment_allocations` — reading another
+/// module's private table, which only works when all four schemas co-locate in one DB. `RefundRequest`
+/// now carries `payment_id` (persisted by POS on the ticket at recognition), so the refund is
+/// self-contained and would survive payment running on its own database/bus.
+struct PaymentAdapter { payment: PaymentWriteService, billing: BillingWriteService, gl: Arc<GlAdapter> }
 #[async_trait::async_trait]
 impl PaymentPort for PaymentAdapter {
     async fn settle(&self, req: &SettlementRequest) -> Result<SettlementAck, PosRejected> {
@@ -115,10 +121,10 @@ impl PaymentPort for PaymentAdapter {
         Ok(SettlementAck { payment_id: pay, journal_id: out.journal_id })
     }
     async fn refund(&self, req: &RefundRequest) -> Result<ReversalAck, PosRejected> {
-        // Find the payment that settled this invoice, reverse it (Dr A/R · Cr Cash), restore outstanding.
-        let payment_id: Uuid = sqlx::query_scalar("SELECT payment_id FROM payment.payment_allocations WHERE invoice_ref=$1 AND (metadata->>'deleted_at') IS NULL LIMIT 1")
-            .bind(req.invoice_ref).fetch_one(&self.pool).await.map_err(|e| PosRejected { code: "lookup".into(), message: e.to_string() })?;
-        let out = self.payment.reverse_payment(payment_id, &*self.gl).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
+        // Reverse the settling payment (Dr A/R · Cr Cash), restore outstanding. The payment_id comes
+        // from the request (POS persisted it on the ticket at recognition) — no cross-schema read into
+        // payment.payment_allocations, so this refund is satisfiable with payment on its own database.
+        let out = self.payment.reverse_payment(req.payment_id, &*self.gl).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
         self.billing.reverse_settlement(req.invoice_ref, "sales", req.amount).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
         Ok(ReversalAck { journal_id: out.journal_id })
     }
@@ -176,7 +182,7 @@ async fn retail_cash_sale_across_four_modules() {
     let pos = PosWriteService::with_sink(pool.clone(), Arc::new(rec.clone()));
     let gl = Arc::new(GlAdapter { svc: PostingService::new(pool.clone()) });
     let billing_port = BillingAdapter { billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
-    let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone(), pool: pool.clone() };
+    let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
 
     // 1) open the till, ring a 100,000 sale, take 100,000 cash.
     let session = pos.open_session(NewSession {
@@ -230,7 +236,7 @@ async fn retail_return_reverses_both_legs_and_is_idempotent() {
     let pos = PosWriteService::new(pool.clone());
     let gl = Arc::new(GlAdapter { svc: PostingService::new(pool.clone()) });
     let billing_port = BillingAdapter { billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
-    let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone(), pool: pool.clone() };
+    let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
     let prof = Uuid::new_v4();
     sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, receivable_account_id, income_account_id, cash_account_id, default_customer_id, allow_discount, is_active)
         VALUES ($1,$2,'R','IDR',$3,$4,$5,$6,true,true)"#)

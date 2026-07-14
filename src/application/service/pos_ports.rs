@@ -78,11 +78,23 @@ pub struct CreditNoteRequest {
 }
 
 /// The request POS hands payment to REFUND a settled sale (reverse the tender) on a return.
+///
+/// Carries the `payment_id` of the settling `PaymentEntry` (ADR-001 addendum 2026-07-14): the refund
+/// contract must be self-contained so a `PaymentPort` impl can reverse the tender **without reading
+/// another module's private tables**. Before this field, the seam adapter resolved the payment by a
+/// cross-schema `SELECT ... FROM payment.payment_allocations`, which only works when POS, billing,
+/// payment, and accounting co-locate in one database — it is unsatisfiable over a bus. POS persists the
+/// settlement `payment_id` on the ticket at recognition (see `PosInvoice.payment_entry_id`) and hands it
+/// back here, which also discharges the ADR-001 `settle`-idempotency park (payment_id becomes a durable
+/// skip-gate).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RefundRequest {
     pub company_id: Uuid,
     /// The billing invoice whose settlement is being reversed (`Dr A/R · Cr Cash`).
     pub invoice_ref: Uuid,
+    /// The `PaymentEntry` that settled this sale — the tender being reversed. Nil only for a legacy
+    /// ticket recognised before `payment_entry_id` was persisted (pre-2026-07-14).
+    pub payment_id: Uuid,
     pub amount: Decimal,
 }
 

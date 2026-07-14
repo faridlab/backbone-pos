@@ -78,6 +78,10 @@ models:
         type: uuid?
         attributes: ["@exclude_from_foreign_key_check"]
         description: "The real Sales Invoice billing raised # logical FK to billing.SalesInvoice.id"
+      payment_entry_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "The PaymentEntry that settled this ticket, persisted at recognition so a return can refund the tender without a cross-schema lookup # logical FK to payment.PaymentEntry.id"
       is_return:
         type: bool
         attributes: ["@default(false)"]

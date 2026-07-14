@@ -81,3 +81,35 @@ posts as web/B2B sales.
   excludes tenders on never-recognised tickets; surface them as a distinct "unrecognised" line (read-only,
   no `expected` change). (d) **billing UNIQUE on `source_pos_id`** — the durable belt-and-suspenders, but
   it lives in billing's schema (never touched from POS) — raise as a cross-module ticket.
+
+## Addendum 2026-07-14 — refund contract made bus-satisfiable (maturity-council probe)
+
+**Status**: Accepted — supersedes the `RefundRequest` shape in decision 5 and resolves maturity park (b).
+
+The maturity council probed decision 2's "proven, not asserted" claim by forcing the seam onto a
+topology where the four schemas do **not** co-locate. It found the refund path was only satisfiable in
+one DB: `PaymentAdapter::refund` resolved the settling payment with a cross-schema
+`SELECT payment_id FROM payment.payment_allocations WHERE invoice_ref=$1` — a read into payment's private
+table. `RefundRequest` carried `{company_id, invoice_ref, amount}` with **no `payment_id`**, and POS
+discarded the `payment_id` it received from `settle` (no column held it; the replay path fabricated
+`Uuid::nil()`). Over a bus that query does not exist, so **returns — a BUILT feature — did not survive
+the residual**. This was a hole in the *contract*, not merely unwired plumbing.
+
+Fix (additive; pre-production ABI change taken now rather than after a production adapter freezes it):
+
+1. **`RefundRequest` gains `payment_id`** (`pos_ports.rs`). The refund is now self-contained.
+2. **POS persists the settling payment** on the ticket: new column `pos_invoice.payment_entry_id`
+   (schema + migration `20260426220010`), written in the same `draft→paid` flip that stamps
+   `billing_invoice_id`. `return_sale` reads it and hands it to `refund`; `short_circuit_paid` returns
+   the real id on replay instead of `Uuid::nil()`.
+3. **Resolves park (b)** — the persisted `payment_entry_id` is exactly the "second skip-gate" that park
+   proposed, so a crash between `settle` and the flip no longer double-settles on retry.
+
+The seam test's `PaymentAdapter` no longer holds a `PgPool` and does no cross-schema read, demonstrating
+the refund would survive payment on its own database. Not yet done (still parked): splitting
+`apply_settlement` out of `PaymentPort::settle` so settlement is not a two-service write with no
+compensation — tracked separately as it needs a compensation story, not just a field.
+
+The §5 byte-identical guard (`scripts/retail_sale_seam_roundtrip.sh`) is unaffected: every file it
+snapshots is `user_owned` in `metaphor.codegen.yaml`, so regen skips them and they stay byte-identical
+by construction — the guard proves regen-survival, not hand-edit-freeze.

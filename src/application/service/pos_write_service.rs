@@ -243,9 +243,11 @@ impl PosWriteService {
 
     pub async fn ring_sale(&self, sale: NewSale) -> Result<Uuid, PosError> {
         if sale.lines.is_empty() { return Err(PosError::EmptyDocument); }
-        // Session must be open.
-        let st: Option<String> = sqlx::query_scalar("SELECT status::text FROM pos.pos_opening_entries WHERE id=$1 AND (metadata->>'deleted_at') IS NULL")
-            .bind(sale.opening_entry_id).fetch_optional(&self.db_pool).await?;
+        // Session must be open AND belong to the caller's tenant. Scoping by company_id (like
+        // close_session does) closes the cross-tenant write: a caller cannot ring against another
+        // company's opening_entry_id — the lookup simply won't find it (→ SessionNotOpen).
+        let st: Option<String> = sqlx::query_scalar("SELECT status::text FROM pos.pos_opening_entries WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL")
+            .bind(sale.opening_entry_id).bind(sale.company_id).fetch_optional(&self.db_pool).await?;
         if st.as_deref() != Some("open") { return Err(PosError::SessionNotOpen); }
 
         let mut net_total = Decimal::ZERO;
@@ -473,10 +475,12 @@ impl PosWriteService {
             bank_account_id: cash, party_account_id: receivable, posting_date, amount: rounded_total,
         }).await.map_err(|e| PosError::PaymentRejected { code: e.code, message: e.message })?;
 
-        // Gate the event on THIS invocation performing the draft→paid transition.
+        // Gate the event on THIS invocation performing the draft→paid transition. Persist the settling
+        // `payment_entry_id` in the same flip so a later return refunds the tender from the ticket (no
+        // cross-schema lookup) and a crash-retry has a durable skip-gate (ADR-001 `settle`-idempotency).
         let res = sqlx::query(
-            "UPDATE pos.pos_invoices SET status='paid'::pos_invoice_status, billing_invoice_id=$2 WHERE id=$1 AND status='draft'::pos_invoice_status",
-        ).bind(pos_invoice_id).bind(invoice_id).execute(&self.db_pool).await?;
+            "UPDATE pos.pos_invoices SET status='paid'::pos_invoice_status, billing_invoice_id=$2, payment_entry_id=$3 WHERE id=$1 AND status='draft'::pos_invoice_status",
+        ).bind(pos_invoice_id).bind(invoice_id).bind(sack.payment_id).execute(&self.db_pool).await?;
         if res.rows_affected() == 1 {
             self.sink.publish(PosEvent::PosInvoicePaid(PosInvoicePaid {
                 pos_invoice_id, company_id, grand_total: inv.get("grand_total"), rounded_total,
@@ -487,11 +491,14 @@ impl PosWriteService {
     }
 
     async fn short_circuit_paid(&self, pos_invoice_id: Uuid) -> Result<Option<RecognizeOutcome>, PosError> {
-        let row = sqlx::query("SELECT status::text AS st, billing_invoice_id FROM pos.pos_invoices WHERE id=$1 AND (metadata->>'deleted_at') IS NULL")
+        let row = sqlx::query("SELECT status::text AS st, billing_invoice_id, payment_entry_id FROM pos.pos_invoices WHERE id=$1 AND (metadata->>'deleted_at') IS NULL")
             .bind(pos_invoice_id).fetch_optional(&self.db_pool).await?.ok_or(PosError::InvoiceNotFound(pos_invoice_id))?;
         if row.get::<String, _>("st") == "paid" {
             if let Some(bid) = row.get::<Option<Uuid>, _>("billing_invoice_id") {
-                return Ok(Some(RecognizeOutcome { pos_invoice_id, billing_invoice_id: bid, payment_id: Uuid::nil() }));
+                // Return the real persisted payment_id on replay (was fabricated as Uuid::nil() before
+                // payment_entry_id was persisted — nil only for pre-2026-07-14 legacy tickets).
+                let payment_id = row.get::<Option<Uuid>, _>("payment_entry_id").unwrap_or(Uuid::nil());
+                return Ok(Some(RecognizeOutcome { pos_invoice_id, billing_invoice_id: bid, payment_id }));
             }
         }
         Ok(None)
@@ -508,7 +515,7 @@ impl PosWriteService {
     pub async fn return_sale(&self, original_pos_invoice_id: Uuid, billing: &dyn BillingPort, payment: &dyn PaymentPort) -> Result<ReturnOutcome, PosError> {
         let o = sqlx::query(
             r#"SELECT company_id, pos_profile_id, opening_entry_id, branch_id, customer_id, billing_invoice_id,
-                      rounded_total, net_total, tax_total, grand_total, posting_at, status::text AS st
+                      payment_entry_id, rounded_total, net_total, tax_total, grand_total, posting_at, status::text AS st
                FROM pos.pos_invoices WHERE id=$1 AND (metadata->>'deleted_at') IS NULL"#,
         ).bind(original_pos_invoice_id).fetch_optional(&self.db_pool).await?.ok_or(PosError::InvoiceNotFound(original_pos_invoice_id))?;
         let status: String = o.get("st");
@@ -518,9 +525,11 @@ impl PosWriteService {
         let billing_invoice_id: Uuid = o.get::<Option<Uuid>, _>("billing_invoice_id").ok_or(PosError::NotReturnable("no billing invoice".into()))?;
         let company_id: Uuid = o.get("company_id");
         let rounded_total: Decimal = o.get("rounded_total");
+        // The tender to reverse — persisted at recognition (nil only for pre-2026-07-14 legacy tickets).
+        let payment_id: Uuid = o.get::<Option<Uuid>, _>("payment_entry_id").unwrap_or(Uuid::nil());
 
         // Drive the two reversals (both idempotent downstream): refund the tender + credit-note the sale.
-        payment.refund(&RefundRequest { company_id, invoice_ref: billing_invoice_id, amount: rounded_total })
+        payment.refund(&RefundRequest { company_id, invoice_ref: billing_invoice_id, payment_id, amount: rounded_total })
             .await.map_err(|e| PosError::PaymentRejected { code: e.code, message: e.message })?;
         billing.credit_note(&CreditNoteRequest { company_id, invoice_ref: billing_invoice_id })
             .await.map_err(|e| PosError::BillingRejected { code: e.code, message: e.message })?;
