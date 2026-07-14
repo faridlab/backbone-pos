@@ -52,6 +52,9 @@ validator = { version = "0.16", features = ["derive"] }
 anyhow = "1.0"
 thiserror = "1.0"
 
+# Auth — validate the tenant-bearing Bearer token on the guarded write surface (see presentation/http/tenant.rs)
+jsonwebtoken = "9.3"
+
 # Configuration
 config = "0.14"
 serde_yaml = "0.9"
@@ -81,7 +84,6 @@ pretty_assertions = "1.0"
 # Integration testing framework — the generated tests/integration_tests.rs hits a live server
 # via reqwest; guarded-route probes hit the router in-process via tower's ServiceExt::oneshot.
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
-jsonwebtoken = "9.3"
 rand = "0.8"
 
 # TEST-ONLY edges: the retail-sale seam test drives the REAL backbone-billing (raise+post the Sales

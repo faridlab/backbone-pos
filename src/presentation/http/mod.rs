@@ -14,6 +14,7 @@ pub mod pos_opening_entry_handler;
 
 // <<< CUSTOM
 pub mod guarded_routes;
+pub mod tenant;
 // END CUSTOM
 
 // Re-exports
@@ -25,4 +26,5 @@ pub use pos_profile_handler::{create_pos_profile_routes, create_pos_profile_read
 pub use pos_opening_entry_handler::{create_pos_opening_entry_routes, create_pos_opening_entry_read_routes, create_pos_opening_entry_write_routes};
 // <<< CUSTOM
 pub use guarded_routes::create_guarded_pos_routes;
+pub use tenant::{tenant_auth, TenantClaims, TenantContext, TenantVerifier};
 // END CUSTOM
