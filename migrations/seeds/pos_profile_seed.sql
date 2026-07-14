@@ -15,6 +15,8 @@
 --     receivable_account_id,
 --     cash_account_id,
 --     write_off_account_id,
+--     tax_account_id,
+--     tax_rate,
 --     allow_discount,
 --     is_active,
 --     metadata

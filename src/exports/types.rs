@@ -314,6 +314,8 @@ pub struct PosProfileDto {
     pub receivable_account_id: Option<Uuid>,
     pub cash_account_id: Option<Uuid>,
     pub write_off_account_id: Option<Uuid>,
+    pub tax_account_id: Option<Uuid>,
+    pub tax_rate: Decimal,
     pub allow_discount: bool,
     pub is_active: bool,
     pub metadata: serde_json::Value,

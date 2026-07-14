@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
+use rust_decimal::Decimal;
 use super::AuditMetadata;
 
 /// Strongly-typed ID for PosProfile
@@ -57,6 +58,8 @@ pub struct PosProfile {
     pub receivable_account_id: Option<Uuid>,
     pub cash_account_id: Option<Uuid>,
     pub write_off_account_id: Option<Uuid>,
+    pub tax_account_id: Option<Uuid>,
+    pub tax_rate: Decimal,
     pub allow_discount: bool,
     pub is_active: bool,
     #[serde(default)]
@@ -71,7 +74,7 @@ impl PosProfile {
     }
 
     /// Create a new PosProfile with required fields
-    pub fn new(company_id: Uuid, name: String, currency: String, allow_discount: bool, is_active: bool) -> Self {
+    pub fn new(company_id: Uuid, name: String, currency: String, tax_rate: Decimal, allow_discount: bool, is_active: bool) -> Self {
         Self {
             id: Uuid::new_v4(),
             company_id,
@@ -83,6 +86,8 @@ impl PosProfile {
             receivable_account_id: None,
             cash_account_id: None,
             write_off_account_id: None,
+            tax_account_id: None,
+            tax_rate,
             allow_discount,
             is_active,
             metadata: AuditMetadata::default(),
@@ -180,6 +185,12 @@ impl PosProfile {
         self
     }
 
+    /// Set the tax_account_id field (chainable)
+    pub fn with_tax_account_id(mut self, value: Uuid) -> Self {
+        self.tax_account_id = Some(value);
+        self
+    }
+
     // ==========================================================
     // Partial Update
     // ==========================================================
@@ -214,6 +225,12 @@ impl PosProfile {
                 }
                 "write_off_account_id" => {
                     if let Ok(v) = serde_json::from_value(value) { self.write_off_account_id = v; }
+                }
+                "tax_account_id" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.tax_account_id = v; }
+                }
+                "tax_rate" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.tax_rate = v; }
                 }
                 "allow_discount" => {
                     if let Ok(v) = serde_json::from_value(value) { self.allow_discount = v; }
@@ -282,6 +299,7 @@ impl backbone_orm::EntityRepoMeta for PosProfile {
         m.insert("receivable_account_id".to_string(), "uuid".to_string());
         m.insert("cash_account_id".to_string(), "uuid".to_string());
         m.insert("write_off_account_id".to_string(), "uuid".to_string());
+        m.insert("tax_account_id".to_string(), "uuid".to_string());
         m
     }
     fn search_fields() -> &'static [&'static str] {
@@ -304,6 +322,8 @@ pub struct PosProfileBuilder {
     receivable_account_id: Option<Uuid>,
     cash_account_id: Option<Uuid>,
     write_off_account_id: Option<Uuid>,
+    tax_account_id: Option<Uuid>,
+    tax_rate: Option<Decimal>,
     allow_discount: Option<bool>,
     is_active: Option<bool>,
 }
@@ -363,6 +383,18 @@ impl PosProfileBuilder {
         self
     }
 
+    /// Set the tax_account_id field (optional)
+    pub fn tax_account_id(mut self, value: Uuid) -> Self {
+        self.tax_account_id = Some(value);
+        self
+    }
+
+    /// Set the tax_rate field (default: `Decimal::from(0)`)
+    pub fn tax_rate(mut self, value: Decimal) -> Self {
+        self.tax_rate = Some(value);
+        self
+    }
+
     /// Set the allow_discount field (default: `true`)
     pub fn allow_discount(mut self, value: bool) -> Self {
         self.allow_discount = Some(value);
@@ -393,6 +425,8 @@ impl PosProfileBuilder {
             receivable_account_id: self.receivable_account_id,
             cash_account_id: self.cash_account_id,
             write_off_account_id: self.write_off_account_id,
+            tax_account_id: self.tax_account_id,
+            tax_rate: self.tax_rate.unwrap_or(Decimal::from(0)),
             allow_discount: self.allow_discount.unwrap_or(true),
             is_active: self.is_active.unwrap_or(true),
             metadata: AuditMetadata::default(),

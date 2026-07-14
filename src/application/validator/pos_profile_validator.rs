@@ -6,7 +6,7 @@
 //! field rules. Extend in the `// <<< CUSTOM` zone.
 
 use backbone_core::{EntityValidator, ValidationErrors, ValidationError};
-use backbone_core::{RequiredString};
+use backbone_core::{NonNegative, RequiredString};
 use crate::domain::entity::PosProfile;
 
 /// Validator type alias for PosProfile entities.

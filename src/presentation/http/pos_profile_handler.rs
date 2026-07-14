@@ -10,6 +10,7 @@ use std::sync::Arc;
 use axum::Router;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use rust_decimal::Decimal;
 
 // Backbone framework imports
 use backbone_core::http::BackboneCrudHandler;

@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS pos.pos_profiles (
     receivable_account_id UUID,
     cash_account_id UUID,
     write_off_account_id UUID,
+    tax_account_id UUID,
+    tax_rate NUMERIC(6, 4) NOT NULL DEFAULT 0 CHECK (tax_rate >= 0),
     allow_discount BOOLEAN NOT NULL DEFAULT TRUE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     metadata JSONB NOT NULL DEFAULT '{"created_at":null,"updated_at":null,"deleted_at":null,"created_by":null,"updated_by":null,"deleted_by":null}'::jsonb,
