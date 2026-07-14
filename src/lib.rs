@@ -37,6 +37,7 @@ pub use application::service::PosInvoiceItemService;
 pub use application::service::PosPaymentService;
 pub use application::service::PosProfileService;
 pub use application::service::PosOpeningEntryService;
+pub use application::service::PosCashMovementService;
 
 use std::sync::Arc;
 use axum::Router;
@@ -61,6 +62,7 @@ pub struct PosModule {
     pub pos_payment_service: Arc<PosPaymentService>,
     pub pos_profile_service: Arc<PosProfileService>,
     pub pos_opening_entry_service: Arc<PosOpeningEntryService>,
+    pub pos_cash_movement_service: Arc<PosCashMovementService>,
 }
 
 impl PosModule {
@@ -82,6 +84,7 @@ impl PosModule {
             create_pos_payment_routes,
             create_pos_profile_routes,
             create_pos_opening_entry_routes,
+            create_pos_cash_movement_routes,
         };
 
         Router::new()
@@ -91,6 +94,7 @@ impl PosModule {
             .merge(create_pos_payment_routes(self.pos_payment_service.clone()))
             .merge(create_pos_profile_routes(self.pos_profile_service.clone()))
             .merge(create_pos_opening_entry_routes(self.pos_opening_entry_service.clone()))
+            .merge(create_pos_cash_movement_routes(self.pos_cash_movement_service.clone()))
     }
 
     /// Deprecated alias for [`Self::all_crud_routes`]. `routes()` reads like
@@ -155,6 +159,10 @@ impl PosModuleBuilder {
         let pos_opening_entry_repository = Arc::new(PosOpeningEntryRepository::new(db_pool.clone()));
         let pos_opening_entry_service = Arc::new(PosOpeningEntryService::with_repository(pos_opening_entry_repository.clone()));
 
+        // PosCashMovement service
+        let pos_cash_movement_repository = Arc::new(PosCashMovementRepository::new(db_pool.clone()));
+        let pos_cash_movement_service = Arc::new(PosCashMovementService::with_repository(pos_cash_movement_repository.clone()));
+
         // <<< CUSTOM
         // END CUSTOM
 
@@ -165,6 +173,7 @@ impl PosModuleBuilder {
             pos_payment_service,
             pos_profile_service,
             pos_opening_entry_service,
+            pos_cash_movement_service,
             // <<< CUSTOM
             // END CUSTOM
         })

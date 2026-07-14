@@ -13,12 +13,15 @@ pub mod pos_invoice_item_service;
 pub mod pos_payment_service;
 pub mod pos_profile_service;
 pub mod pos_opening_entry_service;
-
 // <<< CUSTOM
 pub mod pos_events;
 pub mod pos_ports;
 pub mod pos_cart_pricing;
 pub mod pos_write_service;
+// END CUSTOM
+pub mod pos_cash_movement_service;
+
+// <<< CUSTOM
 // END CUSTOM
 
 pub use pos_closing_entry_service::PosClosingEntryService;
@@ -44,4 +47,7 @@ pub use pos_write_service::{
     CartSaleLine, CloseOutcome, MethodRecon, NewCartSale, NewClose, NewSale, NewSaleLine, NewSession,
     PosError, PosWriteService, RecognizeOutcome, ReturnOutcome, TenderOutcome,
 };
+// END CUSTOM
+pub use pos_cash_movement_service::PosCashMovementService;
+// <<< CUSTOM
 // END CUSTOM

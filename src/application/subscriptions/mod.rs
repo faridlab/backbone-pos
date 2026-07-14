@@ -17,3 +17,4 @@ pub use handlers::PosInvoiceItemEventSubscriber;
 pub use handlers::PosPaymentEventSubscriber;
 pub use handlers::PosProfileEventSubscriber;
 pub use handlers::PosOpeningEntryEventSubscriber;
+pub use handlers::PosCashMovementEventSubscriber;

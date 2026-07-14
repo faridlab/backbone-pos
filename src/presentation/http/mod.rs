@@ -11,10 +11,13 @@ pub mod pos_invoice_item_handler;
 pub mod pos_payment_handler;
 pub mod pos_profile_handler;
 pub mod pos_opening_entry_handler;
-
 // <<< CUSTOM
 pub mod guarded_routes;
 pub mod tenant;
+// END CUSTOM
+pub mod pos_cash_movement_handler;
+
+// <<< CUSTOM
 // END CUSTOM
 
 // Re-exports
@@ -27,4 +30,7 @@ pub use pos_opening_entry_handler::{create_pos_opening_entry_routes, create_pos_
 // <<< CUSTOM
 pub use guarded_routes::{create_guarded_pos_priced_route, create_guarded_pos_routes};
 pub use tenant::{tenant_auth, TenantClaims, TenantContext, TenantVerifier};
+// END CUSTOM
+pub use pos_cash_movement_handler::{create_pos_cash_movement_routes, create_pos_cash_movement_read_routes, create_pos_cash_movement_write_routes};
+// <<< CUSTOM
 // END CUSTOM

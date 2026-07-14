@@ -11,6 +11,7 @@ pub mod pos_invoice_item_bulk;
 pub mod pos_payment_bulk;
 pub mod pos_profile_bulk;
 pub mod pos_opening_entry_bulk;
+pub mod pos_cash_movement_bulk;
 
 pub use pos_closing_entry_bulk::PosClosingEntryBulkService;
 pub use pos_invoice_bulk::PosInvoiceBulkService;
@@ -18,6 +19,7 @@ pub use pos_invoice_item_bulk::PosInvoiceItemBulkService;
 pub use pos_payment_bulk::PosPaymentBulkService;
 pub use pos_profile_bulk::PosProfileBulkService;
 pub use pos_opening_entry_bulk::PosOpeningEntryBulkService;
+pub use pos_cash_movement_bulk::PosCashMovementBulkService;
 
 // <<< CUSTOM
 // END CUSTOM

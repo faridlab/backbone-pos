@@ -13,6 +13,7 @@ pub mod pos_invoice_item_usecases;
 pub mod pos_payment_usecases;
 pub mod pos_profile_usecases;
 pub mod pos_opening_entry_usecases;
+pub mod pos_cash_movement_usecases;
 
 pub use pos_closing_entry_usecases::{
     CreatePosClosingEntryUseCase, UpdatePosClosingEntryUseCase, GetPosClosingEntryUseCase,
@@ -37,6 +38,10 @@ pub use pos_profile_usecases::{
 pub use pos_opening_entry_usecases::{
     CreatePosOpeningEntryUseCase, UpdatePosOpeningEntryUseCase, GetPosOpeningEntryUseCase,
     DeletePosOpeningEntryUseCase, ListPosOpeningEntryUseCase,
+};
+pub use pos_cash_movement_usecases::{
+    CreatePosCashMovementUseCase, UpdatePosCashMovementUseCase, GetPosCashMovementUseCase,
+    DeletePosCashMovementUseCase, ListPosCashMovementUseCase,
 };
 
 // <<< CUSTOM

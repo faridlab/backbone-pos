@@ -12,6 +12,7 @@ pub mod pos_invoice_item_api_test;
 pub mod pos_payment_api_test;
 pub mod pos_profile_api_test;
 pub mod pos_opening_entry_api_test;
+pub mod pos_cash_movement_api_test;
 
 // Re-exports for convenience
 pub use crud_test_base::*;
@@ -21,3 +22,4 @@ pub use pos_invoice_item_api_test::*;
 pub use pos_payment_api_test::*;
 pub use pos_profile_api_test::*;
 pub use pos_opening_entry_api_test::*;
+pub use pos_cash_movement_api_test::*;

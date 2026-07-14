@@ -1,0 +1,84 @@
+# =============================================================================
+# Domain: POS
+# Entity: PosCashMovement
+# Description: A mid-shift movement of physical cash in/out of the drawer that is
+# NOT a sale tender — a pay-in (float added), a pay-out (petty expense), a drop
+# (cash moved to the safe/bank), or a no-sale (drawer opened, no cash effect).
+# Without these, every real cash movement during a shift surfaces as an
+# unexplained `difference_total` at close. `close_session` folds the net
+# (Σ pay-in − Σ pay-out − Σ drop) into the expected cash drawer.
+#
+# FILE NAMING: this file is deliberately named `pos_till_cash_movement` (not
+# `pos_cash_movement`) so it sorts AFTER the existing model files. The schema
+# generator numbers migrations by model-file order, so a name sorting first
+# would renumber every existing migration (breaking migration immutability).
+# Sorting last keeps the numbering append-only — this table gets the next number
+# and the shipped table migrations are untouched.
+# =============================================================================
+
+models:
+  - name: PosCashMovement
+    collection: pos_cash_movements
+    description: "A non-sale cash drawer movement during a cashier session"
+
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique movement id"
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Books owner # logical FK to organization.Company.id"
+      pos_profile_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "The register # logical FK to PosProfile.id"
+      opening_entry_id:
+        type: uuid
+        attributes: ["@required", "@foreign_key(PosOpeningEntry.id)"]
+        description: "The session this movement belongs to"
+      cashier_party_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Cashier # logical FK to party.Party.id"
+      movement_type:
+        type: PosCashMovementType
+        attributes: ["@required"]
+        description: "Pay-in / pay-out / drop / no-sale"
+      amount:
+        type: decimal
+        attributes: ["@default(0)", "@precision(18,2)", "@non_negative"]
+        description: "Cash amount moved (always positive; direction comes from movement_type; 0 for no_sale)"
+      reason:
+        type: string?
+        attributes: ["@max(300)"]
+        description: "Why the drawer was opened (payout reason, drop reference, etc.)"
+      moved_at:
+        type: datetime
+        attributes: ["@required"]
+        description: "When the movement happened"
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+
+    indexes:
+      - type: index
+        fields: [opening_entry_id]
+      - type: index
+        fields: [company_id, pos_profile_id]
+
+enums:
+  - name: PosCashMovementType
+    description: "Kind of non-sale cash drawer movement"
+    variants:
+      - name: pay_in
+        description: "Cash added to the drawer mid-shift (extra float)"
+        default: true
+      - name: pay_out
+        description: "Cash paid out of the drawer (petty expense / refund of a non-POS charge)"
+      - name: drop
+        description: "Cash removed to the safe or bank (drawer skim)"
+      - name: no_sale
+        description: "Drawer opened with no cash effect (amount is 0)"

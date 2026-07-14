@@ -8,6 +8,7 @@ pub mod pos_invoice_item_auth;
 pub mod pos_payment_auth;
 pub mod pos_profile_auth;
 pub mod pos_opening_entry_auth;
+pub mod pos_cash_movement_auth;
 
 pub use pos_closing_entry_auth::{PosClosingEntryPolicy, PosClosingEntryGuard, PosClosingEntryServiceGuard};
 pub use pos_invoice_auth::{PosInvoicePolicy, PosInvoiceGuard, PosInvoiceServiceGuard};
@@ -15,6 +16,7 @@ pub use pos_invoice_item_auth::{PosInvoiceItemPolicy, PosInvoiceItemGuard, PosIn
 pub use pos_payment_auth::{PosPaymentPolicy, PosPaymentGuard, PosPaymentServiceGuard};
 pub use pos_profile_auth::{PosProfilePolicy, PosProfileGuard, PosProfileServiceGuard};
 pub use pos_opening_entry_auth::{PosOpeningEntryPolicy, PosOpeningEntryGuard, PosOpeningEntryServiceGuard};
+pub use pos_cash_movement_auth::{PosCashMovementPolicy, PosCashMovementGuard, PosCashMovementServiceGuard};
 
 // <<< CUSTOM
 // END CUSTOM

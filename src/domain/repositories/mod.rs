@@ -12,6 +12,7 @@ pub mod pos_invoice_item_repository;
 pub mod pos_payment_repository;
 pub mod pos_profile_repository;
 pub mod pos_opening_entry_repository;
+pub mod pos_cash_movement_repository;
 
 // Re-exports
 pub use pos_closing_entry_repository::{
@@ -49,4 +50,10 @@ pub use pos_opening_entry_repository::{
     PosOpeningEntryPaginationParams,
     PosOpeningEntryPaginatedResult,
     PosOpeningEntryFilter,
+};
+pub use pos_cash_movement_repository::{
+    PosCashMovementRepository,
+    PosCashMovementPaginationParams,
+    PosCashMovementPaginatedResult,
+    PosCashMovementFilter,
 };

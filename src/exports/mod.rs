@@ -45,6 +45,9 @@ pub use events::*;
 /// - `PosOpeningEntryDto` - Data transfer object for PosOpeningEntry
 /// - `PosOpeningEntrySummary` - Summary view of PosOpeningEntry
 /// - `PosOpeningEntryId` - Type-safe ID wrapper
+/// - `PosCashMovementDto` - Data transfer object for PosCashMovement
+/// - `PosCashMovementSummary` - Summary view of PosCashMovement
+/// - `PosCashMovementId` - Type-safe ID wrapper
 ///
 /// ## Public Services
 /// - `PosQueryService` - Read-only queries
@@ -68,4 +71,7 @@ pub use events::*;
 /// - `PosOpeningEntryCreatedEvent` - Published when PosOpeningEntry is created
 /// - `PosOpeningEntryUpdatedEvent` - Published when PosOpeningEntry is updated
 /// - `PosOpeningEntryDeletedEvent` - Published when PosOpeningEntry is deleted
+/// - `PosCashMovementCreatedEvent` - Published when PosCashMovement is created
+/// - `PosCashMovementUpdatedEvent` - Published when PosCashMovement is updated
+/// - `PosCashMovementDeletedEvent` - Published when PosCashMovement is deleted
 pub struct ExportSummary;

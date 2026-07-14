@@ -13,3 +13,6 @@
 - pos_payment_seed
 - pos_profile_seed
 - pos_opening_entry_seed
+
+# Newly added seeds (preserve manual order above):
+- pos_cash_movement_seed

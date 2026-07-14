@@ -37,3 +37,12 @@ BEGIN
 END
 $$;
 
+-- Create pos_cash_movement_type enum type
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'pos_cash_movement_type') THEN
+        CREATE TYPE pos_cash_movement_type AS ENUM ('pay_in', 'pay_out', 'drop', 'no_sale');
+    END IF;
+END
+$$;
+

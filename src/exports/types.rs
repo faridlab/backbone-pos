@@ -394,6 +394,67 @@ pub struct PosOpeningEntryRef {
 }
 
 // ============================================================================
+// POSCASHMOVEMENT TYPES
+// ============================================================================
+
+/// Type-safe ID for PosCashMovement
+///
+/// Use this instead of raw Uuid for type safety across modules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PosCashMovementId(pub Uuid);
+
+impl PosCashMovementId {
+    pub fn new(id: Uuid) -> Self {
+        Self(id)
+    }
+
+    pub fn into_inner(self) -> Uuid {
+        self.0
+    }
+}
+
+impl From<Uuid> for PosCashMovementId {
+    fn from(id: Uuid) -> Self {
+        Self(id)
+    }
+}
+
+impl From<PosCashMovementId> for Uuid {
+    fn from(id: PosCashMovementId) -> Self {
+        id.0
+    }
+}
+
+/// Data transfer object for PosCashMovement
+///
+/// This is the public representation of PosCashMovement for other modules.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosCashMovementDto {
+    pub id: PosCashMovementId,
+    pub company_id: Uuid,
+    pub pos_profile_id: Uuid,
+    pub opening_entry_id: Uuid,
+    pub cashier_party_id: Uuid,
+    pub movement_type: PosCashMovementType,
+    pub amount: Decimal,
+    pub reason: Option<String>,
+    pub moved_at: DateTime<Utc>,
+    pub metadata: serde_json::Value,
+}
+
+/// Summary view of PosCashMovement for list displays
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosCashMovementSummary {
+    pub id: PosCashMovementId,
+}
+
+/// Reference to PosCashMovement for foreign key relationships
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosCashMovementRef {
+    pub id: PosCashMovementId,
+}
+
+// ============================================================================
 // CUSTOM TYPES
 // ============================================================================
 

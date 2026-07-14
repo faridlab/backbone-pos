@@ -77,6 +77,15 @@ pub trait PosQueryService: Send + Sync {
     /// Check if PosOpeningEntry exists
     async fn pos_opening_entry_exists(&self, id: PosOpeningEntryId) -> Result<bool>;
 
+    /// Get PosCashMovement by ID
+    async fn get_pos_cash_movement(&self, id: PosCashMovementId) -> Result<Option<PosCashMovementDto>>;
+
+    /// Get PosCashMovement summary by ID
+    async fn get_pos_cash_movement_summary(&self, id: PosCashMovementId) -> Result<Option<PosCashMovementSummary>>;
+
+    /// Check if PosCashMovement exists
+    async fn pos_cash_movement_exists(&self, id: PosCashMovementId) -> Result<bool>;
+
 }
 
 // ============================================================================

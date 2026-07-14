@@ -23,6 +23,8 @@ tags:
     description: PosProfile management endpoints
   - name: PosOpeningEntries
     description: PosOpeningEntry management endpoints
+  - name: PosCashMovements
+    description: PosCashMovement management endpoints
 
 paths:
   /api/v1/pos_closing_entries:
@@ -2221,6 +2223,372 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
+  /api/v1/pos_cash_movements:
+    get:
+      tags:
+        - PosCashMovements
+      summary: List PosCashMovements
+      description: Get a paginated list of PosCashMovements with optional filtering and sorting
+      operationId: listPosCashMovements
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - $ref: '#/components/parameters/SortByParam'
+        - $ref: '#/components/parameters/SortOrderParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosCashMovementList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags:
+        - PosCashMovements
+      summary: Create PosCashMovement
+      description: Create a new PosCashMovement
+      operationId: createPosCashMovement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePosCashMovementRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosCashMovement'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/pos_cash_movements/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+
+    get:
+      tags:
+        - PosCashMovements
+      summary: Get PosCashMovement by ID
+      operationId: getPosCashMovement
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosCashMovement'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - PosCashMovements
+      summary: Update PosCashMovement (full)
+      operationId: updatePosCashMovement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePosCashMovementRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosCashMovement'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags:
+        - PosCashMovements
+      summary: Update PosCashMovement (partial)
+      operationId: patchPosCashMovement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchPosCashMovementRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosCashMovement'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - PosCashMovements
+      summary: Delete PosCashMovement (soft)
+      operationId: deletePosCashMovement
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/pos_cash_movements/bulk:
+    post:
+      tags:
+        - PosCashMovements
+      summary: Bulk create PosCashMovements
+      operationId: bulkCreatePosCashMovements
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/CreatePosCashMovementRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PosCashMovement'
+    put:
+      tags:
+        - PosCashMovements
+      summary: Bulk update PosCashMovements (full, atomic)
+      operationId: bulkUpdatePosCashMovements
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                allOf:
+                  - type: object
+                    required: [id]
+                    properties:
+                      id:
+                        type: string
+                  - $ref: '#/components/schemas/UpdatePosCashMovementRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosCashMovementBulkResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    patch:
+      tags:
+        - PosCashMovements
+      summary: Bulk partial-update PosCashMovements (atomic)
+      operationId: bulkPatchPosCashMovements
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [ids, patch]
+                  properties:
+                    ids:
+                      type: array
+                      items: { type: string }
+                    patch:
+                      type: object
+                      additionalProperties: true
+                - type: object
+                  required: [items]
+                  properties:
+                    items:
+                      type: array
+                      items:
+                        type: object
+                        required: [id, patch]
+                        properties:
+                          id: { type: string }
+                          patch: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosCashMovementBulkResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/pos_cash_movements/upsert:
+    post:
+      tags:
+        - PosCashMovements
+      summary: Upsert PosCashMovement
+      operationId: upsertPosCashMovement
+      parameters:
+        - name: key_field
+          in: query
+          schema:
+            type: string
+        - name: key_value
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePosCashMovementRequest'
+      responses:
+        '200':
+          description: Upserted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosCashMovement'
+
+  /api/v1/pos_cash_movements/trash:
+    get:
+      tags:
+        - PosCashMovements
+      summary: List deleted PosCashMovements
+      operationId: listDeletedPosCashMovements
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosCashMovementList'
+
+  /api/v1/pos_cash_movements/{id}/restore:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+    post:
+      tags:
+        - PosCashMovements
+      summary: Restore deleted PosCashMovement
+      operationId: restorePosCashMovement
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosCashMovement'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/pos_cash_movements/empty:
+    delete:
+      tags:
+        - PosCashMovements
+      summary: Empty trash for PosCashMovements
+      operationId: emptyTrashPosCashMovements
+      responses:
+        '200':
+          description: Trash emptied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted_count:
+                    type: integer
+
+  /api/v1/pos_cash_movements/delete/bulk:
+    post:
+      tags:
+        - PosCashMovements
+      summary: Bulk soft-delete PosCashMovements by ids (atomic)
+      operationId: bulkDeletePosCashMovements
+      requestBody:
+        $ref: '#/components/requestBodies/BatchIds'
+      responses:
+        '200':
+          description: Soft-deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  soft_deleted: { type: integer }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/pos_cash_movements/restore/bulk:
+    post:
+      tags:
+        - PosCashMovements
+      summary: Bulk restore PosCashMovements by ids (atomic)
+      operationId: bulkRestorePosCashMovements
+      requestBody:
+        $ref: '#/components/requestBodies/BatchIds'
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosCashMovementBulkResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/pos_cash_movements/restore/all:
+    post:
+      tags:
+        - PosCashMovements
+      summary: Restore all soft-deleted PosCashMovements
+      operationId: restoreAllPosCashMovements
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  restored: { type: integer }
+
+  /api/v1/pos_cash_movements/trash/bulk:
+    delete:
+      tags:
+        - PosCashMovements
+      summary: Bulk permanently-delete PosCashMovements from trash by ids (atomic)
+      operationId: bulkPermanentDeletePosCashMovements
+      requestBody:
+        $ref: '#/components/requestBodies/BatchIds'
+      responses:
+        '200':
+          description: Permanently deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  permanently_deleted: { type: integer }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
 components:
   schemas:
     PosClosingEntry:
@@ -3388,6 +3756,176 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PosOpeningEntry'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    PosCashMovement:
+      type: object
+      required:
+        - id
+        - company_id
+        - pos_profile_id
+        - opening_entry_id
+        - cashier_party_id
+        - movement_type
+        - amount
+        - moved_at
+        - metadata
+      properties:
+        id:
+          type: string
+          format: uuid
+        company_id:
+          type: string
+          format: uuid
+        pos_profile_id:
+          type: string
+          format: uuid
+        opening_entry_id:
+          type: string
+          format: uuid
+        cashier_party_id:
+          type: string
+          format: uuid
+        movement_type:
+          type: string
+        amount:
+          type: string
+        reason:
+          nullable: true
+          type: string
+          maxLength: 300
+        moved_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+
+    PosCashMovementBulkResult:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PosCashMovement'
+        total: { type: integer }
+        failed: { type: integer }
+        errors:
+          type: array
+          items: { type: string }
+
+    CreatePosCashMovementRequest:
+      type: object
+      required:
+        - company_id
+        - pos_profile_id
+        - opening_entry_id
+        - cashier_party_id
+        - movement_type
+        - amount
+        - moved_at
+        - metadata
+      properties:
+        company_id:
+          type: string
+          format: uuid
+        pos_profile_id:
+          type: string
+          format: uuid
+        opening_entry_id:
+          type: string
+          format: uuid
+        cashier_party_id:
+          type: string
+          format: uuid
+        movement_type:
+          type: string
+        amount:
+          type: string
+        reason:
+          nullable: true
+          type: string
+          maxLength: 300
+        moved_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+
+    UpdatePosCashMovementRequest:
+      type: object
+      required:
+        - company_id
+        - pos_profile_id
+        - opening_entry_id
+        - cashier_party_id
+        - movement_type
+        - amount
+        - moved_at
+        - metadata
+      properties:
+        company_id:
+          type: string
+          format: uuid
+        pos_profile_id:
+          type: string
+          format: uuid
+        opening_entry_id:
+          type: string
+          format: uuid
+        cashier_party_id:
+          type: string
+          format: uuid
+        movement_type:
+          type: string
+        amount:
+          type: string
+        reason:
+          nullable: true
+          type: string
+          maxLength: 300
+        moved_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+
+    PatchPosCashMovementRequest:
+      type: object
+      properties:
+        company_id:
+          type: string
+          format: uuid
+        pos_profile_id:
+          type: string
+          format: uuid
+        opening_entry_id:
+          type: string
+          format: uuid
+        cashier_party_id:
+          type: string
+          format: uuid
+        movement_type:
+          type: string
+        amount:
+          type: string
+        reason:
+          nullable: true
+          type: string
+          maxLength: 300
+        moved_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+
+    PosCashMovementList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PosCashMovement'
         meta:
           $ref: '#/components/schemas/PaginationMeta'
 

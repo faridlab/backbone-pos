@@ -14,6 +14,8 @@ pub mod pos_profile_events;
 pub mod pos_profile_event_handlers;
 pub mod pos_opening_entry_events;
 pub mod pos_opening_entry_event_handlers;
+pub mod pos_cash_movement_events;
+pub mod pos_cash_movement_event_handlers;
 
 pub use pos_closing_entry_events::{PosClosingEntryEvent, PosClosingEntryEventPublisher, NoopPosClosingEntryEventPublisher};
 pub use pos_closing_entry_event_handlers::PosClosingEntryEventHandler;
@@ -27,6 +29,8 @@ pub use pos_profile_events::{PosProfileEvent, PosProfileEventPublisher, NoopPosP
 pub use pos_profile_event_handlers::PosProfileEventHandler;
 pub use pos_opening_entry_events::{PosOpeningEntryEvent, PosOpeningEntryEventPublisher, NoopPosOpeningEntryEventPublisher};
 pub use pos_opening_entry_event_handlers::PosOpeningEntryEventHandler;
+pub use pos_cash_movement_events::{PosCashMovementEvent, PosCashMovementEventPublisher, NoopPosCashMovementEventPublisher};
+pub use pos_cash_movement_event_handlers::PosCashMovementEventHandler;
 
 // <<< CUSTOM
 // END CUSTOM

@@ -12,6 +12,7 @@ pub mod pos_invoice_item_specification;
 pub mod pos_payment_specification;
 pub mod pos_profile_specification;
 pub mod pos_opening_entry_specification;
+pub mod pos_cash_movement_specification;
 
 // <<< CUSTOM
 // END CUSTOM

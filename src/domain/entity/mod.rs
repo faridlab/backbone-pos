@@ -8,10 +8,12 @@ pub mod pos_invoice_item;
 pub mod pos_payment;
 pub mod pos_profile;
 pub mod pos_opening_entry;
+pub mod pos_cash_movement;
 pub mod pos_closing_status;
 pub mod pos_invoice_status;
 pub mod pos_payment_method;
 pub mod pos_session_status;
+pub mod pos_cash_movement_type;
 
 // Re-exports
 pub use pos_closing_entry::PosClosingEntry;
@@ -32,10 +34,14 @@ pub use pos_profile::PosProfileId;
 pub use pos_opening_entry::PosOpeningEntry;
 pub use pos_opening_entry::PosOpeningEntryBuilder;
 pub use pos_opening_entry::PosOpeningEntryId;
+pub use pos_cash_movement::PosCashMovement;
+pub use pos_cash_movement::PosCashMovementBuilder;
+pub use pos_cash_movement::PosCashMovementId;
 pub use pos_closing_status::PosClosingStatus;
 pub use pos_invoice_status::PosInvoiceStatus;
 pub use pos_payment_method::PosPaymentMethod;
 pub use pos_session_status::PosSessionStatus;
+pub use pos_cash_movement_type::PosCashMovementType;
 
 // ==========================================================================
 // Entity Trait

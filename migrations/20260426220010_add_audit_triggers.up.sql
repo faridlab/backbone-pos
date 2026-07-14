@@ -170,3 +170,30 @@ DROP TRIGGER IF EXISTS pos_opening_entries_update_audit ON pos.pos_opening_entri
 CREATE TRIGGER pos_opening_entries_update_audit BEFORE UPDATE ON pos.pos_opening_entries
     FOR EACH ROW EXECUTE FUNCTION pos.pos_opening_entries_audit_timestamp();
 
+-- ==============================================================================
+-- Table: PosCashMovement (pos.pos_cash_movements)
+-- ==============================================================================
+
+-- Function to set metadata timestamps
+CREATE OR REPLACE FUNCTION pos.pos_cash_movements_audit_timestamp() RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        NEW.metadata = jsonb_set(NEW.metadata::jsonb, '{created_at}', to_jsonb(NOW()));
+        NEW.metadata = jsonb_set(NEW.metadata::jsonb, '{updated_at}', to_jsonb(NOW()));
+    ELSIF TG_OP = 'UPDATE' THEN
+        NEW.metadata = jsonb_set(NEW.metadata::jsonb, '{updated_at}', to_jsonb(NOW()));
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger to set timestamps on INSERT
+DROP TRIGGER IF EXISTS pos_cash_movements_insert_audit ON pos.pos_cash_movements;
+CREATE TRIGGER pos_cash_movements_insert_audit BEFORE INSERT ON pos.pos_cash_movements
+    FOR EACH ROW EXECUTE FUNCTION pos.pos_cash_movements_audit_timestamp();
+
+-- Trigger to set updated_at on UPDATE
+DROP TRIGGER IF EXISTS pos_cash_movements_update_audit ON pos.pos_cash_movements;
+CREATE TRIGGER pos_cash_movements_update_audit BEFORE UPDATE ON pos.pos_cash_movements
+    FOR EACH ROW EXECUTE FUNCTION pos.pos_cash_movements_audit_timestamp();
+

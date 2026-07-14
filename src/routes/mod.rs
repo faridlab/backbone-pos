@@ -22,7 +22,9 @@ use crate::presentation::http::{
     create_pos_profile_routes,
     create_pos_profile_read_routes,
     create_pos_opening_entry_routes,
-    create_pos_opening_entry_read_routes
+    create_pos_opening_entry_read_routes,
+    create_pos_cash_movement_routes,
+    create_pos_cash_movement_read_routes
 };
 
 // Import AppState for stateful routes
@@ -52,6 +54,7 @@ pub fn create_stateless_routes(module: &crate::PosModule) -> Router<()> {
         .merge(create_pos_payment_routes(module.pos_payment_service.clone()))
         .merge(create_pos_profile_routes(module.pos_profile_service.clone()))
         .merge(create_pos_opening_entry_routes(module.pos_opening_entry_service.clone()))
+        .merge(create_pos_cash_movement_routes(module.pos_cash_movement_service.clone()))
 }
 
 /// Read-only routes for the Pos module — every entity mounted READ-ONLY (the guarded base).
@@ -67,6 +70,7 @@ pub fn create_readonly_pos_routes(module: &crate::PosModule) -> Router<()> {
         .merge(create_pos_payment_read_routes(module.pos_payment_service.clone()))
         .merge(create_pos_profile_read_routes(module.pos_profile_service.clone()))
         .merge(create_pos_opening_entry_read_routes(module.pos_opening_entry_service.clone()))
+        .merge(create_pos_cash_movement_read_routes(module.pos_cash_movement_service.clone()))
 }
 
 /// Get all routes (stateless) for the Pos module.

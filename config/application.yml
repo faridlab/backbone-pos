@@ -62,6 +62,13 @@ entities:
     pagination:
       default_limit: 20
       max_limit: 100
+  pos_cash_movement:
+    collection: pos_cash_movements
+    enabled: true
+    cache_ttl: 300
+    pagination:
+      default_limit: 20
+      max_limit: 100
 tracing:
   enabled: true
   exporter: otlp

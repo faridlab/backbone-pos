@@ -8,6 +8,7 @@ pub mod pos_invoice_item_domain_policy;
 pub mod pos_payment_domain_policy;
 pub mod pos_profile_domain_policy;
 pub mod pos_opening_entry_domain_policy;
+pub mod pos_cash_movement_domain_policy;
 
 pub use pos_closing_entry_domain_policy::PosClosingEntryDomainPolicy;
 pub use pos_invoice_domain_policy::PosInvoiceDomainPolicy;
@@ -15,6 +16,7 @@ pub use pos_invoice_item_domain_policy::PosInvoiceItemDomainPolicy;
 pub use pos_payment_domain_policy::PosPaymentDomainPolicy;
 pub use pos_profile_domain_policy::PosProfileDomainPolicy;
 pub use pos_opening_entry_domain_policy::PosOpeningEntryDomainPolicy;
+pub use pos_cash_movement_domain_policy::PosCashMovementDomainPolicy;
 
 // <<< CUSTOM
 // END CUSTOM

@@ -94,3 +94,17 @@ async fn test_pos_opening_entry_api() {
     }
 }
 
+#[tokio::test]
+async fn test_pos_cash_movement_api() {
+    let mut test = PosCashMovementApiTest::new();
+    let results = test.run_all().await;
+
+    let failed: Vec<_> = results.iter().filter(|r| !r.success).collect();
+    if !failed.is_empty() {
+        for f in &failed {
+            eprintln!("FAILED: {} - {}", f.test_name, f.details);
+        }
+        panic!("{} tests failed", failed.len());
+    }
+}
+

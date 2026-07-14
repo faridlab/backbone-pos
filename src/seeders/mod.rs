@@ -15,6 +15,7 @@ mod pos_invoice_item_seeder;
 mod pos_payment_seeder;
 mod pos_profile_seeder;
 mod pos_opening_entry_seeder;
+mod pos_cash_movement_seeder;
 
 pub use pos_closing_entry_seeder::SeedPosClosingEntrySeeder;
 pub use pos_invoice_seeder::SeedPosInvoiceSeeder;
@@ -22,6 +23,7 @@ pub use pos_invoice_item_seeder::SeedPosInvoiceItemSeeder;
 pub use pos_payment_seeder::SeedPosPaymentSeeder;
 pub use pos_profile_seeder::SeedPosProfileSeeder;
 pub use pos_opening_entry_seeder::SeedPosOpeningEntrySeeder;
+pub use pos_cash_movement_seeder::SeedPosCashMovementSeeder;
 
 // ============================================================================
 // SEEDER TRAIT

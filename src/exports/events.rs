@@ -173,6 +173,33 @@ pub struct PosOpeningEntryDeletedEvent {
 }
 
 // ============================================================================
+// POSCASHMOVEMENT EVENTS
+// ============================================================================
+
+/// Event published when a PosCashMovement is created
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosCashMovementCreatedEvent {
+    pub id: PosCashMovementId,
+    pub data: PosCashMovementDto,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// Event published when a PosCashMovement is updated
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosCashMovementUpdatedEvent {
+    pub id: PosCashMovementId,
+    pub data: PosCashMovementDto,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// Event published when a PosCashMovement is deleted
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosCashMovementDeletedEvent {
+    pub id: PosCashMovementId,
+    pub occurred_at: DateTime<Utc>,
+}
+
+// ============================================================================
 // MODULE EVENT ENUM
 // ============================================================================
 
@@ -198,6 +225,9 @@ pub enum PosEvent {
     PosOpeningEntryCreated(PosOpeningEntryCreatedEvent),
     PosOpeningEntryUpdated(PosOpeningEntryUpdatedEvent),
     PosOpeningEntryDeleted(PosOpeningEntryDeletedEvent),
+    PosCashMovementCreated(PosCashMovementCreatedEvent),
+    PosCashMovementUpdated(PosCashMovementUpdatedEvent),
+    PosCashMovementDeleted(PosCashMovementDeletedEvent),
 }
 
 /// Metadata for module events

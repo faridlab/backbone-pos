@@ -15,6 +15,7 @@ use super::{
     pos_payment_handler::create_pos_payment_routes,
     pos_profile_handler::create_pos_profile_routes,
     pos_opening_entry_handler::create_pos_opening_entry_routes,
+    pos_cash_movement_handler::create_pos_cash_movement_routes,
 };
 
 use crate::application::service::{
@@ -24,6 +25,7 @@ use crate::application::service::{
     PosPaymentService,
     PosProfileService,
     PosOpeningEntryService,
+    PosCashMovementService,
 };
 
 /// Services collection for all CRUD endpoints
@@ -34,6 +36,7 @@ pub struct HttpServices {
     pub pos_payment: Arc<PosPaymentService>,
     pub pos_profile: Arc<PosProfileService>,
     pub pos_opening_entry: Arc<PosOpeningEntryService>,
+    pub pos_cash_movement: Arc<PosCashMovementService>,
 }
 
 /// Configure all HTTP routes for this module using Axum and BackboneCrudHandler.
@@ -65,6 +68,8 @@ pub fn configure_routes(services: HttpServices) -> Router {
         .merge(create_pos_profile_routes(services.pos_profile))
         // PosOpeningEntry routes (12 Backbone endpoints)
         .merge(create_pos_opening_entry_routes(services.pos_opening_entry))
+        // PosCashMovement routes (12 Backbone endpoints)
+        .merge(create_pos_cash_movement_routes(services.pos_cash_movement))
 }
 
 /// Create an individual entity's routes (for modular configuration)
@@ -93,6 +98,10 @@ pub mod individual {
 
     pub fn pos_opening_entry_routes(service: Arc<PosOpeningEntryService>) -> Router {
         create_pos_opening_entry_routes(service)
+    }
+
+    pub fn pos_cash_movement_routes(service: Arc<PosCashMovementService>) -> Router {
+        create_pos_cash_movement_routes(service)
     }
 
 }

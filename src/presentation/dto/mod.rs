@@ -11,6 +11,7 @@ pub mod pos_invoice_item_dto;
 pub mod pos_payment_dto;
 pub mod pos_profile_dto;
 pub mod pos_opening_entry_dto;
+pub mod pos_cash_movement_dto;
 
 // Re-exports
 pub use pos_closing_entry_dto::{
@@ -60,6 +61,14 @@ pub use pos_opening_entry_dto::{
     PosOpeningEntryResponseDto,
     PosOpeningEntryListResponseDto,
     PosOpeningEntrySummaryDto,
+};
+pub use pos_cash_movement_dto::{
+    CreatePosCashMovementDto,
+    UpdatePosCashMovementDto,
+    PatchPosCashMovementDto,
+    PosCashMovementResponseDto,
+    PosCashMovementListResponseDto,
+    PosCashMovementSummaryDto,
 };
 
 // Common pagination types

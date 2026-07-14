@@ -10,6 +10,7 @@ mod pos_invoice_item_repository;
 mod pos_payment_repository;
 mod pos_profile_repository;
 mod pos_opening_entry_repository;
+mod pos_cash_movement_repository;
 
 // Custom persistence modules
 // <<< CUSTOM
@@ -22,6 +23,7 @@ pub use pos_invoice_item_repository::PosInvoiceItemRepository;
 pub use pos_payment_repository::PosPaymentRepository;
 pub use pos_profile_repository::PosProfileRepository;
 pub use pos_opening_entry_repository::PosOpeningEntryRepository;
+pub use pos_cash_movement_repository::PosCashMovementRepository;
 
 // Re-export backbone-orm types
 pub use backbone_orm::repository::{

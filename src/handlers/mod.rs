@@ -15,6 +15,7 @@ use crate::application::service::PosInvoiceItemService;
 use crate::application::service::PosPaymentService;
 use crate::application::service::PosProfileService;
 use crate::application::service::PosOpeningEntryService;
+use crate::application::service::PosCashMovementService;
 
 /// Application state for dependency injection.
 ///
@@ -46,6 +47,8 @@ pub struct AppState {
     pub pos_profile_service: Arc<PosProfileService>,
     /// PosOpeningEntry service
     pub pos_opening_entry_service: Arc<PosOpeningEntryService>,
+    /// PosCashMovement service
+    pub pos_cash_movement_service: Arc<PosCashMovementService>,
 }
 
 impl AppState {
@@ -56,7 +59,8 @@ impl AppState {
         pos_invoice_item_service: Arc<PosInvoiceItemService>,
         pos_payment_service: Arc<PosPaymentService>,
         pos_profile_service: Arc<PosProfileService>,
-        pos_opening_entry_service: Arc<PosOpeningEntryService>
+        pos_opening_entry_service: Arc<PosOpeningEntryService>,
+        pos_cash_movement_service: Arc<PosCashMovementService>
     ) -> Self {
         Self {
             pos_closing_entry_service,
@@ -65,6 +69,7 @@ impl AppState {
             pos_payment_service,
             pos_profile_service,
             pos_opening_entry_service,
+            pos_cash_movement_service,
         }
     }
 
@@ -77,6 +82,7 @@ impl AppState {
             pos_payment_service: module.pos_payment_service.clone(),
             pos_profile_service: module.pos_profile_service.clone(),
             pos_opening_entry_service: module.pos_opening_entry_service.clone(),
+            pos_cash_movement_service: module.pos_cash_movement_service.clone(),
         }
     }
 }
@@ -92,6 +98,7 @@ pub struct AppStateBuilder {
     pos_payment_service: Option<Arc<PosPaymentService>>,
     pos_profile_service: Option<Arc<PosProfileService>>,
     pos_opening_entry_service: Option<Arc<PosOpeningEntryService>>,
+    pos_cash_movement_service: Option<Arc<PosCashMovementService>>,
 }
 
 impl AppStateBuilder {
@@ -136,6 +143,12 @@ impl AppStateBuilder {
         self
     }
 
+    /// Set the PosCashMovement service.
+    pub fn with_pos_cash_movement_service(mut self, service: Arc<PosCashMovementService>) -> Self {
+        self.pos_cash_movement_service = Some(service);
+        self
+    }
+
     /// Build the AppState.
     ///
     /// # Panics
@@ -149,6 +162,7 @@ impl AppStateBuilder {
             pos_payment_service: self.pos_payment_service.expect("pos_payment_service is required"),
             pos_profile_service: self.pos_profile_service.expect("pos_profile_service is required"),
             pos_opening_entry_service: self.pos_opening_entry_service.expect("pos_opening_entry_service is required"),
+            pos_cash_movement_service: self.pos_cash_movement_service.expect("pos_cash_movement_service is required"),
         }
     }
 }

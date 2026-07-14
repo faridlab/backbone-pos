@@ -10,6 +10,7 @@ use crate::domain::event::PosInvoiceItemEvent;
 use crate::domain::event::PosPaymentEvent;
 use crate::domain::event::PosProfileEvent;
 use crate::domain::event::PosOpeningEntryEvent;
+use crate::domain::event::PosCashMovementEvent;
 
 /// Subscriber for PosClosingEntry events.
 ///
@@ -40,6 +41,11 @@ pub type PosProfileEventSubscriber = GenericEventSubscriber<PosProfileEvent>;
 ///
 /// Register handlers via `GenericEventSubscriber::new(topics, handlers)`.
 pub type PosOpeningEntryEventSubscriber = GenericEventSubscriber<PosOpeningEntryEvent>;
+
+/// Subscriber for PosCashMovement events.
+///
+/// Register handlers via `GenericEventSubscriber::new(topics, handlers)`.
+pub type PosCashMovementEventSubscriber = GenericEventSubscriber<PosCashMovementEvent>;
 
 // <<< CUSTOM
 // END CUSTOM

@@ -11,6 +11,7 @@ pub mod pos_invoice_item_validator;
 pub mod pos_payment_validator;
 pub mod pos_profile_validator;
 pub mod pos_opening_entry_validator;
+pub mod pos_cash_movement_validator;
 
 pub use pos_closing_entry_validator::{PosClosingEntryValidator, pos_closing_entry_validator};
 pub use pos_invoice_validator::{PosInvoiceValidator, pos_invoice_validator};
@@ -18,6 +19,7 @@ pub use pos_invoice_item_validator::{PosInvoiceItemValidator, pos_invoice_item_v
 pub use pos_payment_validator::{PosPaymentValidator, pos_payment_validator};
 pub use pos_profile_validator::{PosProfileValidator, pos_profile_validator};
 pub use pos_opening_entry_validator::{PosOpeningEntryValidator, pos_opening_entry_validator};
+pub use pos_cash_movement_validator::{PosCashMovementValidator, pos_cash_movement_validator};
 
 // <<< CUSTOM
 // END CUSTOM
