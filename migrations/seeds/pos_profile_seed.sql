@@ -17,6 +17,9 @@
 --     write_off_account_id,
 --     tax_account_id,
 --     tax_rate,
+--     warehouse_id,
+--     cogs_account_id,
+--     inventory_account_id,
 --     allow_discount,
 --     is_active,
 --     metadata

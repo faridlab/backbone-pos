@@ -54,6 +54,9 @@ pub struct PosProfileFilter {
     pub cash_account_id: Option<Uuid>,
     pub write_off_account_id: Option<Uuid>,
     pub tax_account_id: Option<Uuid>,
+    pub warehouse_id: Option<Uuid>,
+    pub cogs_account_id: Option<Uuid>,
+    pub inventory_account_id: Option<Uuid>,
     pub allow_discount: Option<bool>,
     pub is_active: Option<bool>,
 }
@@ -61,7 +64,7 @@ pub struct PosProfileFilter {
 impl PosProfileFilter {
     /// Check if any filter is set
     pub fn has_filters(&self) -> bool {
-        self.company_id.is_some() || self.branch_id.is_some() || self.name.is_some() || self.default_customer_id.is_some() || self.currency.is_some() || self.income_account_id.is_some() || self.receivable_account_id.is_some() || self.cash_account_id.is_some() || self.write_off_account_id.is_some() || self.tax_account_id.is_some() || self.allow_discount.is_some() || self.is_active.is_some()
+        self.company_id.is_some() || self.branch_id.is_some() || self.name.is_some() || self.default_customer_id.is_some() || self.currency.is_some() || self.income_account_id.is_some() || self.receivable_account_id.is_some() || self.cash_account_id.is_some() || self.write_off_account_id.is_some() || self.tax_account_id.is_some() || self.warehouse_id.is_some() || self.cogs_account_id.is_some() || self.inventory_account_id.is_some() || self.allow_discount.is_some() || self.is_active.is_some()
     }
 }
 

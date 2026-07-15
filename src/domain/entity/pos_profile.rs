@@ -60,6 +60,9 @@ pub struct PosProfile {
     pub write_off_account_id: Option<Uuid>,
     pub tax_account_id: Option<Uuid>,
     pub tax_rate: Decimal,
+    pub warehouse_id: Option<Uuid>,
+    pub cogs_account_id: Option<Uuid>,
+    pub inventory_account_id: Option<Uuid>,
     pub allow_discount: bool,
     pub is_active: bool,
     #[serde(default)]
@@ -88,6 +91,9 @@ impl PosProfile {
             write_off_account_id: None,
             tax_account_id: None,
             tax_rate,
+            warehouse_id: None,
+            cogs_account_id: None,
+            inventory_account_id: None,
             allow_discount,
             is_active,
             metadata: AuditMetadata::default(),
@@ -191,6 +197,24 @@ impl PosProfile {
         self
     }
 
+    /// Set the warehouse_id field (chainable)
+    pub fn with_warehouse_id(mut self, value: Uuid) -> Self {
+        self.warehouse_id = Some(value);
+        self
+    }
+
+    /// Set the cogs_account_id field (chainable)
+    pub fn with_cogs_account_id(mut self, value: Uuid) -> Self {
+        self.cogs_account_id = Some(value);
+        self
+    }
+
+    /// Set the inventory_account_id field (chainable)
+    pub fn with_inventory_account_id(mut self, value: Uuid) -> Self {
+        self.inventory_account_id = Some(value);
+        self
+    }
+
     // ==========================================================
     // Partial Update
     // ==========================================================
@@ -231,6 +255,15 @@ impl PosProfile {
                 }
                 "tax_rate" => {
                     if let Ok(v) = serde_json::from_value(value) { self.tax_rate = v; }
+                }
+                "warehouse_id" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.warehouse_id = v; }
+                }
+                "cogs_account_id" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.cogs_account_id = v; }
+                }
+                "inventory_account_id" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.inventory_account_id = v; }
                 }
                 "allow_discount" => {
                     if let Ok(v) = serde_json::from_value(value) { self.allow_discount = v; }
@@ -300,6 +333,9 @@ impl backbone_orm::EntityRepoMeta for PosProfile {
         m.insert("cash_account_id".to_string(), "uuid".to_string());
         m.insert("write_off_account_id".to_string(), "uuid".to_string());
         m.insert("tax_account_id".to_string(), "uuid".to_string());
+        m.insert("warehouse_id".to_string(), "uuid".to_string());
+        m.insert("cogs_account_id".to_string(), "uuid".to_string());
+        m.insert("inventory_account_id".to_string(), "uuid".to_string());
         m
     }
     fn search_fields() -> &'static [&'static str] {
@@ -324,6 +360,9 @@ pub struct PosProfileBuilder {
     write_off_account_id: Option<Uuid>,
     tax_account_id: Option<Uuid>,
     tax_rate: Option<Decimal>,
+    warehouse_id: Option<Uuid>,
+    cogs_account_id: Option<Uuid>,
+    inventory_account_id: Option<Uuid>,
     allow_discount: Option<bool>,
     is_active: Option<bool>,
 }
@@ -395,6 +434,24 @@ impl PosProfileBuilder {
         self
     }
 
+    /// Set the warehouse_id field (optional)
+    pub fn warehouse_id(mut self, value: Uuid) -> Self {
+        self.warehouse_id = Some(value);
+        self
+    }
+
+    /// Set the cogs_account_id field (optional)
+    pub fn cogs_account_id(mut self, value: Uuid) -> Self {
+        self.cogs_account_id = Some(value);
+        self
+    }
+
+    /// Set the inventory_account_id field (optional)
+    pub fn inventory_account_id(mut self, value: Uuid) -> Self {
+        self.inventory_account_id = Some(value);
+        self
+    }
+
     /// Set the allow_discount field (default: `true`)
     pub fn allow_discount(mut self, value: bool) -> Self {
         self.allow_discount = Some(value);
@@ -427,6 +484,9 @@ impl PosProfileBuilder {
             write_off_account_id: self.write_off_account_id,
             tax_account_id: self.tax_account_id,
             tax_rate: self.tax_rate.unwrap_or(Decimal::from(0)),
+            warehouse_id: self.warehouse_id,
+            cogs_account_id: self.cogs_account_id,
+            inventory_account_id: self.inventory_account_id,
             allow_discount: self.allow_discount.unwrap_or(true),
             is_active: self.is_active.unwrap_or(true),
             metadata: AuditMetadata::default(),

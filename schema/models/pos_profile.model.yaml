@@ -62,6 +62,18 @@ models:
         type: decimal
         attributes: ["@default(0)", "@precision(6,4)", "@non_negative"]
         description: "PPN rate applied server-side (e.g. 0.1100 for 11%); 0 = non-PKP, no tax"
+      warehouse_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "Register's issuing warehouse; set to decrement stock on recognition # logical FK to inventory.Warehouse.id"
+      cogs_account_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "Cost-of-goods-sold account the stock issue debits # logical FK to accounting.Account.id"
+      inventory_account_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "Inventory asset account the stock issue credits # logical FK to accounting.Account.id"
       allow_discount:
         type: bool
         attributes: ["@default(true)"]

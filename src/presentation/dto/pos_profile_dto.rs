@@ -58,6 +58,12 @@ pub struct CreatePosProfileDto {
     pub tax_account_id: Option<Uuid>,
     #[serde(alias = "tax_rate")]
     pub tax_rate: Decimal,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "warehouse_id")]
+    pub warehouse_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "cogs_account_id")]
+    pub cogs_account_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "inventory_account_id")]
+    pub inventory_account_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = true))]
     #[serde(alias = "allow_discount")]
     pub allow_discount: bool,
@@ -104,6 +110,12 @@ pub struct UpdatePosProfileDto {
     pub tax_account_id: Option<Uuid>,
     #[serde(alias = "tax_rate")]
     pub tax_rate: Decimal,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "warehouse_id")]
+    pub warehouse_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "cogs_account_id")]
+    pub cogs_account_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "inventory_account_id")]
+    pub inventory_account_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = true))]
     #[serde(alias = "allow_discount")]
     pub allow_discount: bool,
@@ -152,6 +164,12 @@ pub struct PatchPosProfileDto {
     pub tax_account_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "tax_rate")]
     pub tax_rate: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "warehouse_id")]
+    pub warehouse_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "cogs_account_id")]
+    pub cogs_account_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "inventory_account_id")]
+    pub inventory_account_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = true))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "allow_discount")]
     pub allow_discount: Option<bool>,
@@ -163,7 +181,7 @@ pub struct PatchPosProfileDto {
 impl PatchPosProfileDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.branch_id.is_some() || self.name.is_some() || self.default_customer_id.is_some() || self.currency.is_some() || self.income_account_id.is_some() || self.receivable_account_id.is_some() || self.cash_account_id.is_some() || self.write_off_account_id.is_some() || self.tax_account_id.is_some() || self.tax_rate.is_some() || self.allow_discount.is_some() || self.is_active.is_some()
+        self.company_id.is_some() || self.branch_id.is_some() || self.name.is_some() || self.default_customer_id.is_some() || self.currency.is_some() || self.income_account_id.is_some() || self.receivable_account_id.is_some() || self.cash_account_id.is_some() || self.write_off_account_id.is_some() || self.tax_account_id.is_some() || self.tax_rate.is_some() || self.warehouse_id.is_some() || self.cogs_account_id.is_some() || self.inventory_account_id.is_some() || self.allow_discount.is_some() || self.is_active.is_some()
     }
 }
 
@@ -195,6 +213,9 @@ pub struct PosProfileResponseDto {
     pub write_off_account_id: Option<Uuid>,
     pub tax_account_id: Option<Uuid>,
     pub tax_rate: Decimal,
+    pub warehouse_id: Option<Uuid>,
+    pub cogs_account_id: Option<Uuid>,
+    pub inventory_account_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = true))]
     pub allow_discount: bool,
     #[cfg_attr(feature = "openapi", schema(example = true))]
@@ -281,6 +302,9 @@ impl From<PosProfile> for PosProfileResponseDto {
             write_off_account_id: entity.write_off_account_id,
             tax_account_id: entity.tax_account_id,
             tax_rate: entity.tax_rate,
+            warehouse_id: entity.warehouse_id,
+            cogs_account_id: entity.cogs_account_id,
+            inventory_account_id: entity.inventory_account_id,
             allow_discount: entity.allow_discount,
             is_active: entity.is_active,
             metadata: entity.metadata,
@@ -316,6 +340,9 @@ impl From<CreatePosProfileDto> for PosProfile {
             write_off_account_id: dto.write_off_account_id,
             tax_account_id: dto.tax_account_id,
             tax_rate: dto.tax_rate,
+            warehouse_id: dto.warehouse_id,
+            cogs_account_id: dto.cogs_account_id,
+            inventory_account_id: dto.inventory_account_id,
             allow_discount: dto.allow_discount,
             is_active: dto.is_active,
             metadata: AuditMetadata::default(),
@@ -338,6 +365,9 @@ impl From<&PosProfile> for PosProfileResponseDto {
             write_off_account_id: entity.write_off_account_id.clone(),
             tax_account_id: entity.tax_account_id.clone(),
             tax_rate: entity.tax_rate.clone(),
+            warehouse_id: entity.warehouse_id.clone(),
+            cogs_account_id: entity.cogs_account_id.clone(),
+            inventory_account_id: entity.inventory_account_id.clone(),
             allow_discount: entity.allow_discount.clone(),
             is_active: entity.is_active.clone(),
             metadata: entity.metadata.clone(),
@@ -364,6 +394,9 @@ impl backbone_core::ApplyUpdateDto<UpdatePosProfileDto> for PosProfile {
         self.write_off_account_id = dto.write_off_account_id;
         self.tax_account_id = dto.tax_account_id;
         self.tax_rate = dto.tax_rate;
+        self.warehouse_id = dto.warehouse_id;
+        self.cogs_account_id = dto.cogs_account_id;
+        self.inventory_account_id = dto.inventory_account_id;
         self.allow_discount = dto.allow_discount;
         self.is_active = dto.is_active;
         Ok(self)

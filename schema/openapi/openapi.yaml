@@ -3437,6 +3437,18 @@ components:
           format: uuid
         tax_rate:
           type: string
+        warehouse_id:
+          nullable: true
+          type: string
+          format: uuid
+        cogs_account_id:
+          nullable: true
+          type: string
+          format: uuid
+        inventory_account_id:
+          nullable: true
+          type: string
+          format: uuid
         allow_discount:
           type: boolean
         is_active:
@@ -3507,6 +3519,18 @@ components:
           format: uuid
         tax_rate:
           type: string
+        warehouse_id:
+          nullable: true
+          type: string
+          format: uuid
+        cogs_account_id:
+          nullable: true
+          type: string
+          format: uuid
+        inventory_account_id:
+          nullable: true
+          type: string
+          format: uuid
         allow_discount:
           type: boolean
         is_active:
@@ -3564,6 +3588,18 @@ components:
           format: uuid
         tax_rate:
           type: string
+        warehouse_id:
+          nullable: true
+          type: string
+          format: uuid
+        cogs_account_id:
+          nullable: true
+          type: string
+          format: uuid
+        inventory_account_id:
+          nullable: true
+          type: string
+          format: uuid
         allow_discount:
           type: boolean
         is_active:
@@ -3613,6 +3649,18 @@ components:
           format: uuid
         tax_rate:
           type: string
+        warehouse_id:
+          nullable: true
+          type: string
+          format: uuid
+        cogs_account_id:
+          nullable: true
+          type: string
+          format: uuid
+        inventory_account_id:
+          nullable: true
+          type: string
+          format: uuid
         allow_discount:
           type: boolean
         is_active:
