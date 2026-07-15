@@ -18,8 +18,8 @@ use uuid::Uuid;
 
 use backbone_pos::application::service::pos_events::{PosEvent, PosEventSink};
 use backbone_pos::application::service::pos_ports::{
-    BillingPort, CreditNoteRequest, InvoiceAck, PaymentPort, PosRejected, RefundRequest, ReversalAck,
-    SaleInvoiceRequest, SettlementAck, SettlementRequest,
+    BillingPort, CreditNoteRequest, InventoryPort, InvoiceAck, PaymentPort, PosRejected, RefundRequest,
+    ReversalAck, SaleInvoiceRequest, SettlementAck, SettlementRequest, StockIssueAck, StockIssueRequest,
 };
 use backbone_pos::application::service::pos_write_service::{NewClose, NewSale, NewSaleLine, NewSession, PosWriteService};
 
@@ -35,6 +35,14 @@ use backbone_payment::application::service::payment_gl::{
 use backbone_payment::application::service::payment_write_service::{NewAllocation, NewPayment, PaymentWriteService};
 
 use backbone_accounting::application::service::posting_service::{PostingLine, PostingRequest, PostingService};
+
+use backbone_inventory::application::service::inventory_gl::{
+    AccountingPostEnvelope as InvEnv, GlPostAck as InvAck, GlPostRejected as InvRej, GlPostSink as InvSink,
+};
+use backbone_inventory::application::service::inventory_write_service::{
+    DeliveryLine, InventoryWriteService, NewDelivery, NewReceipt, NewStockItem, NewWarehouse,
+    ReceiptLine as InvReceiptLine,
+};
 
 /// ACL: either producer's serialized envelope → accounting's PostingRequest against the REAL ledger.
 struct GlAdapter { svc: PostingService }
@@ -74,6 +82,36 @@ fn pl(l: &backbone_billing::application::service::billing_gl::GlPostLine) -> Pos
 }
 fn pl_pay(l: &backbone_payment::application::service::payment_gl::GlPostLine) -> PostingLine {
     PostingLine { account_id: l.account_id, debit: l.debit, credit: l.credit, party_type: l.party_type.clone(), party_id: l.party_id, cost_center_id: None, project_id: None, department_id: None, description: l.description.clone() }
+}
+#[async_trait::async_trait]
+impl InvSink for GlAdapter {
+    async fn post(&self, e: &InvEnv) -> Result<InvAck, InvRej> {
+        let lines = e.lines.iter().map(|l| PostingLine {
+            account_id: l.account_id, debit: l.debit, credit: l.credit, party_type: l.party_type.clone(),
+            party_id: l.party_id, cost_center_id: None, project_id: None, department_id: None, description: l.description.clone(),
+        }).collect();
+        match self.go(e.company_id, &e.source_type, e.source_id, e.source_reference.clone(), e.posting_date, &e.posting_type, None, lines).await {
+            Ok((post_id, journal_id, idempotent_reuse)) => Ok(InvAck { post_id, journal_id, idempotent_reuse }),
+            Err((code, message)) => Err(InvRej { code, message }),
+        }
+    }
+}
+
+/// InventoryPort over the real inventory service: issue an outward Delivery Note (relieve on-hand +
+/// post `Dr COGS · Cr Inventory` at moving-average cost).
+struct InventoryAdapter { inv: InventoryWriteService, gl: Arc<GlAdapter> }
+#[async_trait::async_trait]
+impl InventoryPort for InventoryAdapter {
+    async fn issue(&self, req: &StockIssueRequest) -> Result<StockIssueAck, PosRejected> {
+        let id = self.inv.create_delivery_note(NewDelivery {
+            delivery_number: uq("DN"), company_id: req.company_id, branch_id: req.branch_id, customer_id: req.customer_id,
+            source_so_id: Some(req.source_pos_id), warehouse_id: req.warehouse_id, posting_date: req.posting_date,
+            cogs_account_id: req.cogs_account_id, inventory_account_id: req.inventory_account_id,
+            lines: req.lines.iter().map(|l| DeliveryLine { item_id: l.item_id, quantity: l.quantity }).collect(),
+        }).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
+        let out = self.inv.submit_delivery_note(id, &*self.gl).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
+        Ok(StockIssueAck { delivery_note_id: id, journal_id: out.journal_id })
+    }
 }
 
 /// BillingPort over the real billing service: raise + post the Sales Invoice.
@@ -173,6 +211,10 @@ async fn balance(pool: &PgPool, account: Uuid) -> Decimal {
     sqlx::query_scalar("SELECT COALESCE(SUM(debit_amount),0) - COALESCE(SUM(credit_amount),0) FROM accounting.ledgers WHERE account_id=$1")
         .bind(account).fetch_one(pool).await.unwrap()
 }
+async fn on_hand(pool: &PgPool, item: Uuid, warehouse: Uuid) -> Decimal {
+    sqlx::query_scalar("SELECT COALESCE(SUM(actual_qty),0) FROM inventory.bins WHERE item_id=$1 AND warehouse_id=$2")
+        .bind(item).bind(warehouse).fetch_one(pool).await.unwrap()
+}
 
 /// RSSEAM-1: a cash retail sale recognised across POS, billing, payment, and the real ledger.
 #[tokio::test]
@@ -209,7 +251,7 @@ async fn retail_cash_sale_across_four_modules() {
     assert!(t.fully_tendered);
 
     // 2) recognise — POS drives billing (revenue) + payment (settlement) into the real ledger.
-    let out = pos.recognize_sale(sale, &billing_port, &payment_port).await.unwrap();
+    let out = pos.recognize_sale(sale, &billing_port, &payment_port, None).await.unwrap();
 
     // 3) the counter transaction booked BOTH legs and the A/R nets to zero.
     assert_eq!(balance(&pool, coa["1200"]).await, d("0.00"), "A/R nets to zero at the counter");
@@ -261,7 +303,7 @@ async fn retail_return_reverses_both_legs_and_is_idempotent() {
         tax_total: Decimal::ZERO, round_to: None,
     }).await.unwrap();
     pos.add_tender(sale, "cash", d("100000"), None).await.unwrap();
-    pos.recognize_sale(sale, &billing_port, &payment_port).await.unwrap();
+    pos.recognize_sale(sale, &billing_port, &payment_port, None).await.unwrap();
     assert_eq!(balance(&pool, coa["4000"]).await, d("-100000.00"));
 
     // Return it — both legs reverse; revenue, cash, A/R all net to ZERO.
@@ -326,10 +368,75 @@ async fn retail_ppn_sale_books_output_tax() {
 
     let t = pos.add_tender(sale, "cash", d("111000"), None).await.unwrap();
     assert!(t.fully_tendered);
-    pos.recognize_sale(sale, &billing_port, &payment_port).await.unwrap();
+    pos.recognize_sale(sale, &billing_port, &payment_port, None).await.unwrap();
 
     assert_eq!(balance(&pool, coa["1200"]).await, d("0.00"), "A/R nets to zero at the counter");
     assert_eq!(balance(&pool, coa["4000"]).await, d("-100000.00"), "revenue holds the net (credit)");
     assert_eq!(balance(&pool, coa["1110"]).await, d("111000.00"), "cash holds the grand (incl PPN)");
     assert_eq!(balance(&pool, ppn).await, d("-11000.00"), "PPN output-tax liability holds the tax (credit)");
+}
+
+/// RSSEAM-4 (stock, 2026-07-15): a stock-tracking register relieves on-hand and books COGS on the sale.
+/// Seed 10 units @ 60,000 via a purchase receipt; ring + recognise 2 units through the InventoryPort →
+/// on-hand falls to 8 and `Dr COGS 120,000 · Cr Inventory 120,000` posts at moving-average cost.
+#[tokio::test]
+async fn retail_sale_decrements_stock_and_books_cogs() {
+    let pool = pool().await;
+    let (company, coa) = seed_coa(&pool).await;
+    let customer = Uuid::new_v4();
+    let item = Uuid::new_v4();
+
+    // Inventory (asset), COGS (cogs), GRIR (liability) accounts.
+    let inv_acct = Uuid::new_v4();
+    let cogs_acct = Uuid::new_v4();
+    let grir_acct = Uuid::new_v4();
+    for (id, code, name, a, s, nb) in [
+        (inv_acct, "1300", "Persediaan", "asset", "inventory", "debit"),
+        (cogs_acct, "5000", "HPP", "cogs", "direct_cost", "debit"),
+        (grir_acct, "2140", "GRIR", "liability", "current_liability", "credit"),
+    ] {
+        sqlx::query(r#"INSERT INTO accounting.accounts (id, company_id, account_number, account_code, name, account_type, account_subtype, normal_balance, is_header, is_detail, status)
+            VALUES ($1,$2,$3,$4,$5,$6::account_type,$7::account_subtype,$8::normal_balance,false,true,'active'::account_status)"#)
+            .bind(id).bind(company).bind(code).bind(code).bind(name).bind(a).bind(s).bind(nb).execute(&pool).await.unwrap();
+    }
+
+    let inv = InventoryWriteService::new(pool.clone());
+    let gl = Arc::new(GlAdapter { svc: PostingService::new(pool.clone()) });
+
+    // Warehouse + stock item + opening on-hand: receive 10 @ 60,000.
+    let wh = inv.create_warehouse(NewWarehouse { company_id: company, code: uq("WH"), name: "Toko".into(), warehouse_type: None, parent_warehouse_id: None, is_group: false }).await.unwrap();
+    inv.create_stock_item(NewStockItem { item_id: item, company_id: company, stock_uom: "PCS".into(), valuation_method: None, reorder_level: Decimal::ZERO }).await.unwrap();
+    let receipt = inv.create_purchase_receipt(NewReceipt {
+        receipt_number: uq("PR"), company_id: company, branch_id: None, supplier_id: Uuid::new_v4(), source_po_id: None,
+        warehouse_id: wh, posting_date: at().date(), inventory_account_id: inv_acct, grir_account_id: grir_acct,
+        lines: vec![InvReceiptLine { item_id: item, quantity: d("10"), rate: d("60000") }],
+    }).await.unwrap();
+    inv.submit_purchase_receipt(receipt, &*gl).await.unwrap();
+    assert_eq!(on_hand(&pool, item, wh).await, d("10.0000"), "seeded on-hand");
+
+    // POS profile: stock-tracking register.
+    let prof = Uuid::new_v4();
+    sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, receivable_account_id, income_account_id, cash_account_id, warehouse_id, cogs_account_id, inventory_account_id, default_customer_id, allow_discount, is_active)
+        VALUES ($1,$2,'Register 1','IDR',$3,$4,$5,$6,$7,$8,$9,true,true)"#)
+        .bind(prof).bind(company).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(wh).bind(cogs_acct).bind(inv_acct).bind(customer).execute(&pool).await.unwrap();
+
+    let pos = PosWriteService::new(pool.clone());
+    let billing_port = BillingAdapter { billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
+    let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
+    let inventory_port = InventoryAdapter { inv: InventoryWriteService::new(pool.clone()), gl: gl.clone() };
+
+    let session = pos.open_session(NewSession { company_id: company, pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(), opened_at: at(), opening_balances: vec![] }).await.unwrap();
+    let sale = pos.ring_sale(NewSale {
+        company_id: company, pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
+        receipt_number: uq("R"), posting_at: at(),
+        lines: vec![NewSaleLine { item_id: item, revenue_account_id: None, description: None, quantity: d("2"), unit_price: d("100000"), discount_amount: Decimal::ZERO }],
+        tax_total: Decimal::ZERO, round_to: None,
+    }).await.unwrap();
+    pos.add_tender(sale, "cash", d("200000"), None).await.unwrap();
+    pos.recognize_sale(sale, &billing_port, &payment_port, Some(&inventory_port)).await.unwrap();
+
+    // On-hand fell by the 2 sold; COGS booked at moving-average 60,000 → 120,000; inventory nets 480k.
+    assert_eq!(on_hand(&pool, item, wh).await, d("8.0000"), "on-hand decremented by the sale");
+    assert_eq!(balance(&pool, cogs_acct).await, d("120000.00"), "COGS debited at cost");
+    assert_eq!(balance(&pool, inv_acct).await, d("480000.00"), "inventory = 10*60k received − 2*60k issued");
 }

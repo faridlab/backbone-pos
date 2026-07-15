@@ -93,3 +93,4 @@ rand = "0.8"
 backbone-accounting = { path = "../backbone-accounting" }
 backbone-billing = { path = "../backbone-billing" }
 backbone-payment = { path = "../backbone-payment" }
+backbone-inventory = { path = "../backbone-inventory" }

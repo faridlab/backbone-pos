@@ -121,3 +121,40 @@ pub trait PaymentPort: Send + Sync {
     async fn settle(&self, req: &SettlementRequest) -> Result<SettlementAck, PosRejected>;
     async fn refund(&self, req: &RefundRequest) -> Result<ReversalAck, PosRejected>;
 }
+
+/// One sale line to issue out of stock (item + quantity moved off the shelf).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StockIssueLine {
+    pub item_id: Uuid,
+    pub quantity: Decimal,
+}
+
+/// The request POS hands inventory to ISSUE (decrement) stock for a recognised sale — an outward
+/// Delivery Note. Inventory relieves on-hand and books `Dr COGS · Cr Inventory` at the item's
+/// moving-average cost. Driven only when the register has a warehouse + COGS/inventory accounts.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StockIssueRequest {
+    pub company_id: Uuid,
+    pub branch_id: Option<Uuid>,
+    pub customer_id: Uuid,
+    /// The POS ticket id (the delivery note's `source` reference).
+    pub source_pos_id: Uuid,
+    pub warehouse_id: Uuid,
+    pub cogs_account_id: Uuid,
+    pub inventory_account_id: Uuid,
+    pub posting_date: chrono::NaiveDate,
+    pub lines: Vec<StockIssueLine>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StockIssueAck {
+    pub delivery_note_id: Uuid,
+    pub journal_id: Option<Uuid>,
+}
+
+/// Inventory seam: a composing service implements this over inventory's delivery-note issue (create +
+/// submit). Zero normal Cargo edge to inventory — the DTOs are the wire contract.
+#[async_trait::async_trait]
+pub trait InventoryPort: Send + Sync {
+    async fn issue(&self, req: &StockIssueRequest) -> Result<StockIssueAck, PosRejected>;
+}

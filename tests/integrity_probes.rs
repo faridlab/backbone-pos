@@ -102,7 +102,7 @@ async fn recognize_requires_full_tender() {
     let sale = ring(&w, company, prof, s, "100000").await;
     w.add_tender(sale, "cash", d("60000"), None).await.unwrap(); // partial
     let billing = FakeBilling { calls: Arc::new(Mutex::new(0)), invoice: Uuid::new_v4() };
-    let e = w.recognize_sale(sale, &billing, &FakePayment).await.unwrap_err();
+    let e = w.recognize_sale(sale, &billing, &FakePayment, None).await.unwrap_err();
     assert!(matches!(e, PosError::NotFullyTendered { .. }));
     assert_eq!(*billing.calls.lock().unwrap(), 0, "billing is not driven for an unpaid ticket");
 }
@@ -117,7 +117,7 @@ async fn recognize_requires_register_accounts() {
     let s = session(&w, company, prof).await;
     let sale = ring(&w, company, prof, s, "100000").await;
     w.add_tender(sale, "cash", d("100000"), None).await.unwrap();
-    let e = w.recognize_sale(sale, &FakeBilling::default(), &FakePayment).await.unwrap_err();
+    let e = w.recognize_sale(sale, &FakeBilling::default(), &FakePayment, None).await.unwrap_err();
     assert!(matches!(e, PosError::MissingAccount(_)));
 }
 
@@ -136,8 +136,8 @@ async fn recognition_is_idempotent() {
     w.add_tender(sale, "cash", d("100000"), None).await.unwrap();
     let billing = FakeBilling { calls: Arc::new(Mutex::new(0)), invoice: Uuid::new_v4() };
 
-    let first = w.recognize_sale(sale, &billing, &FakePayment).await.unwrap();
-    let second = w.recognize_sale(sale, &billing, &FakePayment).await.unwrap();
+    let first = w.recognize_sale(sale, &billing, &FakePayment, None).await.unwrap();
+    let second = w.recognize_sale(sale, &billing, &FakePayment, None).await.unwrap();
     assert_eq!(first.billing_invoice_id, second.billing_invoice_id);
     assert_eq!(*billing.calls.lock().unwrap(), 1, "billing driven exactly once across two recognises");
     let paid = rec.events.lock().unwrap().iter().filter(|e| matches!(e, PosEvent::PosInvoicePaid(p) if p.pos_invoice_id == sale)).count();
@@ -162,7 +162,7 @@ async fn billing_raised_at_most_once_across_decline_then_retry() {
     let payment = FlakyPayment { failed: Arc::new(Mutex::new(false)) };
 
     // 1) tender fails → recognise errors, but billing WAS raised + linked (mid-flight persist).
-    let e = w.recognize_sale(sale, &billing, &payment).await.unwrap_err();
+    let e = w.recognize_sale(sale, &billing, &payment, None).await.unwrap_err();
     assert!(matches!(e, PosError::PaymentRejected { .. }));
     let (st, bid): (String, Option<Uuid>) = sqlx::query_as("SELECT status::text, billing_invoice_id FROM pos.pos_invoices WHERE id=$1").bind(sale).fetch_one(&pool).await.unwrap();
     assert_eq!(st, "draft", "still unpaid after the decline");
@@ -170,7 +170,7 @@ async fn billing_raised_at_most_once_across_decline_then_retry() {
     assert_eq!(*billing.calls.lock().unwrap(), 1);
 
     // 2) retry with the now-succeeding tender → REUSES the invoice (no second billing raise).
-    w.recognize_sale(sale, &billing, &payment).await.unwrap();
+    w.recognize_sale(sale, &billing, &payment, None).await.unwrap();
     assert_eq!(*billing.calls.lock().unwrap(), 1, "billing raised exactly once — no double revenue on retry");
     let st2: String = sqlx::query_scalar("SELECT status::text FROM pos.pos_invoices WHERE id=$1").bind(sale).fetch_one(&pool).await.unwrap();
     assert_eq!(st2, "paid");

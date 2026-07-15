@@ -13,7 +13,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use super::pos_events::{PosEvent, PosEventSink, PosInvoicePaid, PosInvoiceReturned, PosSessionClosed, PosSessionOpened, LoggingSink};
-use super::pos_ports::{BillingPort, CreditNoteRequest, PaymentPort, RefundRequest, SaleInvoiceRequest, SaleLine, SettlementRequest};
+use super::pos_ports::{BillingPort, CreditNoteRequest, InventoryPort, PaymentPort, RefundRequest, SaleInvoiceRequest, SaleLine, SettlementRequest, StockIssueLine, StockIssueRequest};
 
 fn money(v: Decimal) -> Decimal {
     v.round_dp_with_strategy(2, RoundingStrategy::MidpointAwayFromZero)
@@ -278,6 +278,7 @@ pub enum PosError {
     BillingRejected { code: String, message: String },
     PaymentRejected { code: String, message: String },
     PricingRejected { code: String, message: String },
+    InventoryRejected { code: String, message: String },
     InvalidCashMovement(&'static str),
     Db(sqlx::Error),
 }
@@ -299,6 +300,7 @@ impl PosError {
             PosError::BillingRejected { code, .. } => code.clone(),
             PosError::PaymentRejected { code, .. } => code.clone(),
             PosError::PricingRejected { code, .. } => code.clone(),
+            PosError::InventoryRejected { code, .. } => code.clone(),
             PosError::InvalidCashMovement(_) => "invalid_cash_movement".into(),
             PosError::Db(_) => "internal_error".into(),
         }
@@ -539,13 +541,14 @@ impl PosWriteService {
     /// Recognise a fully-tendered sale: drive billing (raise + post the Sales Invoice → revenue) then
     /// payment (settle the `rounded_total` against it → `Dr Cash · Cr A/R`), link the results, mark the
     /// ticket `paid`, and emit `PosInvoicePaid`. Idempotent on `status='paid'`.
-    pub async fn recognize_sale(&self, pos_invoice_id: Uuid, billing: &dyn BillingPort, payment: &dyn PaymentPort) -> Result<RecognizeOutcome, PosError> {
+    pub async fn recognize_sale(&self, pos_invoice_id: Uuid, billing: &dyn BillingPort, payment: &dyn PaymentPort, inventory: Option<&dyn InventoryPort>) -> Result<RecognizeOutcome, PosError> {
         // Short-circuit if already recognised.
         if let Some(o) = self.short_circuit_paid(pos_invoice_id).await? { return Ok(o); }
         let inv = sqlx::query(
-            r#"SELECT i.company_id, i.customer_id, i.pos_profile_id, i.posting_at, i.rounded_total, i.grand_total,
+            r#"SELECT i.company_id, i.customer_id, i.pos_profile_id, i.branch_id, i.posting_at, i.rounded_total, i.grand_total,
                       i.tax_total, i.paid_total, i.billing_invoice_id,
                       p.receivable_account_id, p.income_account_id, p.cash_account_id, p.tax_account_id, p.tax_rate,
+                      p.warehouse_id, p.cogs_account_id, p.inventory_account_id,
                       p.currency, p.default_customer_id
                FROM pos.pos_invoices i JOIN pos.pos_profiles p ON p.id = i.pos_profile_id
                WHERE i.id=$1 AND i.status='draft'::pos_invoice_status AND (i.metadata->>'deleted_at') IS NULL"#,
@@ -620,6 +623,29 @@ impl PosWriteService {
                 pos_invoice_id, company_id, grand_total: inv.get("grand_total"), rounded_total,
                 billing_invoice_id: invoice_id, payment_id: sack.payment_id,
             }));
+            // Decrement stock (an outward Delivery Note: on-hand relieved, `Dr COGS · Cr Inventory`)
+            // when the register is stock-tracking. Gated on this once-only flip, so it issues exactly
+            // once even if recognise is retried. Non-stock registers (no warehouse) skip it.
+            if let (Some(inv_port), Some(warehouse), Some(cogs), Some(inv_acct)) = (
+                inventory,
+                inv.get::<Option<Uuid>, _>("warehouse_id"),
+                inv.get::<Option<Uuid>, _>("cogs_account_id"),
+                inv.get::<Option<Uuid>, _>("inventory_account_id"),
+            ) {
+                let qty_rows = sqlx::query("SELECT item_id, quantity FROM pos.pos_invoice_items WHERE pos_invoice_id=$1 AND (metadata->>'deleted_at') IS NULL")
+                    .bind(pos_invoice_id).fetch_all(&self.db_pool).await?;
+                let lines: Vec<StockIssueLine> = qty_rows.iter()
+                    .map(|r| StockIssueLine { item_id: r.get("item_id"), quantity: r.get("quantity") })
+                    .filter(|l| l.quantity > Decimal::ZERO)
+                    .collect();
+                if !lines.is_empty() {
+                    inv_port.issue(&StockIssueRequest {
+                        company_id, branch_id: inv.get("branch_id"), customer_id: customer,
+                        source_pos_id: pos_invoice_id, warehouse_id: warehouse, cogs_account_id: cogs,
+                        inventory_account_id: inv_acct, posting_date, lines,
+                    }).await.map_err(|e| PosError::InventoryRejected { code: e.code, message: e.message })?;
+                }
+            }
         }
         Ok(RecognizeOutcome { pos_invoice_id, billing_invoice_id: invoice_id, payment_id: sack.payment_id })
     }

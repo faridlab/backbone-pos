@@ -325,6 +325,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "backbone-inventory"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "backbone-auth",
+ "backbone-core",
+ "backbone-messaging",
+ "backbone-orm",
+ "chrono",
+ "config",
+ "prost",
+ "prost-types",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sqlx",
+ "thiserror 1.0.69",
+ "tokio",
+ "tonic",
+ "tonic-build",
+ "tower 0.4.13",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "validator",
+]
+
+[[package]]
 name = "backbone-messaging"
 version = "2.0.0"
 source = "git+https://github.com/faridlab/backbone-framework?branch=main#f1c3f7d7fbe2d603b47af26d8cc3339dd9e72648"
@@ -413,6 +445,7 @@ dependencies = [
  "backbone-auth",
  "backbone-billing",
  "backbone-core",
+ "backbone-inventory",
  "backbone-messaging",
  "backbone-orm",
  "backbone-payment",
