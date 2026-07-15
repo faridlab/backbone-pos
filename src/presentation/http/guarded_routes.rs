@@ -248,6 +248,20 @@ async fn x_report(State(svc): State<Arc<PosWriteService>>, tenant: TenantContext
     }
 }
 
+async fn receipt(State(svc): State<Arc<PosWriteService>>, tenant: TenantContext, Path(pos_invoice_id): Path<Uuid>) -> axum::response::Response {
+    match svc.receipt(tenant.company_id, pos_invoice_id).await {
+        Ok(r) => {
+            let text = r.render_text();
+            let mut body = serde_json::to_value(&r).unwrap_or_else(|_| serde_json::json!({}));
+            if let Some(obj) = body.as_object_mut() {
+                obj.insert("text".to_string(), serde_json::Value::String(text));
+            }
+            (StatusCode::OK, Json(body)).into_response()
+        }
+        Err(e) => err(e),
+    }
+}
+
 fn write_routes(svc: Arc<PosWriteService>, verifier: TenantVerifier) -> Router {
     Router::new()
         .route("/pos-sessions", post(open_session))
@@ -255,6 +269,7 @@ fn write_routes(svc: Arc<PosWriteService>, verifier: TenantVerifier) -> Router {
         .route("/pos-tenders", post(add_tender))
         .route("/pos-cash-movements", post(record_cash_movement))
         .route("/pos-sessions/:opening_entry_id/x-report", get(x_report))
+        .route("/pos-invoices/:pos_invoice_id/receipt", get(receipt))
         .route("/pos-sessions/close", post(close_session))
         // Every write requires a valid Bearer token carrying a company_id claim; the layer inserts the
         // TenantContext the handlers extract. Unauthenticated writes get 401 before touching the service.

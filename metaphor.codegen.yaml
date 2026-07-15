@@ -21,6 +21,7 @@ user_owned:
   - "tests/retail_sale_seam.rs"
   - "tests/tenant_guard.rs"
   - "tests/pos_cash_movement.rs"
+  - "tests/pos_receipt.rs"
   - "scripts/**"
   # Hand-authored behavior (services + their HTTP surface). Examples:
   # - "src/application/service/onboarding_service.rs"

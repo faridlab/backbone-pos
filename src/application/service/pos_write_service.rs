@@ -170,6 +170,96 @@ pub struct XReport {
     pub invoice_count: i64,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ReceiptLine {
+    pub description: String,
+    pub quantity: Decimal,
+    pub unit_price: Decimal,
+    pub discount_amount: Decimal,
+    pub net_amount: Decimal,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ReceiptTender {
+    pub method: String,
+    pub amount: Decimal,
+}
+
+/// A rendered sale receipt: the line items + money breakdown (incl. PPN) + tender/change a printer or
+/// display needs. `render_text()` produces a monospace slip.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Receipt {
+    pub pos_invoice_id: Uuid,
+    pub receipt_number: String,
+    pub register_name: String,
+    pub posting_at: chrono::DateTime<chrono::Utc>,
+    pub currency: String,
+    pub status: String,
+    pub lines: Vec<ReceiptLine>,
+    pub net_total: Decimal,
+    pub tax_rate: Decimal,
+    pub tax_total: Decimal,
+    pub rounding_adjustment: Decimal,
+    pub grand_total: Decimal,
+    pub tenders: Vec<ReceiptTender>,
+    pub paid_total: Decimal,
+    pub change_due: Decimal,
+}
+
+impl Receipt {
+    /// Render a 32-column monospace slip: header, line items, subtotal, PPN (if any), rounding (if any),
+    /// total, tenders, change. Deliberately printer-agnostic text — an ESC/POS driver wraps it.
+    pub fn render_text(&self) -> String {
+        const W: usize = 32;
+        let money = |d: Decimal| format!("{:.2}", d);
+        let row = |left: &str, right: &str| -> String {
+            let r = right.to_string();
+            let l_max = W.saturating_sub(r.len() + 1);
+            let l: String = left.chars().take(l_max).collect();
+            format!("{l}{}{r}", " ".repeat(W.saturating_sub(l.chars().count() + r.len())))
+        };
+        let center = |s: &str| -> String {
+            let pad = W.saturating_sub(s.chars().count()) / 2;
+            format!("{}{s}", " ".repeat(pad))
+        };
+        let rule = "-".repeat(W);
+        let mut o = String::new();
+        o.push_str(&center(&self.register_name)); o.push('\n');
+        o.push_str(&center(&format!("Receipt {}", self.receipt_number))); o.push('\n');
+        o.push_str(&center(&self.posting_at.format("%Y-%m-%d %H:%M").to_string())); o.push('\n');
+        o.push_str(&rule); o.push('\n');
+        for l in &self.lines {
+            o.push_str(&l.description); o.push('\n');
+            let qty_price = format!("  {} x {}", l.quantity.normalize(), money(l.unit_price));
+            o.push_str(&row(&qty_price, &money(l.net_amount))); o.push('\n');
+            if l.discount_amount > Decimal::ZERO {
+                o.push_str(&row("  disc", &format!("-{}", money(l.discount_amount)))); o.push('\n');
+            }
+        }
+        o.push_str(&rule); o.push('\n');
+        o.push_str(&row("Subtotal", &money(self.net_total))); o.push('\n');
+        if self.tax_total > Decimal::ZERO {
+            let pct = (self.tax_rate * Decimal::from(100)).normalize();
+            o.push_str(&row(&format!("PPN {pct}%"), &money(self.tax_total))); o.push('\n');
+        }
+        if self.rounding_adjustment != Decimal::ZERO {
+            o.push_str(&row("Rounding", &money(self.rounding_adjustment))); o.push('\n');
+        }
+        o.push_str(&row("TOTAL", &money(self.grand_total))); o.push('\n');
+        o.push_str(&rule); o.push('\n');
+        for t in &self.tenders {
+            o.push_str(&row(&t.method, &money(t.amount))); o.push('\n');
+        }
+        if self.change_due > Decimal::ZERO {
+            o.push_str(&row("Change", &money(self.change_due))); o.push('\n');
+        }
+        o.push_str(&rule); o.push('\n');
+        o.push_str(&center("Terima kasih")); o.push('\n');
+        o
+    }
+}
+
 // --- errors ------------------------------------------------------------------
 
 #[derive(Debug)]
@@ -712,6 +802,60 @@ impl PosWriteService {
         let (expected, grand_total, invoice_count) = self.compute_drawer(company_id, opening_entry_id).await?;
         let by_method = expected.into_iter().map(|(method, exp)| MethodExpected { method, expected: money(exp) }).collect();
         Ok(XReport { opening_entry_id, by_method, grand_total: money(grand_total), invoice_count })
+    }
+
+    // ---- receipt -----------------------------------------------------------
+
+    /// Assemble the receipt for a ticket: register + money breakdown (incl. server-computed PPN) +
+    /// lines + tenders + change. Tenant-scoped read — any ticket in the caller's company can be
+    /// (re)printed. The GL is billing's; this is the customer-facing slip.
+    pub async fn receipt(&self, company_id: Uuid, pos_invoice_id: Uuid) -> Result<Receipt, PosError> {
+        let hdr = sqlx::query(
+            r#"SELECT i.receipt_number, i.posting_at, i.net_total, i.tax_total, i.rounding_adjustment,
+                      i.rounded_total, i.paid_total, i.change_due, i.status::text AS status,
+                      p.name AS register_name, p.currency, p.tax_rate
+               FROM pos.pos_invoices i JOIN pos.pos_profiles p ON p.id = i.pos_profile_id
+               WHERE i.id=$1 AND i.company_id=$2 AND (i.metadata->>'deleted_at') IS NULL"#,
+        ).bind(pos_invoice_id).bind(company_id).fetch_optional(&self.db_pool).await?
+            .ok_or(PosError::InvoiceNotFound(pos_invoice_id))?;
+
+        let line_rows = sqlx::query(
+            "SELECT description, item_id, quantity, unit_price, discount_amount, net_amount
+             FROM pos.pos_invoice_items WHERE pos_invoice_id=$1 AND (metadata->>'deleted_at') IS NULL
+             ORDER BY (metadata->>'created_at')",
+        ).bind(pos_invoice_id).fetch_all(&self.db_pool).await?;
+        let lines = line_rows.iter().map(|r| {
+            let desc = r.get::<Option<String>, _>("description")
+                .unwrap_or_else(|| r.get::<Uuid, _>("item_id").to_string());
+            ReceiptLine {
+                description: desc, quantity: r.get("quantity"), unit_price: r.get("unit_price"),
+                discount_amount: r.get("discount_amount"), net_amount: r.get("net_amount"),
+            }
+        }).collect();
+
+        let tender_rows = sqlx::query(
+            "SELECT payment_method::text AS method, amount FROM pos.pos_payments
+             WHERE pos_invoice_id=$1 AND (metadata->>'deleted_at') IS NULL ORDER BY (metadata->>'created_at')",
+        ).bind(pos_invoice_id).fetch_all(&self.db_pool).await?;
+        let tenders = tender_rows.iter().map(|r| ReceiptTender { method: r.get("method"), amount: r.get("amount") }).collect();
+
+        Ok(Receipt {
+            pos_invoice_id,
+            receipt_number: hdr.get("receipt_number"),
+            register_name: hdr.get("register_name"),
+            posting_at: hdr.get("posting_at"),
+            currency: hdr.get("currency"),
+            status: hdr.get("status"),
+            lines,
+            net_total: hdr.get("net_total"),
+            tax_rate: hdr.get("tax_rate"),
+            tax_total: hdr.get("tax_total"),
+            rounding_adjustment: hdr.get("rounding_adjustment"),
+            grand_total: hdr.get("rounded_total"),
+            tenders,
+            paid_total: hdr.get("paid_total"),
+            change_due: hdr.get("change_due"),
+        })
     }
 
     // ---- close (drawer reconciliation) -------------------------------------
