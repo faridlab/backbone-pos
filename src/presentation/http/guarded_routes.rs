@@ -14,6 +14,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::application::service::pos_cart_pricing::CartPricingPort;
+use crate::application::service::pos_events::PosEventSink;
 use crate::application::service::pos_write_service::{
     CartSaleLine, NewCartSale, NewCashMovement, NewClose, NewSale, NewSaleLine, NewSession, PosError,
     PosWriteService,
@@ -203,8 +204,8 @@ async fn ring_sale_priced(State(st): State<PricedState>, tenant: TenantContext, 
 
 /// Mount ONLY the promo-priced ring route (`POST /pos-sales/priced`), authenticated. Merge this in
 /// addition to `create_guarded_pos_routes` when the service has a promo-backed `CartPricingPort`.
-pub fn create_guarded_pos_priced_route(pool: PgPool, verifier: TenantVerifier, pricing: Arc<dyn CartPricingPort>) -> Router {
-    let st = PricedState { svc: Arc::new(PosWriteService::new(pool)), pricing };
+pub fn create_guarded_pos_priced_route(pool: PgPool, verifier: TenantVerifier, pricing: Arc<dyn CartPricingPort>, sink: Arc<dyn PosEventSink>) -> Router {
+    let st = PricedState { svc: Arc::new(PosWriteService::with_sink(pool, sink)), pricing };
     Router::new()
         .route("/pos-sales/priced", post(ring_sale_priced))
         .layer(from_fn_with_state(verifier, tenant_auth))
@@ -285,8 +286,8 @@ fn write_routes(svc: Arc<PosWriteService>, verifier: TenantVerifier) -> Router {
 ///
 /// NOTE: read routes are not yet tenant-scoped (they return by id); scope them when the read surface
 /// carries sensitive cross-tenant data. Writes — the corruption vector — are closed here.
-pub fn create_guarded_pos_routes(m: &PosModule, pool: PgPool, verifier: TenantVerifier) -> Router {
-    let write = Arc::new(PosWriteService::new(pool));
+pub fn create_guarded_pos_routes(m: &PosModule, pool: PgPool, verifier: TenantVerifier, sink: Arc<dyn PosEventSink>) -> Router {
+    let write = Arc::new(PosWriteService::with_sink(pool, sink));
     Router::new()
         .merge(create_pos_profile_read_routes(m.pos_profile_service.clone()))
         .merge(create_pos_opening_entry_read_routes(m.pos_opening_entry_service.clone()))

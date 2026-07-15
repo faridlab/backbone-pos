@@ -50,11 +50,21 @@ pub struct PosInvoiceReturned {
     pub amount: Decimal,
 }
 
+/// A ticket just became fully tendered — it is ready to RECOGNISE (drive billing + payment + inventory).
+/// A composing service subscribes to this and calls `recognize_sale`, turning the counter into an
+/// event-driven flow instead of an inline call. Emitted once, on the tender that crosses the threshold.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PosTenderCompleted {
+    pub pos_invoice_id: Uuid,
+    pub company_id: Uuid,
+}
+
 /// The POS domain-event union.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum PosEvent {
     PosSessionOpened(PosSessionOpened),
+    PosTenderCompleted(PosTenderCompleted),
     PosInvoicePaid(PosInvoicePaid),
     PosSessionClosed(PosSessionClosed),
     PosInvoiceReturned(PosInvoiceReturned),

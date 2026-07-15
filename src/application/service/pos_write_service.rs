@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use super::pos_events::{PosEvent, PosEventSink, PosInvoicePaid, PosInvoiceReturned, PosSessionClosed, PosSessionOpened, LoggingSink};
+use super::pos_events::{PosEvent, PosEventSink, PosInvoicePaid, PosInvoiceReturned, PosSessionClosed, PosSessionOpened, PosTenderCompleted, LoggingSink};
 use super::pos_ports::{BillingPort, CreditNoteRequest, InventoryPort, PaymentPort, RefundRequest, SaleInvoiceRequest, SaleLine, SettlementRequest, StockIssueLine, StockIssueRequest};
 
 fn money(v: Decimal) -> Decimal {
@@ -517,7 +517,7 @@ impl PosWriteService {
     /// Add a tender line; recompute `paid_total` + `change_due` (overpayment). Ticket must be draft.
     pub async fn add_tender(&self, pos_invoice_id: Uuid, method: &str, amount: Decimal, reference_no: Option<String>) -> Result<TenderOutcome, PosError> {
         if amount <= Decimal::ZERO { return Err(PosError::NegativeAmount); }
-        let hdr = sqlx::query("SELECT status::text AS st, rounded_total FROM pos.pos_invoices WHERE id=$1 AND (metadata->>'deleted_at') IS NULL")
+        let hdr = sqlx::query("SELECT status::text AS st, rounded_total, company_id FROM pos.pos_invoices WHERE id=$1 AND (metadata->>'deleted_at') IS NULL")
             .bind(pos_invoice_id).fetch_optional(&self.db_pool).await?.ok_or(PosError::InvoiceNotFound(pos_invoice_id))?;
         if hdr.get::<String, _>("st") != "draft" { return Err(PosError::NotDraft); }
         let rounded_total: Decimal = hdr.get("rounded_total");
@@ -533,7 +533,16 @@ impl PosWriteService {
         sqlx::query("UPDATE pos.pos_invoices SET paid_total=$2, change_due=$3 WHERE id=$1")
             .bind(pos_invoice_id).bind(paid_total).bind(change_due).execute(&mut *tx).await?;
         tx.commit().await?;
-        Ok(TenderOutcome { paid_total, change_due, fully_tendered: paid_total >= rounded_total })
+        // Emit PosTenderCompleted exactly on the tender that crosses full payment, so a subscriber can
+        // recognise the sale. Guarding on the crossing (prev < total <= now) avoids a re-emit on any
+        // extra tender added before recognition flips the ticket to paid.
+        let fully_tendered = paid_total >= rounded_total;
+        if fully_tendered && (paid_total - money(amount)) < rounded_total {
+            self.sink.publish(PosEvent::PosTenderCompleted(PosTenderCompleted {
+                pos_invoice_id, company_id: hdr.get("company_id"),
+            }));
+        }
+        Ok(TenderOutcome { paid_total, change_due, fully_tendered })
     }
 
     // ---- recognize (the retail seam) ---------------------------------------
