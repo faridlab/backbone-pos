@@ -13,7 +13,6 @@ pub mod pos_profile_handler;
 pub mod pos_opening_entry_handler;
 // <<< CUSTOM
 pub mod guarded_routes;
-pub mod tenant;
 // END CUSTOM
 pub mod pos_cash_movement_handler;
 
@@ -29,7 +28,10 @@ pub use pos_profile_handler::{create_pos_profile_routes, create_pos_profile_read
 pub use pos_opening_entry_handler::{create_pos_opening_entry_routes, create_pos_opening_entry_read_routes, create_pos_opening_entry_write_routes};
 // <<< CUSTOM
 pub use guarded_routes::{create_guarded_pos_priced_route, create_guarded_pos_routes};
-pub use tenant::{tenant_auth, TenantClaims, TenantContext, TenantVerifier};
+// The tenant guard now lives in the framework (`backbone_auth::tenant`, feature `axum`) — POS proved
+// the pattern, and it was promoted once a second guarded module needed it. Re-exported here so the
+// composing service and the TG-* tests keep importing it from this module.
+pub use backbone_auth::tenant::{tenant_auth, TenantClaims, TenantContext, TenantVerifier};
 // END CUSTOM
 pub use pos_cash_movement_handler::{create_pos_cash_movement_routes, create_pos_cash_movement_read_routes, create_pos_cash_movement_write_routes};
 // <<< CUSTOM

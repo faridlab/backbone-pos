@@ -15,7 +15,6 @@ user_owned:
   - "src/application/service/pos_ports.rs"
   - "src/application/service/pos_write_service.rs"
   - "src/presentation/http/guarded_routes.rs"
-  - "src/presentation/http/tenant.rs"
   - "tests/pos_golden_cases.rs"
   - "tests/integrity_probes.rs"
   - "tests/retail_sale_seam.rs"

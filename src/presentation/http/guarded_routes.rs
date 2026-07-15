@@ -21,7 +21,7 @@ use crate::application::service::pos_write_service::{
 };
 use crate::PosModule;
 
-use super::tenant::{tenant_auth, TenantContext, TenantVerifier};
+use backbone_auth::tenant::{tenant_auth, TenantContext, TenantVerifier};
 use super::{
     create_pos_invoice_read_routes, create_pos_opening_entry_read_routes, create_pos_profile_read_routes,
 };
