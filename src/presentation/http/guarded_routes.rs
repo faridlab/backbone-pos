@@ -269,7 +269,7 @@ fn write_routes(svc: Arc<PosWriteService>, verifier: TenantVerifier) -> Router {
         .route("/pos-tenders", post(add_tender))
         .route("/pos-cash-movements", post(record_cash_movement))
         .route("/pos-sessions/:opening_entry_id/x-report", get(x_report))
-        .route("/pos-invoices/:pos_invoice_id/receipt", get(receipt))
+        .route("/pos-receipts/:pos_invoice_id", get(receipt))
         .route("/pos-sessions/close", post(close_session))
         // Every write requires a valid Bearer token carrying a company_id claim; the layer inserts the
         // TenantContext the handlers extract. Unauthenticated writes get 401 before touching the service.

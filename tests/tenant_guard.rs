@@ -75,12 +75,19 @@ fn post(uri: &str, body: String, bearer: Option<&str>) -> Request<Body> {
     b.body(Body::from(body)).unwrap()
 }
 
+/// Seed a non-PKP register (tax_rate 0) — ring_sale now loads the profile to compute server-side PPN.
+async fn seed_profile(pool: &sqlx::PgPool, id: Uuid, company: Uuid) {
+    sqlx::query("INSERT INTO pos.pos_profiles (id, company_id, name, currency, allow_discount, is_active) VALUES ($1,$2,'Register 1','IDR',true,true)")
+        .bind(id).bind(company).execute(pool).await.unwrap();
+}
+
 #[tokio::test]
 async fn pos_write_surface_enforces_tenant_from_principal() {
     let pool = pool().await;
     let company_a = Uuid::new_v4();
     let company_b = Uuid::new_v4();
     let profile = Uuid::new_v4();
+    seed_profile(&pool, profile, company_a).await;
 
     // Seed an OPEN session owned by company A (real write path, not raw SQL).
     let svc = PosWriteService::new(pool.clone());
@@ -155,6 +162,7 @@ async fn priced_route_rings_from_the_server_pricer_not_the_client_price() {
     let pool = pool().await;
     let company_a = Uuid::new_v4();
     let profile = Uuid::new_v4();
+    seed_profile(&pool, profile, company_a).await;
 
     let svc = PosWriteService::new(pool.clone());
     let session_a = svc
