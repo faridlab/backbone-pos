@@ -208,7 +208,7 @@ pub fn create_guarded_pos_priced_route(pool: PgPool, verifier: TenantVerifier, p
     let st = PricedState { svc: Arc::new(PosWriteService::with_sink(pool, sink)), pricing };
     Router::new()
         .route("/pos-sales/priced", post(ring_sale_priced))
-        .layer(from_fn_with_state(verifier, tenant_auth))
+        .route_layer(from_fn_with_state(verifier, tenant_auth))
         .with_state(st)
 }
 
@@ -274,7 +274,7 @@ fn write_routes(svc: Arc<PosWriteService>, verifier: TenantVerifier) -> Router {
         .route("/pos-sessions/close", post(close_session))
         // Every write requires a valid Bearer token carrying a company_id claim; the layer inserts the
         // TenantContext the handlers extract. Unauthenticated writes get 401 before touching the service.
-        .layer(from_fn_with_state(verifier, tenant_auth))
+        .route_layer(from_fn_with_state(verifier, tenant_auth))
         .with_state(svc)
 }
 
