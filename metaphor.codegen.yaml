@@ -18,7 +18,7 @@ user_owned:
   - "tests/pos_golden_cases.rs"
   - "tests/integrity_probes.rs"
   - "tests/retail_sale_seam.rs"
-  - "tests/tenant_guard.rs"
+  - "tests/company_guard.rs"
   - "tests/pos_cash_movement.rs"
   - "tests/pos_receipt.rs"
   - "scripts/**"

@@ -21,7 +21,7 @@ use crate::application::service::pos_write_service::{
 };
 use crate::PosModule;
 
-use backbone_auth::tenant::{tenant_auth, TenantContext, TenantVerifier};
+use backbone_auth::company::{company_auth, CompanyContext, CompanyVerifier};
 use super::{
     create_pos_invoice_read_routes, create_pos_opening_entry_read_routes, create_pos_profile_read_routes,
 };
@@ -47,7 +47,7 @@ struct OpenSessionBody {
     opened_at: chrono::NaiveDateTime,
     #[serde(default)] opening_balances: Vec<OpeningBalanceBody>,
 }
-async fn open_session(State(svc): State<Arc<PosWriteService>>, tenant: TenantContext, Json(b): Json<OpenSessionBody>) -> axum::response::Response {
+async fn open_session(State(svc): State<Arc<PosWriteService>>, tenant: CompanyContext, Json(b): Json<OpenSessionBody>) -> axum::response::Response {
     // company_id / branch_id come from the authenticated principal, never the request body.
     let s = NewSession {
         company_id: tenant.company_id, pos_profile_id: b.pos_profile_id, branch_id: tenant.branch_id,
@@ -81,7 +81,7 @@ struct RingSaleBody {
     lines: Vec<SaleLineBody>,
     #[serde(default)] round_to: Option<Decimal>,
 }
-async fn ring_sale(State(svc): State<Arc<PosWriteService>>, tenant: TenantContext, Json(b): Json<RingSaleBody>) -> axum::response::Response {
+async fn ring_sale(State(svc): State<Arc<PosWriteService>>, tenant: CompanyContext, Json(b): Json<RingSaleBody>) -> axum::response::Response {
     // Tenant from the principal — `ring_sale` scopes the session lookup by this company_id, so a token
     // for company A cannot ring against company B's opening_entry_id (the cross-tenant write is closed).
     // Tax is NOT taken from the client: PPN is server-owned (refused until a profile tax account exists,
@@ -109,7 +109,7 @@ struct TenderBody {
     amount: Decimal,
     #[serde(default)] reference_no: Option<String>,
 }
-async fn add_tender(State(svc): State<Arc<PosWriteService>>, _tenant: TenantContext, Json(b): Json<TenderBody>) -> axum::response::Response {
+async fn add_tender(State(svc): State<Arc<PosWriteService>>, _tenant: CompanyContext, Json(b): Json<TenderBody>) -> axum::response::Response {
     match svc.add_tender(b.pos_invoice_id, &b.payment_method, b.amount, b.reference_no).await {
         Ok(o) => (StatusCode::OK, Json(serde_json::json!({
             "paidTotal": o.paid_total, "changeDue": o.change_due, "fullyTendered": o.fully_tendered,
@@ -129,7 +129,7 @@ struct CloseBody {
     closed_at: chrono::NaiveDateTime,
     #[serde(default)] counted: Vec<CountedBody>,
 }
-async fn close_session(State(svc): State<Arc<PosWriteService>>, tenant: TenantContext, Json(b): Json<CloseBody>) -> axum::response::Response {
+async fn close_session(State(svc): State<Arc<PosWriteService>>, tenant: CompanyContext, Json(b): Json<CloseBody>) -> axum::response::Response {
     // company_id from the principal — close scopes the opening-entry lookup by it (already did at :566).
     let c = NewClose {
         company_id: tenant.company_id, opening_entry_id: b.opening_entry_id, cashier_party_id: b.cashier_party_id,
@@ -184,7 +184,7 @@ struct PricedState {
     pricing: Arc<dyn CartPricingPort>,
 }
 
-async fn ring_sale_priced(State(st): State<PricedState>, tenant: TenantContext, Json(b): Json<RingSalePricedBody>) -> axum::response::Response {
+async fn ring_sale_priced(State(st): State<PricedState>, tenant: CompanyContext, Json(b): Json<RingSalePricedBody>) -> axum::response::Response {
     let cart = NewCartSale {
         company_id: tenant.company_id, pos_profile_id: b.pos_profile_id, opening_entry_id: b.opening_entry_id,
         branch_id: tenant.branch_id, customer_id: b.customer_id, customer_group_id: b.customer_group_id,
@@ -204,11 +204,11 @@ async fn ring_sale_priced(State(st): State<PricedState>, tenant: TenantContext, 
 
 /// Mount ONLY the promo-priced ring route (`POST /pos-sales/priced`), authenticated. Merge this in
 /// addition to `create_guarded_pos_routes` when the service has a promo-backed `CartPricingPort`.
-pub fn create_guarded_pos_priced_route(pool: PgPool, verifier: TenantVerifier, pricing: Arc<dyn CartPricingPort>, sink: Arc<dyn PosEventSink>) -> Router {
+pub fn create_guarded_pos_priced_route(pool: PgPool, verifier: CompanyVerifier, pricing: Arc<dyn CartPricingPort>, sink: Arc<dyn PosEventSink>) -> Router {
     let st = PricedState { svc: Arc::new(PosWriteService::with_sink(pool, sink)), pricing };
     Router::new()
         .route("/pos-sales/priced", post(ring_sale_priced))
-        .route_layer(from_fn_with_state(verifier, tenant_auth))
+        .route_layer(from_fn_with_state(verifier, company_auth))
         .with_state(st)
 }
 
@@ -224,7 +224,7 @@ struct CashMovementBody {
     #[serde(default)] reason: Option<String>,
     moved_at: chrono::NaiveDateTime,
 }
-async fn record_cash_movement(State(svc): State<Arc<PosWriteService>>, tenant: TenantContext, Json(b): Json<CashMovementBody>) -> axum::response::Response {
+async fn record_cash_movement(State(svc): State<Arc<PosWriteService>>, tenant: CompanyContext, Json(b): Json<CashMovementBody>) -> axum::response::Response {
     // company_id from the authenticated principal; the session lookup is scoped by it.
     let m = NewCashMovement {
         company_id: tenant.company_id, pos_profile_id: b.pos_profile_id, opening_entry_id: b.opening_entry_id,
@@ -237,7 +237,7 @@ async fn record_cash_movement(State(svc): State<Arc<PosWriteService>>, tenant: T
     }
 }
 
-async fn x_report(State(svc): State<Arc<PosWriteService>>, tenant: TenantContext, Path(opening_entry_id): Path<Uuid>) -> axum::response::Response {
+async fn x_report(State(svc): State<Arc<PosWriteService>>, tenant: CompanyContext, Path(opening_entry_id): Path<Uuid>) -> axum::response::Response {
     match svc.x_report(tenant.company_id, opening_entry_id).await {
         Ok(r) => (StatusCode::OK, Json(serde_json::json!({
             "openingEntryId": r.opening_entry_id,
@@ -249,7 +249,7 @@ async fn x_report(State(svc): State<Arc<PosWriteService>>, tenant: TenantContext
     }
 }
 
-async fn receipt(State(svc): State<Arc<PosWriteService>>, tenant: TenantContext, Path(pos_invoice_id): Path<Uuid>) -> axum::response::Response {
+async fn receipt(State(svc): State<Arc<PosWriteService>>, tenant: CompanyContext, Path(pos_invoice_id): Path<Uuid>) -> axum::response::Response {
     match svc.receipt(tenant.company_id, pos_invoice_id).await {
         Ok(r) => {
             let text = r.render_text();
@@ -263,7 +263,7 @@ async fn receipt(State(svc): State<Arc<PosWriteService>>, tenant: TenantContext,
     }
 }
 
-fn write_routes(svc: Arc<PosWriteService>, verifier: TenantVerifier) -> Router {
+fn write_routes(svc: Arc<PosWriteService>, verifier: CompanyVerifier) -> Router {
     Router::new()
         .route("/pos-sessions", post(open_session))
         .route("/pos-sales", post(ring_sale))
@@ -273,8 +273,8 @@ fn write_routes(svc: Arc<PosWriteService>, verifier: TenantVerifier) -> Router {
         .route("/pos-receipts/:pos_invoice_id", get(receipt))
         .route("/pos-sessions/close", post(close_session))
         // Every write requires a valid Bearer token carrying a company_id claim; the layer inserts the
-        // TenantContext the handlers extract. Unauthenticated writes get 401 before touching the service.
-        .route_layer(from_fn_with_state(verifier, tenant_auth))
+        // CompanyContext the handlers extract. Unauthenticated writes get 401 before touching the service.
+        .route_layer(from_fn_with_state(verifier, company_auth))
         .with_state(svc)
 }
 
@@ -286,7 +286,7 @@ fn write_routes(svc: Arc<PosWriteService>, verifier: TenantVerifier) -> Router {
 ///
 /// NOTE: read routes are not yet tenant-scoped (they return by id); scope them when the read surface
 /// carries sensitive cross-tenant data. Writes — the corruption vector — are closed here.
-pub fn create_guarded_pos_routes(m: &PosModule, pool: PgPool, verifier: TenantVerifier, sink: Arc<dyn PosEventSink>) -> Router {
+pub fn create_guarded_pos_routes(m: &PosModule, pool: PgPool, verifier: CompanyVerifier, sink: Arc<dyn PosEventSink>) -> Router {
     let write = Arc::new(PosWriteService::with_sink(pool, sink));
     Router::new()
         .merge(create_pos_profile_read_routes(m.pos_profile_service.clone()))

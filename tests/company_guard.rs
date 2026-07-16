@@ -24,7 +24,7 @@ use backbone_pos::application::service::pos_cart_pricing::{
 use backbone_pos::application::service::pos_events::LoggingSink;
 use backbone_pos::application::service::pos_write_service::{NewSession, PosWriteService};
 use backbone_pos::presentation::http::{
-    create_guarded_pos_priced_route, create_guarded_pos_routes, TenantVerifier,
+    create_guarded_pos_priced_route, create_guarded_pos_routes, CompanyVerifier,
 };
 use backbone_pos::PosModule;
 use std::sync::Arc;
@@ -105,7 +105,7 @@ async fn pos_write_surface_enforces_tenant_from_principal() {
         .expect("seed open session for company A");
 
     let module = PosModule::builder().with_database(pool.clone()).build().expect("build PosModule");
-    let app = create_guarded_pos_routes(&module, pool.clone(), TenantVerifier::hs256(SECRET), Arc::new(LoggingSink));
+    let app = create_guarded_pos_routes(&module, pool.clone(), CompanyVerifier::hs256(SECRET), Arc::new(LoggingSink));
 
     // TG-1: no token → 401.
     let r = app.clone().oneshot(post("/pos-sales", ring_body(session_a, profile), None)).await.unwrap();
@@ -178,7 +178,7 @@ async fn priced_route_rings_from_the_server_pricer_not_the_client_price() {
         .await
         .expect("seed open session");
 
-    let app = create_guarded_pos_priced_route(pool.clone(), TenantVerifier::hs256(SECRET), Arc::new(HalfOffPricer), Arc::new(LoggingSink));
+    let app = create_guarded_pos_priced_route(pool.clone(), CompanyVerifier::hs256(SECRET), Arc::new(HalfOffPricer), Arc::new(LoggingSink));
     let receipt = format!("RP-{}", &Uuid::new_v4().simple().to_string()[..8]);
     let body = json!({
         "posProfileId": profile,
