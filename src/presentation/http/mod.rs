@@ -28,10 +28,15 @@ pub use pos_profile_handler::{create_pos_profile_routes, create_pos_profile_read
 pub use pos_opening_entry_handler::{create_pos_opening_entry_routes, create_pos_opening_entry_read_routes, create_pos_opening_entry_write_routes};
 // <<< CUSTOM
 pub use guarded_routes::{create_guarded_pos_priced_route, create_guarded_pos_routes};
-// The tenant guard now lives in the framework (`backbone_auth::tenant`, feature `axum`) — POS proved
+// The company guard now lives in the framework (`backbone_auth::company`, feature `axum`) — POS proved
 // the pattern, and it was promoted once a second guarded module needed it. Re-exported here so the
 // composing service and the TG-* tests keep importing it from this module.
-pub use backbone_auth::tenant::{tenant_auth, TenantClaims, TenantContext, TenantVerifier};
+pub use backbone_auth::company::{company_auth, CompanyClaims, CompanyContext, CompanyVerifier};
+// Deprecated Tenant* aliases: a composing service pinned to `main` (e.g. serpa-posman-service)
+// references `TenantVerifier` etc. through this module. Keep it compiling on sync; migrate to the
+// Company* names (ADR-0005) and then drop these.
+#[allow(deprecated)]
+pub use backbone_auth::{TenantClaims, TenantContext, TenantVerifier, tenant_auth};
 // END CUSTOM
 pub use pos_cash_movement_handler::{create_pos_cash_movement_routes, create_pos_cash_movement_read_routes, create_pos_cash_movement_write_routes};
 // <<< CUSTOM
