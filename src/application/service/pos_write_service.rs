@@ -6,6 +6,7 @@
 //! as web/B2B sales. A cash sale therefore books `Dr A/R · Cr Revenue` (billing) then `Dr Cash · Cr
 //! A/R` (payment) — A/R nets to zero at the counter. Close reconciles the drawer per tender method.
 
+use backbone_orm::company_scope;
 use rust_decimal::{Decimal, RoundingStrategy};
 use sqlx::{PgPool, Row};
 use std::collections::BTreeMap;
@@ -346,83 +347,104 @@ impl PosWriteService {
     // ---- session ------------------------------------------------------------
 
     pub async fn open_session(&self, s: NewSession) -> Result<Uuid, PosError> {
-        let id = Uuid::new_v4();
-        let opening = serde_json::Value::Array(s.opening_balances.iter().map(|(m, a)| {
-            serde_json::json!({ "method": m, "amount": a.to_string() })
-        }).collect());
-        sqlx::query(
-            r#"INSERT INTO pos.pos_opening_entries
-                (id, company_id, pos_profile_id, branch_id, cashier_party_id, opened_at, opening_balances, status)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,'open'::pos_session_status)"#,
-        )
-        .bind(id).bind(s.company_id).bind(s.pos_profile_id).bind(s.branch_id).bind(s.cashier_party_id)
-        .bind(s.opened_at).bind(sqlx::types::Json(opening)).execute(&self.db_pool).await?;
-        self.sink.publish(PosEvent::PosSessionOpened(PosSessionOpened {
-            opening_entry_id: id, pos_profile_id: s.pos_profile_id, company_id: s.company_id,
-        }));
-        Ok(id)
+        // RLS scope (ADR-0008): bind this call to its own company for the whole body, so every query
+        // runs with `app.company_id` set — via the request-dedicated connection under HTTP, or a
+        // per-statement scope for non-request callers (jobs). The explicit `company_id` binds below
+        // stay as defense-in-depth. This is the pattern every custom write service should follow.
+        let company = s.company_id;
+        company_scope::with_company_scope(Some(company), async move {
+            let id = Uuid::new_v4();
+            let opening = serde_json::Value::Array(s.opening_balances.iter().map(|(m, a)| {
+                serde_json::json!({ "method": m, "amount": a.to_string() })
+            }).collect());
+            company_scope::execute_scoped(
+                &self.db_pool,
+                sqlx::query(
+                    r#"INSERT INTO pos.pos_opening_entries
+                        (id, company_id, pos_profile_id, branch_id, cashier_party_id, opened_at, opening_balances, status)
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,'open'::pos_session_status)"#,
+                )
+                .bind(id).bind(s.company_id).bind(s.pos_profile_id).bind(s.branch_id).bind(s.cashier_party_id)
+                .bind(s.opened_at).bind(sqlx::types::Json(opening)),
+            ).await?;
+            self.sink.publish(PosEvent::PosSessionOpened(PosSessionOpened {
+                opening_entry_id: id, pos_profile_id: s.pos_profile_id, company_id: s.company_id,
+            }));
+            Ok(id)
+        }).await
     }
 
     // ---- ring sale ----------------------------------------------------------
 
     pub async fn ring_sale(&self, sale: NewSale) -> Result<Uuid, PosError> {
-        if sale.lines.is_empty() { return Err(PosError::EmptyDocument); }
-        // Session must be open AND belong to the caller's tenant. Scoping by company_id (like
-        // close_session does) closes the cross-tenant write: a caller cannot ring against another
-        // company's opening_entry_id — the lookup simply won't find it (→ SessionNotOpen).
-        let st: Option<String> = sqlx::query_scalar("SELECT status::text FROM pos.pos_opening_entries WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL")
-            .bind(sale.opening_entry_id).bind(sale.company_id).fetch_optional(&self.db_pool).await?;
-        if st.as_deref() != Some("open") { return Err(PosError::SessionNotOpen); }
+        // RLS scope (ADR-0008): the standalone lookups run through the scoped helpers (request
+        // connection under HTTP), and the multi-row write runs in a transaction whose connection is
+        // bound to this company via `bind_current_company` — so both the reads and the invoice/items
+        // insert are fenced. Explicit `company_id` filters stay as defense-in-depth.
+        let company = sale.company_id;
+        company_scope::with_company_scope(Some(company), async move {
+            if sale.lines.is_empty() { return Err(PosError::EmptyDocument); }
+            // Session must be open AND belong to the caller's tenant.
+            let st: Option<String> = company_scope::fetch_optional_scalar_scoped(
+                &self.db_pool,
+                sqlx::query_scalar("SELECT status::text FROM pos.pos_opening_entries WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL")
+                    .bind(sale.opening_entry_id).bind(sale.company_id),
+            ).await?;
+            if st.as_deref() != Some("open") { return Err(PosError::SessionNotOpen); }
 
-        let mut net_total = Decimal::ZERO;
-        let mut priced: Vec<(NewSaleLine, Decimal)> = Vec::with_capacity(sale.lines.len());
-        for l in sale.lines {
-            if l.quantity < Decimal::ZERO || l.unit_price < Decimal::ZERO || l.discount_amount < Decimal::ZERO {
-                return Err(PosError::NegativeAmount);
+            let mut net_total = Decimal::ZERO;
+            let mut priced: Vec<(NewSaleLine, Decimal)> = Vec::with_capacity(sale.lines.len());
+            for l in sale.lines {
+                if l.quantity < Decimal::ZERO || l.unit_price < Decimal::ZERO || l.discount_amount < Decimal::ZERO {
+                    return Err(PosError::NegativeAmount);
+                }
+                let net = money(l.quantity * l.unit_price) - money(l.discount_amount);
+                if net < Decimal::ZERO { return Err(PosError::NegativeAmount); }
+                net_total += net;
+                priced.push((l, net));
             }
-            let net = money(l.quantity * l.unit_price) - money(l.discount_amount);
-            if net < Decimal::ZERO { return Err(PosError::NegativeAmount); }
-            net_total += net;
-            priced.push((l, net));
-        }
-        let net_total = money(net_total);
-        // PPN is server-owned: compute it from the register's configured rate (0 for a non-PKP till).
-        // The `sale.tax_total` input is ignored — a merchant can neither omit nor overstate the VAT.
-        let tax_rate: Decimal = sqlx::query_scalar(
-            "SELECT tax_rate FROM pos.pos_profiles WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL",
-        ).bind(sale.pos_profile_id).bind(sale.company_id).fetch_optional(&self.db_pool).await?
-            .ok_or(PosError::ProfileNotFound(sale.pos_profile_id))?;
-        let tax_total = money(net_total * tax_rate);
-        let grand = net_total + tax_total;
-        let rounded = round_to(grand, sale.round_to.unwrap_or(Decimal::ZERO));
-        let rounding_adjustment = rounded - grand;
-        let id = Uuid::new_v4();
-        let mut tx = self.db_pool.begin().await?;
-        let r = sqlx::query(
-            r#"INSERT INTO pos.pos_invoices
-                (id, company_id, pos_profile_id, opening_entry_id, branch_id, customer_id, receipt_number,
-                 posting_at, net_total, tax_total, grand_total, rounding_adjustment, rounded_total,
-                 paid_total, change_due, is_return, status)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,0,0,false,'draft'::pos_invoice_status)"#,
-        )
-        .bind(id).bind(sale.company_id).bind(sale.pos_profile_id).bind(sale.opening_entry_id).bind(sale.branch_id)
-        .bind(sale.customer_id).bind(&sale.receipt_number).bind(sale.posting_at).bind(net_total).bind(tax_total)
-        .bind(grand).bind(rounding_adjustment).bind(rounded).execute(&mut *tx).await;
-        if let Err(e) = r {
-            return Err(if is_dup(&e) { PosError::DuplicateNumber(sale.receipt_number) } else { e.into() });
-        }
-        for (l, net) in &priced {
-            sqlx::query(
-                r#"INSERT INTO pos.pos_invoice_items
-                    (id, pos_invoice_id, item_id, description, quantity, unit_price, discount_amount, net_amount, revenue_account_id)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)"#,
+            let net_total = money(net_total);
+            // PPN is server-owned: compute it from the register's configured rate (0 for a non-PKP till).
+            // The `sale.tax_total` input is ignored — a merchant can neither omit nor overstate the VAT.
+            let tax_rate: Decimal = company_scope::fetch_optional_scalar_scoped(
+                &self.db_pool,
+                sqlx::query_scalar("SELECT tax_rate FROM pos.pos_profiles WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL")
+                    .bind(sale.pos_profile_id).bind(sale.company_id),
+            ).await?
+                .ok_or(PosError::ProfileNotFound(sale.pos_profile_id))?;
+            let tax_total = money(net_total * tax_rate);
+            let grand = net_total + tax_total;
+            let rounded = round_to(grand, sale.round_to.unwrap_or(Decimal::ZERO));
+            let rounding_adjustment = rounded - grand;
+            let id = Uuid::new_v4();
+            let mut tx = self.db_pool.begin().await?;
+            company_scope::bind_current_company(&mut tx).await?;
+            let r = sqlx::query(
+                r#"INSERT INTO pos.pos_invoices
+                    (id, company_id, pos_profile_id, opening_entry_id, branch_id, customer_id, receipt_number,
+                     posting_at, net_total, tax_total, grand_total, rounding_adjustment, rounded_total,
+                     paid_total, change_due, is_return, status)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,0,0,false,'draft'::pos_invoice_status)"#,
             )
-            .bind(Uuid::new_v4()).bind(id).bind(l.item_id).bind(&l.description).bind(l.quantity)
-            .bind(l.unit_price).bind(money(l.discount_amount)).bind(net).bind(l.revenue_account_id)
-            .execute(&mut *tx).await?;
-        }
-        tx.commit().await?;
-        Ok(id)
+            .bind(id).bind(sale.company_id).bind(sale.pos_profile_id).bind(sale.opening_entry_id).bind(sale.branch_id)
+            .bind(sale.customer_id).bind(&sale.receipt_number).bind(sale.posting_at).bind(net_total).bind(tax_total)
+            .bind(grand).bind(rounding_adjustment).bind(rounded).execute(&mut *tx).await;
+            if let Err(e) = r {
+                return Err(if is_dup(&e) { PosError::DuplicateNumber(sale.receipt_number) } else { e.into() });
+            }
+            for (l, net) in &priced {
+                sqlx::query(
+                    r#"INSERT INTO pos.pos_invoice_items
+                        (id, pos_invoice_id, item_id, description, quantity, unit_price, discount_amount, net_amount, revenue_account_id)
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)"#,
+                )
+                .bind(Uuid::new_v4()).bind(id).bind(l.item_id).bind(&l.description).bind(l.quantity)
+                .bind(l.unit_price).bind(money(l.discount_amount)).bind(net).bind(l.revenue_account_id)
+                .execute(&mut *tx).await?;
+            }
+            tx.commit().await?;
+            Ok(id)
+        }).await
     }
 
     /// Ring a ticket whose prices are resolved by promo's CART pricer (the cart seam, ADR-002). POS
