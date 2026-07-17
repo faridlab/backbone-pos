@@ -15,6 +15,24 @@ user_owned:
   - "src/application/service/pos_ports.rs"
   - "src/application/service/pos_write_service.rs"
   - "src/application/service/pos_cart_pricing.rs"
+  # The write surface, chunked out of pos_write_service.rs. Each is an `impl PosWriteService` block;
+  # the shared vocabulary (input structs, outcomes, errors) stays in pos_write_service.rs.
+  - "src/application/service/pos_sale.rs"
+  - "src/application/service/pos_tender.rs"
+  - "src/application/service/pos_recognition.rs"
+  - "src/application/service/pos_drawer.rs"
+  - "src/application/service/pos_receipt.rs"
+  # Own the hand-written POS SQL that the write service orchestrates (the ticket header + lines, the
+  # tender re-sum, the recognition read + its at-most-once billing link and draft->paid flip, the
+  # returns mirror, the drawer reads, the close). Declared here — not renamed with a `_custom` suffix —
+  # so the generator skips them wholesale; this declaration is what makes editing them legitimate.
+  - "src/infrastructure/persistence/pos_invoice_repository.rs"
+  - "src/infrastructure/persistence/pos_invoice_item_repository.rs"
+  - "src/infrastructure/persistence/pos_payment_repository.rs"
+  - "src/infrastructure/persistence/pos_profile_repository.rs"
+  - "src/infrastructure/persistence/pos_opening_entry_repository.rs"
+  - "src/infrastructure/persistence/pos_closing_entry_repository.rs"
+  - "src/infrastructure/persistence/pos_cash_movement_repository.rs"
   - "src/presentation/http/guarded_routes.rs"
   - "tests/pos_golden_cases.rs"
   - "tests/integrity_probes.rs"

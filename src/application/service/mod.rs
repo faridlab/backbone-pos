@@ -18,6 +18,13 @@ pub mod pos_events;
 pub mod pos_ports;
 pub mod pos_cart_pricing;
 pub mod pos_write_service;
+// The write surface, chunked: each is an `impl PosWriteService` block over the vocabulary that stays
+// in `pos_write_service` (so the `pos_write_service::{NewSale, ...}` import paths are unchanged).
+pub mod pos_sale;
+pub mod pos_tender;
+pub mod pos_recognition;
+pub mod pos_drawer;
+pub mod pos_receipt;
 // END CUSTOM
 pub mod pos_cash_movement_service;
 

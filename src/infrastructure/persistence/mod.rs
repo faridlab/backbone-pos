@@ -34,4 +34,17 @@ pub use backbone_orm::repository::{
 
 // Re-export custom persistence types
 // <<< CUSTOM
+// The hand-written POS SQL's parameter/projection types. Their repositories are each declared
+// `user_owned` in metaphor.codegen.yaml; the param structs mirror COLUMNS, not entities.
+pub use pos_cash_movement_repository::NewCashMovementRow;
+pub use pos_closing_entry_repository::NewClosingEntryRow;
+pub use pos_invoice_item_repository::{
+    NewInvoiceItemRow, QuantityLineRow, ReceiptLineRow, RevenueLineRow,
+};
+pub use pos_invoice_repository::{
+    NewDraftInvoiceRow, NewReturnInvoiceRow, PaidStateRow, ReceiptHeaderRow, RecognitionRow,
+    ReturnSourceRow, TenderHeaderRow,
+};
+pub use pos_opening_entry_repository::NewOpeningEntryRow;
+pub use pos_payment_repository::{MethodTotalRow, NewTenderRow, ReceiptTenderRow};
 // END CUSTOM
