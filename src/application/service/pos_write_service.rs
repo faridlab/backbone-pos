@@ -539,22 +539,35 @@ impl PosWriteService {
     /// Add a tender line; recompute `paid_total` + `change_due` (overpayment). Ticket must be draft.
     pub async fn add_tender(&self, pos_invoice_id: Uuid, method: &str, amount: Decimal, reference_no: Option<String>) -> Result<TenderOutcome, PosError> {
         if amount <= Decimal::ZERO { return Err(PosError::NegativeAmount); }
-        let hdr = sqlx::query("SELECT status::text AS st, rounded_total, company_id FROM pos.pos_invoices WHERE id=$1 AND (metadata->>'deleted_at') IS NULL")
-            .bind(pos_invoice_id).fetch_optional(&self.db_pool).await?.ok_or(PosError::InvoiceNotFound(pos_invoice_id))?;
+        // RLS scope (ADR-0008), ID-only pattern: this method is identified by the ticket id alone —
+        // there is no company argument to scope from up front. The header read therefore runs on the
+        // REQUEST-dedicated connection (established by `company_auth`), which carries the caller's
+        // `app.company_id`; RLS fences the lookup so another company's ticket simply isn't found.
+        // Having read the ticket, we then bind its company onto our own transaction below.
+        let hdr = company_scope::fetch_optional_row_scoped(
+            &self.db_pool,
+            sqlx::query("SELECT status::text AS st, rounded_total, company_id FROM pos.pos_invoices WHERE id=$1 AND (metadata->>'deleted_at') IS NULL")
+                .bind(pos_invoice_id),
+        ).await?.ok_or(PosError::InvoiceNotFound(pos_invoice_id))?;
         if hdr.get::<String, _>("st") != "draft" { return Err(PosError::NotDraft); }
         let rounded_total: Decimal = hdr.get("rounded_total");
-        let mut tx = self.db_pool.begin().await?;
-        sqlx::query(
-            r#"INSERT INTO pos.pos_payments (id, pos_invoice_id, payment_method, amount, reference_no)
-               VALUES ($1,$2,$3::pos_payment_method,$4,$5)"#,
-        ).bind(Uuid::new_v4()).bind(pos_invoice_id).bind(method).bind(money(amount)).bind(&reference_no)
-        .execute(&mut *tx).await?;
-        let paid_total: Decimal = sqlx::query_scalar("SELECT COALESCE(SUM(amount),0) FROM pos.pos_payments WHERE pos_invoice_id=$1 AND (metadata->>'deleted_at') IS NULL")
-            .bind(pos_invoice_id).fetch_one(&mut *tx).await?;
-        let change_due = if paid_total > rounded_total { paid_total - rounded_total } else { Decimal::ZERO };
-        sqlx::query("UPDATE pos.pos_invoices SET paid_total=$2, change_due=$3 WHERE id=$1")
-            .bind(pos_invoice_id).bind(paid_total).bind(change_due).execute(&mut *tx).await?;
-        tx.commit().await?;
+        let hdr_company: Uuid = hdr.get("company_id");
+        let (paid_total, change_due) = company_scope::with_company_scope(Some(hdr_company), async move {
+            let mut tx = self.db_pool.begin().await?;
+            company_scope::bind_current_company(&mut tx).await?;
+            sqlx::query(
+                r#"INSERT INTO pos.pos_payments (id, pos_invoice_id, payment_method, amount, reference_no)
+                   VALUES ($1,$2,$3::pos_payment_method,$4,$5)"#,
+            ).bind(Uuid::new_v4()).bind(pos_invoice_id).bind(method).bind(money(amount)).bind(&reference_no)
+            .execute(&mut *tx).await?;
+            let paid_total: Decimal = sqlx::query_scalar("SELECT COALESCE(SUM(amount),0) FROM pos.pos_payments WHERE pos_invoice_id=$1 AND (metadata->>'deleted_at') IS NULL")
+                .bind(pos_invoice_id).fetch_one(&mut *tx).await?;
+            let change_due = if paid_total > rounded_total { paid_total - rounded_total } else { Decimal::ZERO };
+            sqlx::query("UPDATE pos.pos_invoices SET paid_total=$2, change_due=$3 WHERE id=$1")
+                .bind(pos_invoice_id).bind(paid_total).bind(change_due).execute(&mut *tx).await?;
+            tx.commit().await?;
+            Ok::<_, PosError>((paid_total, change_due))
+        }).await?;
         // Emit PosTenderCompleted exactly on the tender that crosses full payment, so a subscriber can
         // recognise the sale. Guarding on the crossing (prev < total <= now) avoids a re-emit on any
         // extra tender added before recognition flips the ticket to paid.
@@ -575,15 +588,23 @@ impl PosWriteService {
     pub async fn recognize_sale(&self, pos_invoice_id: Uuid, billing: &dyn BillingPort, payment: &dyn PaymentPort, inventory: Option<&dyn InventoryPort>) -> Result<RecognizeOutcome, PosError> {
         // Short-circuit if already recognised.
         if let Some(o) = self.short_circuit_paid(pos_invoice_id).await? { return Ok(o); }
-        let inv = sqlx::query(
-            r#"SELECT i.company_id, i.customer_id, i.pos_profile_id, i.branch_id, i.posting_at, i.rounded_total, i.grand_total,
-                      i.tax_total, i.paid_total, i.billing_invoice_id,
-                      p.receivable_account_id, p.income_account_id, p.cash_account_id, p.tax_account_id, p.tax_rate,
-                      p.warehouse_id, p.cogs_account_id, p.inventory_account_id,
-                      p.currency, p.default_customer_id
-               FROM pos.pos_invoices i JOIN pos.pos_profiles p ON p.id = i.pos_profile_id
-               WHERE i.id=$1 AND i.status='draft'::pos_invoice_status AND (i.metadata->>'deleted_at') IS NULL"#,
-        ).bind(pos_invoice_id).fetch_optional(&self.db_pool).await?.ok_or(PosError::InvoiceNotFound(pos_invoice_id))?;
+        // RLS scope (ADR-0008), ID-only pattern: identified by ticket id alone. Under HTTP the
+        // request-dedicated connection carries the scope. When driven by an EVENT (the recognition
+        // sink subscribing to PosTenderCompleted), the caller must wrap this in
+        // `with_company_scope(Some(event.company_id))` — the event carries the company — otherwise
+        // these reads fail closed.
+        let inv = company_scope::fetch_optional_row_scoped(
+            &self.db_pool,
+            sqlx::query(
+                r#"SELECT i.company_id, i.customer_id, i.pos_profile_id, i.branch_id, i.posting_at, i.rounded_total, i.grand_total,
+                          i.tax_total, i.paid_total, i.billing_invoice_id,
+                          p.receivable_account_id, p.income_account_id, p.cash_account_id, p.tax_account_id, p.tax_rate,
+                          p.warehouse_id, p.cogs_account_id, p.inventory_account_id,
+                          p.currency, p.default_customer_id
+                   FROM pos.pos_invoices i JOIN pos.pos_profiles p ON p.id = i.pos_profile_id
+                   WHERE i.id=$1 AND i.status='draft'::pos_invoice_status AND (i.metadata->>'deleted_at') IS NULL"#,
+            ).bind(pos_invoice_id),
+        ).await?.ok_or(PosError::InvoiceNotFound(pos_invoice_id))?;
 
         let rounded_total: Decimal = inv.get("rounded_total");
         let paid_total: Decimal = inv.get("paid_total");
@@ -619,8 +640,11 @@ impl PosWriteService {
             id
         } else {
             // Sale lines → invoice request (revenue = line account, else profile income).
-            let item_rows = sqlx::query("SELECT item_id, net_amount, revenue_account_id FROM pos.pos_invoice_items WHERE pos_invoice_id=$1 AND (metadata->>'deleted_at') IS NULL")
-                .bind(pos_invoice_id).fetch_all(&self.db_pool).await?;
+            let item_rows = company_scope::fetch_all_rows_scoped(
+                &self.db_pool,
+                sqlx::query("SELECT item_id, net_amount, revenue_account_id FROM pos.pos_invoice_items WHERE pos_invoice_id=$1 AND (metadata->>'deleted_at') IS NULL")
+                    .bind(pos_invoice_id),
+            ).await?;
             let mut lines = Vec::with_capacity(item_rows.len());
             for r in &item_rows {
                 let rev = r.get::<Option<Uuid>, _>("revenue_account_id").or(income).ok_or(PosError::MissingAccount("revenue account (line or profile income)"))?;
@@ -632,8 +656,11 @@ impl PosWriteService {
                 receivable_account_id: receivable, posting_date, lines, tax_total, tax_account_id, tax_rate,
             }).await.map_err(|e| PosError::BillingRejected { code: e.code, message: e.message })?;
             // Persist the link WHILE STILL DRAFT — before settle — so any retry reuses this invoice.
-            sqlx::query("UPDATE pos.pos_invoices SET billing_invoice_id=$2 WHERE id=$1 AND status='draft'::pos_invoice_status")
-                .bind(pos_invoice_id).bind(ack.invoice_id).execute(&self.db_pool).await?;
+            company_scope::execute_scoped(
+                &self.db_pool,
+                sqlx::query("UPDATE pos.pos_invoices SET billing_invoice_id=$2 WHERE id=$1 AND status='draft'::pos_invoice_status")
+                    .bind(pos_invoice_id).bind(ack.invoice_id),
+            ).await?;
             ack.invoice_id
         };
 
@@ -646,9 +673,12 @@ impl PosWriteService {
         // Gate the event on THIS invocation performing the draft→paid transition. Persist the settling
         // `payment_entry_id` in the same flip so a later return refunds the tender from the ticket (no
         // cross-schema lookup) and a crash-retry has a durable skip-gate (ADR-001 `settle`-idempotency).
-        let res = sqlx::query(
-            "UPDATE pos.pos_invoices SET status='paid'::pos_invoice_status, billing_invoice_id=$2, payment_entry_id=$3 WHERE id=$1 AND status='draft'::pos_invoice_status",
-        ).bind(pos_invoice_id).bind(invoice_id).bind(sack.payment_id).execute(&self.db_pool).await?;
+        let res = company_scope::execute_scoped(
+            &self.db_pool,
+            sqlx::query(
+                "UPDATE pos.pos_invoices SET status='paid'::pos_invoice_status, billing_invoice_id=$2, payment_entry_id=$3 WHERE id=$1 AND status='draft'::pos_invoice_status",
+            ).bind(pos_invoice_id).bind(invoice_id).bind(sack.payment_id),
+        ).await?;
         if res.rows_affected() == 1 {
             self.sink.publish(PosEvent::PosInvoicePaid(PosInvoicePaid {
                 pos_invoice_id, company_id, grand_total: inv.get("grand_total"), rounded_total,
@@ -663,8 +693,11 @@ impl PosWriteService {
                 inv.get::<Option<Uuid>, _>("cogs_account_id"),
                 inv.get::<Option<Uuid>, _>("inventory_account_id"),
             ) {
-                let qty_rows = sqlx::query("SELECT item_id, quantity FROM pos.pos_invoice_items WHERE pos_invoice_id=$1 AND (metadata->>'deleted_at') IS NULL")
-                    .bind(pos_invoice_id).fetch_all(&self.db_pool).await?;
+                let qty_rows = company_scope::fetch_all_rows_scoped(
+                    &self.db_pool,
+                    sqlx::query("SELECT item_id, quantity FROM pos.pos_invoice_items WHERE pos_invoice_id=$1 AND (metadata->>'deleted_at') IS NULL")
+                        .bind(pos_invoice_id),
+                ).await?;
                 let lines: Vec<StockIssueLine> = qty_rows.iter()
                     .map(|r| StockIssueLine { item_id: r.get("item_id"), quantity: r.get("quantity") })
                     .filter(|l| l.quantity > Decimal::ZERO)
@@ -682,8 +715,11 @@ impl PosWriteService {
     }
 
     async fn short_circuit_paid(&self, pos_invoice_id: Uuid) -> Result<Option<RecognizeOutcome>, PosError> {
-        let row = sqlx::query("SELECT status::text AS st, billing_invoice_id, payment_entry_id FROM pos.pos_invoices WHERE id=$1 AND (metadata->>'deleted_at') IS NULL")
-            .bind(pos_invoice_id).fetch_optional(&self.db_pool).await?.ok_or(PosError::InvoiceNotFound(pos_invoice_id))?;
+        let row = company_scope::fetch_optional_row_scoped(
+            &self.db_pool,
+            sqlx::query("SELECT status::text AS st, billing_invoice_id, payment_entry_id FROM pos.pos_invoices WHERE id=$1 AND (metadata->>'deleted_at') IS NULL")
+                .bind(pos_invoice_id),
+        ).await?.ok_or(PosError::InvoiceNotFound(pos_invoice_id))?;
         if row.get::<String, _>("st") == "paid" {
             if let Some(bid) = row.get::<Option<Uuid>, _>("billing_invoice_id") {
                 // Return the real persisted payment_id on replay (was fabricated as Uuid::nil() before
@@ -704,11 +740,16 @@ impl PosWriteService {
     /// both downstream reversals are idempotent, and the ticket/event are gated on the original's
     /// `paid→returned` transition — a repeat return refunds/credits at most once. POS posts no GL.
     pub async fn return_sale(&self, original_pos_invoice_id: Uuid, billing: &dyn BillingPort, payment: &dyn PaymentPort) -> Result<ReturnOutcome, PosError> {
-        let o = sqlx::query(
-            r#"SELECT company_id, pos_profile_id, opening_entry_id, branch_id, customer_id, billing_invoice_id,
-                      payment_entry_id, rounded_total, net_total, tax_total, grand_total, posting_at, status::text AS st
-               FROM pos.pos_invoices WHERE id=$1 AND (metadata->>'deleted_at') IS NULL"#,
-        ).bind(original_pos_invoice_id).fetch_optional(&self.db_pool).await?.ok_or(PosError::InvoiceNotFound(original_pos_invoice_id))?;
+        // RLS scope (ADR-0008), ID-only pattern — see `add_tender`: the lookup is fenced by the
+        // request-dedicated connection, so another company's ticket is simply not found.
+        let o = company_scope::fetch_optional_row_scoped(
+            &self.db_pool,
+            sqlx::query(
+                r#"SELECT company_id, pos_profile_id, opening_entry_id, branch_id, customer_id, billing_invoice_id,
+                          payment_entry_id, rounded_total, net_total, tax_total, grand_total, posting_at, status::text AS st
+                   FROM pos.pos_invoices WHERE id=$1 AND (metadata->>'deleted_at') IS NULL"#,
+            ).bind(original_pos_invoice_id),
+        ).await?.ok_or(PosError::InvoiceNotFound(original_pos_invoice_id))?;
         let status: String = o.get("st");
         if status != "paid" && status != "returned" {
             return Err(PosError::NotReturnable(status));
@@ -726,23 +767,29 @@ impl PosWriteService {
             .await.map_err(|e| PosError::BillingRejected { code: e.code, message: e.message })?;
 
         // Gate the return ticket + event on the original's paid→returned transition (exactly-once).
-        let res = sqlx::query("UPDATE pos.pos_invoices SET status='returned'::pos_invoice_status WHERE id=$1 AND status='paid'::pos_invoice_status")
-            .bind(original_pos_invoice_id).execute(&self.db_pool).await?;
+        let res = company_scope::execute_scoped(
+            &self.db_pool,
+            sqlx::query("UPDATE pos.pos_invoices SET status='returned'::pos_invoice_status WHERE id=$1 AND status='paid'::pos_invoice_status")
+                .bind(original_pos_invoice_id),
+        ).await?;
         let return_ticket_id = if res.rows_affected() == 1 {
             let rt = Uuid::new_v4();
-            sqlx::query(
-                r#"INSERT INTO pos.pos_invoices
-                    (id, company_id, pos_profile_id, opening_entry_id, branch_id, customer_id, receipt_number,
-                     posting_at, net_total, tax_total, grand_total, rounding_adjustment, rounded_total,
-                     paid_total, change_due, billing_invoice_id, is_return, return_against, status)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,$12,$12,0,$13,true,$14,'returned'::pos_invoice_status)"#,
-            )
-            .bind(rt).bind(company_id).bind(o.get::<Uuid, _>("pos_profile_id")).bind(o.get::<Uuid, _>("opening_entry_id"))
-            .bind(o.get::<Option<Uuid>, _>("branch_id")).bind(o.get::<Option<Uuid>, _>("customer_id"))
-            .bind(format!("RET-{}", &original_pos_invoice_id.simple().to_string()[..12]))
-            .bind(o.get::<chrono::DateTime<chrono::Utc>, _>("posting_at")).bind(o.get::<Decimal, _>("net_total"))
-            .bind(o.get::<Decimal, _>("tax_total")).bind(o.get::<Decimal, _>("grand_total")).bind(rounded_total)
-            .bind(billing_invoice_id).bind(original_pos_invoice_id).execute(&self.db_pool).await?;
+            company_scope::execute_scoped(
+                &self.db_pool,
+                sqlx::query(
+                    r#"INSERT INTO pos.pos_invoices
+                        (id, company_id, pos_profile_id, opening_entry_id, branch_id, customer_id, receipt_number,
+                         posting_at, net_total, tax_total, grand_total, rounding_adjustment, rounded_total,
+                         paid_total, change_due, billing_invoice_id, is_return, return_against, status)
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,$12,$12,0,$13,true,$14,'returned'::pos_invoice_status)"#,
+                )
+                .bind(rt).bind(company_id).bind(o.get::<Uuid, _>("pos_profile_id")).bind(o.get::<Uuid, _>("opening_entry_id"))
+                .bind(o.get::<Option<Uuid>, _>("branch_id")).bind(o.get::<Option<Uuid>, _>("customer_id"))
+                .bind(format!("RET-{}", &original_pos_invoice_id.simple().to_string()[..12]))
+                .bind(o.get::<chrono::DateTime<chrono::Utc>, _>("posting_at")).bind(o.get::<Decimal, _>("net_total"))
+                .bind(o.get::<Decimal, _>("tax_total")).bind(o.get::<Decimal, _>("grand_total")).bind(rounded_total)
+                .bind(billing_invoice_id).bind(original_pos_invoice_id),
+            ).await?;
             self.sink.publish(PosEvent::PosInvoiceReturned(PosInvoiceReturned {
                 pos_invoice_id: original_pos_invoice_id, return_ticket_id: rt, company_id,
                 billing_invoice_id, amount: rounded_total,
@@ -750,8 +797,11 @@ impl PosWriteService {
             rt
         } else {
             // Already returned — reuse the existing return ticket (idempotent replay).
-            sqlx::query_scalar("SELECT id FROM pos.pos_invoices WHERE return_against=$1 AND is_return=true AND (metadata->>'deleted_at') IS NULL LIMIT 1")
-                .bind(original_pos_invoice_id).fetch_optional(&self.db_pool).await?.unwrap_or(original_pos_invoice_id)
+            company_scope::fetch_optional_scalar_scoped(
+                &self.db_pool,
+                sqlx::query_scalar("SELECT id FROM pos.pos_invoices WHERE return_against=$1 AND is_return=true AND (metadata->>'deleted_at') IS NULL LIMIT 1")
+                    .bind(original_pos_invoice_id),
+            ).await?.unwrap_or(original_pos_invoice_id)
         };
         Ok(ReturnOutcome { pos_invoice_id: original_pos_invoice_id, return_ticket_id, billing_invoice_id })
     }
@@ -770,22 +820,32 @@ impl PosWriteService {
             "no_sale" | "pay_in" | "pay_out" | "drop" => {}
             _ => return Err(PosError::InvalidCashMovement("unknown movement_type")),
         }
-        // Session must be OPEN and belong to the caller's tenant (same scope as ring_sale / close).
-        let st: Option<String> = sqlx::query_scalar(
-            "SELECT status::text FROM pos.pos_opening_entries WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL",
-        ).bind(m.opening_entry_id).bind(m.company_id).fetch_optional(&self.db_pool).await?;
-        if st.as_deref() != Some("open") { return Err(PosError::SessionNotOpen); }
+        // RLS scope (ADR-0008): this method carries its company on the DTO, so bind it for the body —
+        // the same pattern as `ring_sale`.
+        let company = m.company_id;
+        company_scope::with_company_scope(Some(company), async move {
+            // Session must be OPEN and belong to the caller's tenant (same scope as ring_sale / close).
+            let st: Option<String> = company_scope::fetch_optional_scalar_scoped(
+                &self.db_pool,
+                sqlx::query_scalar(
+                    "SELECT status::text FROM pos.pos_opening_entries WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL",
+                ).bind(m.opening_entry_id).bind(m.company_id),
+            ).await?;
+            if st.as_deref() != Some("open") { return Err(PosError::SessionNotOpen); }
 
-        let id = Uuid::new_v4();
-        sqlx::query(
-            r#"INSERT INTO pos.pos_cash_movements
-                (id, company_id, pos_profile_id, opening_entry_id, cashier_party_id, movement_type, amount, reason, moved_at)
-               VALUES ($1,$2,$3,$4,$5,$6::pos_cash_movement_type,$7,$8,$9)"#,
-        )
-        .bind(id).bind(m.company_id).bind(m.pos_profile_id).bind(m.opening_entry_id).bind(m.cashier_party_id)
-        .bind(&m.movement_type).bind(amount).bind(&m.reason).bind(m.moved_at)
-        .execute(&self.db_pool).await?;
-        Ok(id)
+            let id = Uuid::new_v4();
+            company_scope::execute_scoped(
+                &self.db_pool,
+                sqlx::query(
+                    r#"INSERT INTO pos.pos_cash_movements
+                        (id, company_id, pos_profile_id, opening_entry_id, cashier_party_id, movement_type, amount, reason, moved_at)
+                       VALUES ($1,$2,$3,$4,$5,$6::pos_cash_movement_type,$7,$8,$9)"#,
+                )
+                .bind(id).bind(m.company_id).bind(m.pos_profile_id).bind(m.opening_entry_id).bind(m.cashier_party_id)
+                .bind(&m.movement_type).bind(amount).bind(&m.reason).bind(m.moved_at),
+            ).await?;
+            Ok(id)
+        }).await
     }
 
     // ---- drawer read (shared by close + X-report) --------------------------
@@ -795,9 +855,14 @@ impl PosWriteService {
     /// paid-ticket count. Tenant-scoped, read-only — shared by `close_session` (Z-report) and
     /// `x_report` (mid-shift read) so the two can never drift.
     async fn compute_drawer(&self, company_id: Uuid, opening_entry_id: Uuid) -> Result<(BTreeMap<String, Decimal>, Decimal, i64), PosError> {
-        let opening_json: Option<sqlx::types::Json<serde_json::Value>> = sqlx::query_scalar(
-            "SELECT opening_balances FROM pos.pos_opening_entries WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL",
-        ).bind(opening_entry_id).bind(company_id).fetch_optional(&self.db_pool).await?
+        // RLS scope (ADR-0008): read-only, company on the parameter — bind it so every read below is
+        // fenced (the caller may already be scoped; re-binding the same company is a no-op).
+        let opening_json: Option<sqlx::types::Json<serde_json::Value>> = company_scope::fetch_optional_scalar_scoped(
+            &self.db_pool,
+            sqlx::query_scalar(
+                "SELECT opening_balances FROM pos.pos_opening_entries WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL",
+            ).bind(opening_entry_id).bind(company_id),
+        ).await?
             .ok_or(PosError::SessionNotFound(opening_entry_id))?;
         let mut expected: BTreeMap<String, Decimal> = BTreeMap::new();
         if let Some(sqlx::types::Json(serde_json::Value::Array(arr))) = opening_json {
@@ -808,39 +873,51 @@ impl PosWriteService {
             }
         }
         // Σ tenders per method for recognised (paid) tickets in the session.
-        let tender_rows = sqlx::query(
-            r#"SELECT pay.payment_method::text AS method, COALESCE(SUM(pay.amount),0) AS total
-               FROM pos.pos_payments pay JOIN pos.pos_invoices i ON i.id = pay.pos_invoice_id
-               WHERE i.opening_entry_id=$1 AND i.status='paid'::pos_invoice_status AND (pay.metadata->>'deleted_at') IS NULL
-               GROUP BY pay.payment_method"#,
-        ).bind(opening_entry_id).fetch_all(&self.db_pool).await?;
+        let tender_rows = company_scope::fetch_all_rows_scoped(
+            &self.db_pool,
+            sqlx::query(
+                r#"SELECT pay.payment_method::text AS method, COALESCE(SUM(pay.amount),0) AS total
+                   FROM pos.pos_payments pay JOIN pos.pos_invoices i ON i.id = pay.pos_invoice_id
+                   WHERE i.opening_entry_id=$1 AND i.status='paid'::pos_invoice_status AND (pay.metadata->>'deleted_at') IS NULL
+                   GROUP BY pay.payment_method"#,
+            ).bind(opening_entry_id),
+        ).await?;
         for r in &tender_rows {
             *expected.entry(r.get::<String, _>("method")).or_insert(Decimal::ZERO) += r.get::<Decimal, _>("total");
         }
         // Cash change reduces the drawer.
-        let cash_change: Decimal = sqlx::query_scalar(
-            "SELECT COALESCE(SUM(change_due),0) FROM pos.pos_invoices WHERE opening_entry_id=$1 AND status='paid'::pos_invoice_status AND (metadata->>'deleted_at') IS NULL",
-        ).bind(opening_entry_id).fetch_one(&self.db_pool).await?;
+        let cash_change: Decimal = company_scope::fetch_one_scalar_scoped(
+            &self.db_pool,
+            sqlx::query_scalar(
+                "SELECT COALESCE(SUM(change_due),0) FROM pos.pos_invoices WHERE opening_entry_id=$1 AND status='paid'::pos_invoice_status AND (metadata->>'deleted_at') IS NULL",
+            ).bind(opening_entry_id),
+        ).await?;
         if cash_change > Decimal::ZERO {
             *expected.entry("cash".to_string()).or_insert(Decimal::ZERO) -= cash_change;
         }
         // Non-sale cash movements: pay-ins add to the drawer, pay-outs and drops remove from it
         // (no_sale has no cash effect). Folding the net in here means these no longer read as variance.
-        let cash_movement_net: Decimal = sqlx::query_scalar(
-            r#"SELECT COALESCE(SUM(CASE movement_type
-                    WHEN 'pay_in' THEN amount
-                    WHEN 'pay_out' THEN -amount
-                    WHEN 'drop' THEN -amount
-                    ELSE 0 END), 0)
-               FROM pos.pos_cash_movements
-               WHERE opening_entry_id=$1 AND (metadata->>'deleted_at') IS NULL"#,
-        ).bind(opening_entry_id).fetch_one(&self.db_pool).await?;
+        let cash_movement_net: Decimal = company_scope::fetch_one_scalar_scoped(
+            &self.db_pool,
+            sqlx::query_scalar(
+                r#"SELECT COALESCE(SUM(CASE movement_type
+                        WHEN 'pay_in' THEN amount
+                        WHEN 'pay_out' THEN -amount
+                        WHEN 'drop' THEN -amount
+                        ELSE 0 END), 0)
+                   FROM pos.pos_cash_movements
+                   WHERE opening_entry_id=$1 AND (metadata->>'deleted_at') IS NULL"#,
+            ).bind(opening_entry_id),
+        ).await?;
         if cash_movement_net != Decimal::ZERO {
             *expected.entry("cash".to_string()).or_insert(Decimal::ZERO) += cash_movement_net;
         }
-        let (grand_total, invoice_count): (Decimal, i64) = sqlx::query_as(
-            "SELECT COALESCE(SUM(rounded_total),0), COUNT(*) FROM pos.pos_invoices WHERE opening_entry_id=$1 AND status='paid'::pos_invoice_status AND (metadata->>'deleted_at') IS NULL",
-        ).bind(opening_entry_id).fetch_one(&self.db_pool).await?;
+        let (grand_total, invoice_count): (Decimal, i64) = company_scope::fetch_one_scoped(
+            &self.db_pool,
+            sqlx::query_as(
+                "SELECT COALESCE(SUM(rounded_total),0), COUNT(*) FROM pos.pos_invoices WHERE opening_entry_id=$1 AND status='paid'::pos_invoice_status AND (metadata->>'deleted_at') IS NULL",
+            ).bind(opening_entry_id),
+        ).await?;
         Ok((expected, grand_total, invoice_count))
     }
 
@@ -848,17 +925,23 @@ impl PosWriteService {
     /// without counting, closing the session, or writing anything. Read-only + idempotent — a cashier
     /// can pull it any number of times during the shift. Requires an OPEN session in the caller's tenant.
     pub async fn x_report(&self, company_id: Uuid, opening_entry_id: Uuid) -> Result<XReport, PosError> {
-        let st: Option<String> = sqlx::query_scalar(
-            "SELECT status::text FROM pos.pos_opening_entries WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL",
-        ).bind(opening_entry_id).bind(company_id).fetch_optional(&self.db_pool).await?;
-        match st.as_deref() {
-            None => return Err(PosError::SessionNotFound(opening_entry_id)),
-            Some("open") => {}
-            Some(_) => return Err(PosError::SessionNotOpen),
-        }
-        let (expected, grand_total, invoice_count) = self.compute_drawer(company_id, opening_entry_id).await?;
-        let by_method = expected.into_iter().map(|(method, exp)| MethodExpected { method, expected: money(exp) }).collect();
-        Ok(XReport { opening_entry_id, by_method, grand_total: money(grand_total), invoice_count })
+        // RLS scope (ADR-0008): read-only, company on the parameter.
+        company_scope::with_company_scope(Some(company_id), async move {
+            let st: Option<String> = company_scope::fetch_optional_scalar_scoped(
+                &self.db_pool,
+                sqlx::query_scalar(
+                    "SELECT status::text FROM pos.pos_opening_entries WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL",
+                ).bind(opening_entry_id).bind(company_id),
+            ).await?;
+            match st.as_deref() {
+                None => return Err(PosError::SessionNotFound(opening_entry_id)),
+                Some("open") => {}
+                Some(_) => return Err(PosError::SessionNotOpen),
+            }
+            let (expected, grand_total, invoice_count) = self.compute_drawer(company_id, opening_entry_id).await?;
+            let by_method = expected.into_iter().map(|(method, exp)| MethodExpected { method, expected: money(exp) }).collect();
+            Ok(XReport { opening_entry_id, by_method, grand_total: money(grand_total), invoice_count })
+        }).await
     }
 
     // ---- receipt -----------------------------------------------------------
@@ -867,20 +950,27 @@ impl PosWriteService {
     /// lines + tenders + change. Tenant-scoped read — any ticket in the caller's company can be
     /// (re)printed. The GL is billing's; this is the customer-facing slip.
     pub async fn receipt(&self, company_id: Uuid, pos_invoice_id: Uuid) -> Result<Receipt, PosError> {
-        let hdr = sqlx::query(
-            r#"SELECT i.receipt_number, i.posting_at, i.net_total, i.tax_total, i.rounding_adjustment,
-                      i.rounded_total, i.paid_total, i.change_due, i.status::text AS status,
-                      p.name AS register_name, p.currency, p.tax_rate
-               FROM pos.pos_invoices i JOIN pos.pos_profiles p ON p.id = i.pos_profile_id
-               WHERE i.id=$1 AND i.company_id=$2 AND (i.metadata->>'deleted_at') IS NULL"#,
-        ).bind(pos_invoice_id).bind(company_id).fetch_optional(&self.db_pool).await?
+        // RLS scope (ADR-0008): read-only, company on the parameter.
+        let hdr = company_scope::fetch_optional_row_scoped(
+            &self.db_pool,
+            sqlx::query(
+                r#"SELECT i.receipt_number, i.posting_at, i.net_total, i.tax_total, i.rounding_adjustment,
+                          i.rounded_total, i.paid_total, i.change_due, i.status::text AS status,
+                          p.name AS register_name, p.currency, p.tax_rate
+                   FROM pos.pos_invoices i JOIN pos.pos_profiles p ON p.id = i.pos_profile_id
+                   WHERE i.id=$1 AND i.company_id=$2 AND (i.metadata->>'deleted_at') IS NULL"#,
+            ).bind(pos_invoice_id).bind(company_id),
+        ).await?
             .ok_or(PosError::InvoiceNotFound(pos_invoice_id))?;
 
-        let line_rows = sqlx::query(
-            "SELECT description, item_id, quantity, unit_price, discount_amount, net_amount
-             FROM pos.pos_invoice_items WHERE pos_invoice_id=$1 AND (metadata->>'deleted_at') IS NULL
-             ORDER BY (metadata->>'created_at')",
-        ).bind(pos_invoice_id).fetch_all(&self.db_pool).await?;
+        let line_rows = company_scope::fetch_all_rows_scoped(
+            &self.db_pool,
+            sqlx::query(
+                "SELECT description, item_id, quantity, unit_price, discount_amount, net_amount
+                 FROM pos.pos_invoice_items WHERE pos_invoice_id=$1 AND (metadata->>'deleted_at') IS NULL
+                 ORDER BY (metadata->>'created_at')",
+            ).bind(pos_invoice_id),
+        ).await?;
         let lines = line_rows.iter().map(|r| {
             let desc = r.get::<Option<String>, _>("description")
                 .unwrap_or_else(|| r.get::<Uuid, _>("item_id").to_string());
@@ -890,10 +980,13 @@ impl PosWriteService {
             }
         }).collect();
 
-        let tender_rows = sqlx::query(
-            "SELECT payment_method::text AS method, amount FROM pos.pos_payments
-             WHERE pos_invoice_id=$1 AND (metadata->>'deleted_at') IS NULL ORDER BY (metadata->>'created_at')",
-        ).bind(pos_invoice_id).fetch_all(&self.db_pool).await?;
+        let tender_rows = company_scope::fetch_all_rows_scoped(
+            &self.db_pool,
+            sqlx::query(
+                "SELECT payment_method::text AS method, amount FROM pos.pos_payments
+                 WHERE pos_invoice_id=$1 AND (metadata->>'deleted_at') IS NULL ORDER BY (metadata->>'created_at')",
+            ).bind(pos_invoice_id),
+        ).await?;
         let tenders = tender_rows.iter().map(|r| ReceiptTender { method: r.get("method"), amount: r.get("amount") }).collect();
 
         Ok(Receipt {
@@ -921,6 +1014,10 @@ impl PosWriteService {
     /// (cash also `− Σ change_due`); `difference = counted − expected`. Persist the per-method
     /// breakdown + the session's grand total, mark the session closed, emit `PosSessionClosed`.
     pub async fn close_session(&self, c: NewClose) -> Result<CloseOutcome, PosError> {
+        // RLS scope (ADR-0008): company on the DTO — bind it for the whole close, so the drawer reads
+        // and the closing-entry transaction are all fenced.
+        let company = c.company_id;
+        company_scope::with_company_scope(Some(company), async move {
         let (expected, grand_total, invoice_count) = self.compute_drawer(c.company_id, c.opening_entry_id).await?;
 
         let counted: BTreeMap<String, Decimal> = c.counted.iter().map(|(m, a)| (m.clone(), money(*a))).collect();
@@ -941,6 +1038,7 @@ impl PosWriteService {
 
         let id = Uuid::new_v4();
         let mut tx = self.db_pool.begin().await?;
+        company_scope::bind_current_company(&mut tx).await?;
         let profile_id: Uuid = sqlx::query_scalar("SELECT pos_profile_id FROM pos.pos_opening_entries WHERE id=$1").bind(c.opening_entry_id).fetch_one(&mut *tx).await?;
         sqlx::query(
             r#"INSERT INTO pos.pos_closing_entries
@@ -960,5 +1058,6 @@ impl PosWriteService {
             difference_total: money(difference_total),
         }));
         Ok(CloseOutcome { closing_id: id, difference_total: money(difference_total), by_method })
+        }).await
     }
 }
