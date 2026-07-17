@@ -284,13 +284,18 @@ fn write_routes(svc: Arc<PosWriteService>, verifier: CompanyVerifier) -> Router 
 /// the tenant — callers no longer send `company_id` in the body.
 /// **Prefer this over `PosModule::all_crud_routes()` for any real deployment.**
 ///
-/// NOTE: read routes are not yet tenant-scoped (they return by id); scope them when the read surface
-/// carries sensitive cross-tenant data. Writes — the corruption vector — are closed here.
+/// Read routes are tenant-scoped: the same `company_auth` layer wraps them, so the request runs inside
+/// `with_request_scope` (app.company_id bound on a dedicated connection). The generic list/get path
+/// executes through `company_scope::fetch_*_scoped`, which rides that connection, so RLS returns only
+/// the caller's company rows. Unauthenticated reads get 401 — these surfaces expose company data.
 pub fn create_guarded_pos_routes(m: &PosModule, pool: PgPool, verifier: CompanyVerifier, sink: Arc<dyn PosEventSink>) -> Router {
     let write = Arc::new(PosWriteService::with_sink(pool, sink));
-    Router::new()
+    let reads = Router::new()
         .merge(create_pos_profile_read_routes(m.pos_profile_service.clone()))
         .merge(create_pos_opening_entry_read_routes(m.pos_opening_entry_service.clone()))
         .merge(create_pos_invoice_read_routes(m.pos_invoice_service.clone()))
+        .route_layer(from_fn_with_state(verifier.clone(), company_auth));
+    Router::new()
+        .merge(reads)
         .merge(write_routes(write, verifier))
 }
