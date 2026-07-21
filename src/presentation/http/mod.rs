@@ -27,7 +27,7 @@ pub use pos_payment_handler::{create_pos_payment_routes, create_pos_payment_read
 pub use pos_profile_handler::{create_pos_profile_routes, create_pos_profile_read_routes, create_pos_profile_write_routes};
 pub use pos_opening_entry_handler::{create_pos_opening_entry_routes, create_pos_opening_entry_read_routes, create_pos_opening_entry_write_routes};
 // <<< CUSTOM
-pub use guarded_routes::{create_guarded_pos_priced_route, create_guarded_pos_routes};
+pub use guarded_routes::{create_guarded_pos_priced_route, create_guarded_pos_priced_route_with_outbox, create_guarded_pos_routes, create_guarded_pos_routes_with_outbox};
 // The company guard now lives in the framework (`backbone_auth::company`, feature `axum`) — POS proved
 // the pattern, and it was promoted once a second guarded module needed it. Re-exported here so the
 // composing service and the TG-* tests keep importing it from this module.
