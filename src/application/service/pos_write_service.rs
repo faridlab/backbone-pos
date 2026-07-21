@@ -363,6 +363,11 @@ pub(super) fn is_dup(e: &sqlx::Error) -> bool {
 pub struct PosWriteService {
     pub(super) db_pool: PgPool,
     pub(super) sink: Arc<dyn PosEventSink>,
+    /// When set, `add_tender` stages `PosTenderCompleted` into this outbox schema
+    /// **inside the tender's transaction** (durable) so a relay can recognise the sale even if the
+    /// process dies between commit and the in-process `sink` spawn. `None` (default) preserves the
+    /// historical fire-and-forget behaviour. Opt in via [`Self::with_outbox`].
+    pub(super) outbox_schema: Option<String>,
     pub(super) invoices: Arc<PosInvoiceRepository>,
     pub(super) items: Arc<PosInvoiceItemRepository>,
     pub(super) payments: Arc<PosPaymentRepository>,
@@ -387,8 +392,21 @@ impl PosWriteService {
             movements: Arc::new(PosCashMovementRepository::new(db_pool.clone())),
             db_pool,
             sink,
+            outbox_schema: None,
         }
     }
+
+    /// Opt into durable, outbox-backed `PosTenderCompleted` staging: `add_tender` will insert the
+    /// event into `{schema}.outbox_events` inside the tender transaction (so it commits atomically
+    /// with the tender). A composing service runs `backbone_outbox::runner` to drain the queue and
+    /// recognise the sale — surviving a crash between commit and the in-process `sink` spawn.
+    /// `None`/unset keeps the fire-and-forget behaviour. The schema must already exist (the service
+    /// runs `backbone_outbox::outbox::migrate(pool, schema)` at startup).
+    pub fn with_outbox(mut self, schema: impl Into<String>) -> Self {
+        self.outbox_schema = Some(schema.into());
+        self
+    }
+
 
     // ---- session ------------------------------------------------------------
 
