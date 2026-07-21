@@ -205,7 +205,34 @@ async fn ring_sale_priced(State(st): State<PricedState>, tenant: CompanyContext,
 /// Mount ONLY the promo-priced ring route (`POST /pos-sales/priced`), authenticated. Merge this in
 /// addition to `create_guarded_pos_routes` when the service has a promo-backed `CartPricingPort`.
 pub fn create_guarded_pos_priced_route(pool: PgPool, verifier: CompanyVerifier, pricing: Arc<dyn CartPricingPort>, sink: Arc<dyn PosEventSink>) -> Router {
-    let st = PricedState { svc: Arc::new(PosWriteService::with_sink(pool, sink)), pricing };
+    create_guarded_pos_priced_route_inner(pool, verifier, pricing, sink, None)
+}
+
+/// Like [`create_guarded_pos_priced_route`] but opts the priced-ring write service into
+/// outbox-backed `PosTenderCompleted` staging (durable recognition). See
+/// [`create_guarded_pos_routes_with_outbox`] for the service-side setup the schema implies.
+pub fn create_guarded_pos_priced_route_with_outbox(
+    pool: PgPool,
+    verifier: CompanyVerifier,
+    pricing: Arc<dyn CartPricingPort>,
+    sink: Arc<dyn PosEventSink>,
+    outbox_schema: String,
+) -> Router {
+    create_guarded_pos_priced_route_inner(pool, verifier, pricing, sink, Some(outbox_schema))
+}
+
+fn create_guarded_pos_priced_route_inner(
+    pool: PgPool,
+    verifier: CompanyVerifier,
+    pricing: Arc<dyn CartPricingPort>,
+    sink: Arc<dyn PosEventSink>,
+    outbox_schema: Option<String>,
+) -> Router {
+    let mut svc = PosWriteService::with_sink(pool, sink);
+    if let Some(schema) = outbox_schema {
+        svc = svc.with_outbox(schema);
+    }
+    let st = PricedState { svc: Arc::new(svc), pricing };
     Router::new()
         .route("/pos-sales/priced", post(ring_sale_priced))
         .route_layer(from_fn_with_state(verifier, company_auth))
@@ -289,7 +316,35 @@ fn write_routes(svc: Arc<PosWriteService>, verifier: CompanyVerifier) -> Router 
 /// executes through `company_scope::fetch_*_scoped`, which rides that connection, so RLS returns only
 /// the caller's company rows. Unauthenticated reads get 401 — these surfaces expose company data.
 pub fn create_guarded_pos_routes(m: &PosModule, pool: PgPool, verifier: CompanyVerifier, sink: Arc<dyn PosEventSink>) -> Router {
-    let write = Arc::new(PosWriteService::with_sink(pool, sink));
+    create_guarded_pos_routes_inner(m, pool, verifier, sink, None)
+}
+
+/// Like [`create_guarded_pos_routes`] but opts the write service into outbox-backed
+/// `PosTenderCompleted` staging (durable recognition). The composing service must run
+/// `backbone_outbox::outbox::migrate(pool, &outbox_schema)` at startup and a relay
+/// (`backbone_outbox::runner`) that drains `{outbox_schema}.outbox_events` → recognition.
+pub fn create_guarded_pos_routes_with_outbox(
+    m: &PosModule,
+    pool: PgPool,
+    verifier: CompanyVerifier,
+    sink: Arc<dyn PosEventSink>,
+    outbox_schema: String,
+) -> Router {
+    create_guarded_pos_routes_inner(m, pool, verifier, sink, Some(outbox_schema))
+}
+
+fn create_guarded_pos_routes_inner(
+    m: &PosModule,
+    pool: PgPool,
+    verifier: CompanyVerifier,
+    sink: Arc<dyn PosEventSink>,
+    outbox_schema: Option<String>,
+) -> Router {
+    let mut svc = PosWriteService::with_sink(pool, sink);
+    if let Some(schema) = outbox_schema {
+        svc = svc.with_outbox(schema);
+    }
+    let write = Arc::new(svc);
     let reads = Router::new()
         .merge(create_pos_profile_read_routes(m.pos_profile_service.clone()))
         .merge(create_pos_opening_entry_read_routes(m.pos_opening_entry_service.clone()))
