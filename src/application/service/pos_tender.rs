@@ -45,6 +45,34 @@ impl PosWriteService {
             let paid_total = self.payments.sum_paid_total_on(&mut tx, pos_invoice_id).await?;
             let change_due = if paid_total > rounded_total { paid_total - rounded_total } else { Decimal::ZERO };
             self.invoices.update_tender_totals(&mut tx, pos_invoice_id, paid_total, change_due).await?;
+            // Durable event: if this tender crosses full payment AND an outbox schema is configured,
+            // stage PosTenderCompleted INSIDE this transaction (atomic with the tender). A relay
+            // drains it to recognition — surviving a crash between commit and the in-process spawn.
+            // The fire-and-forget `sink.publish` below remains the fast path; double-delivery is a
+            // no-op because recognition is replay-safe (billing reuses billing_invoice_id; settle
+            // carries a payment_id skip-gate). Unset schema → historical fire-and-forget only.
+            let fully_tendered = paid_total >= rounded_total;
+            if fully_tendered && (paid_total - money(amount)) < rounded_total {
+                if let Some(schema) = &self.outbox_schema {
+                    let rec = backbone_outbox::record::OutboxRecord {
+                        id: Uuid::new_v4(),
+                        event_type: "PosTenderCompleted".to_string(),
+                        aggregate_type: "PosSale".to_string(),
+                        aggregate_id: pos_invoice_id.to_string(),
+                        payload: serde_json::json!({
+                            "pos_invoice_id": pos_invoice_id,
+                            "company_id": hdr_company,
+                        }),
+                        occurred_at: chrono::Utc::now(),
+                        correlation_id: None,
+                        causation_id: None,
+                        version: 1,
+                    };
+                    backbone_outbox::outbox::stage(&mut *tx, schema, &rec)
+                        .await
+                        .map_err(|e| PosError::Db(sqlx::Error::Protocol(e.to_string())))?;
+                }
+            }
             tx.commit().await?;
             Ok::<_, PosError>((paid_total, change_due))
         }).await?;
