@@ -44,6 +44,7 @@ pub struct PosPaymentPaginatedResult {
 /// Filter parameters for list queries
 #[derive(Debug, Clone, Default)]
 pub struct PosPaymentFilter {
+    pub company_id: Option<Uuid>,
     pub pos_invoice_id: Option<Uuid>,
     pub payment_method: Option<PosPaymentMethod>,
     pub reference_no: Option<String>,
@@ -53,7 +54,7 @@ pub struct PosPaymentFilter {
 impl PosPaymentFilter {
     /// Check if any filter is set
     pub fn has_filters(&self) -> bool {
-        self.pos_invoice_id.is_some() || self.payment_method.is_some() || self.reference_no.is_some() || self.payment_entry_id.is_some()
+        self.company_id.is_some() || self.pos_invoice_id.is_some() || self.payment_method.is_some() || self.reference_no.is_some() || self.payment_entry_id.is_some()
     }
 }
 

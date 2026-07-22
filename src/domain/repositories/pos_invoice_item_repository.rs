@@ -44,6 +44,7 @@ pub struct PosInvoiceItemPaginatedResult {
 /// Filter parameters for list queries
 #[derive(Debug, Clone, Default)]
 pub struct PosInvoiceItemFilter {
+    pub company_id: Option<Uuid>,
     pub pos_invoice_id: Option<Uuid>,
     pub item_id: Option<Uuid>,
     pub description: Option<String>,
@@ -53,7 +54,7 @@ pub struct PosInvoiceItemFilter {
 impl PosInvoiceItemFilter {
     /// Check if any filter is set
     pub fn has_filters(&self) -> bool {
-        self.pos_invoice_id.is_some() || self.item_id.is_some() || self.description.is_some() || self.revenue_account_id.is_some()
+        self.company_id.is_some() || self.pos_invoice_id.is_some() || self.item_id.is_some() || self.description.is_some() || self.revenue_account_id.is_some()
     }
 }
 

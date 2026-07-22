@@ -37,6 +37,7 @@ impl PosWriteService {
             company_scope::bind_current_company(&mut tx).await?;
             self.payments.insert_tender(&mut tx, &NewTenderRow {
                 id: Uuid::new_v4(),
+                company_id: hdr_company,
                 pos_invoice_id,
                 payment_method: method,
                 amount: money(amount),

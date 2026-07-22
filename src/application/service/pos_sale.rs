@@ -77,6 +77,7 @@ impl PosWriteService {
             for (l, net) in &priced {
                 self.items.insert_line(&mut tx, &NewInvoiceItemRow {
                     id: Uuid::new_v4(),
+                    company_id: sale.company_id,
                     pos_invoice_id: id,
                     item_id: l.item_id,
                     description: l.description.as_deref(),

@@ -3098,6 +3098,7 @@ components:
       type: object
       required:
         - id
+        - company_id
         - pos_invoice_id
         - item_id
         - quantity
@@ -3107,6 +3108,9 @@ components:
         - metadata
       properties:
         id:
+          type: string
+          format: uuid
+        company_id:
           type: string
           format: uuid
         pos_invoice_id:
@@ -3150,6 +3154,7 @@ components:
     CreatePosInvoiceItemRequest:
       type: object
       required:
+        - company_id
         - pos_invoice_id
         - item_id
         - quantity
@@ -3158,6 +3163,9 @@ components:
         - net_amount
         - metadata
       properties:
+        company_id:
+          type: string
+          format: uuid
         pos_invoice_id:
           type: string
           format: uuid
@@ -3186,6 +3194,7 @@ components:
     UpdatePosInvoiceItemRequest:
       type: object
       required:
+        - company_id
         - pos_invoice_id
         - item_id
         - quantity
@@ -3194,6 +3203,9 @@ components:
         - net_amount
         - metadata
       properties:
+        company_id:
+          type: string
+          format: uuid
         pos_invoice_id:
           type: string
           format: uuid
@@ -3222,6 +3234,9 @@ components:
     PatchPosInvoiceItemRequest:
       type: object
       properties:
+        company_id:
+          type: string
+          format: uuid
         pos_invoice_id:
           type: string
           format: uuid
@@ -3261,12 +3276,16 @@ components:
       type: object
       required:
         - id
+        - company_id
         - pos_invoice_id
         - payment_method
         - amount
         - metadata
       properties:
         id:
+          type: string
+          format: uuid
+        company_id:
           type: string
           format: uuid
         pos_invoice_id:
@@ -3303,11 +3322,15 @@ components:
     CreatePosPaymentRequest:
       type: object
       required:
+        - company_id
         - pos_invoice_id
         - payment_method
         - amount
         - metadata
       properties:
+        company_id:
+          type: string
+          format: uuid
         pos_invoice_id:
           type: string
           format: uuid
@@ -3329,11 +3352,15 @@ components:
     UpdatePosPaymentRequest:
       type: object
       required:
+        - company_id
         - pos_invoice_id
         - payment_method
         - amount
         - metadata
       properties:
+        company_id:
+          type: string
+          format: uuid
         pos_invoice_id:
           type: string
           format: uuid
@@ -3355,6 +3382,9 @@ components:
     PatchPosPaymentRequest:
       type: object
       properties:
+        company_id:
+          type: string
+          format: uuid
         pos_invoice_id:
           type: string
           format: uuid

@@ -248,6 +248,9 @@ impl backbone_orm::EntityRepoMeta for PosOpeningEntry {
     fn search_fields() -> &'static [&'static str] {
         &[]
     }
+    fn company_field() -> Option<&'static str> {
+        Some("company_id")
+    }
 }
 
 /// Builder for PosOpeningEntry entity

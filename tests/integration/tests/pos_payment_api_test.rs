@@ -24,6 +24,7 @@ impl TestDataGenerator for PosPaymentTestData {
         let now = Utc::now().to_rfc3339();
         json!({
             "id": Uuid::new_v4().to_string(),
+            "company_id": Uuid::new_v4().to_string(),
             "pos_invoice_id": Uuid::new_v4().to_string(),
             "payment_method": "cash",
             "amount": 0,
@@ -37,6 +38,7 @@ impl TestDataGenerator for PosPaymentTestData {
         let now = Utc::now().to_rfc3339();
         json!({
             "id": id,
+            "company_id": Uuid::new_v4().to_string(),
             "pos_invoice_id": Uuid::new_v4().to_string(),
             "payment_method": "cash",
             "amount": 0,

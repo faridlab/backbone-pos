@@ -127,6 +127,10 @@ models:
         type: uuid
         attributes: ["@id", "@default(uuid)"]
         description: "Unique line id"
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Books owner, denormalised from PosInvoice.company_id so the child row carries its own ADR-0008 RLS fence # logical FK to organization.Company.id"
       pos_invoice_id:
         type: uuid
         attributes: ["@required", "@foreign_key(PosInvoice.id)"]
@@ -184,6 +188,10 @@ models:
         type: uuid
         attributes: ["@id", "@default(uuid)"]
         description: "Unique tender id"
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Books owner, denormalised from PosInvoice.company_id so the child row carries its own ADR-0008 RLS fence # logical FK to organization.Company.id"
       pos_invoice_id:
         type: uuid
         attributes: ["@required", "@foreign_key(PosInvoice.id)"]

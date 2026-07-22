@@ -41,8 +41,11 @@ impl PosInvoiceItemRepository {
 
 /// The exact row a ticket line writes. Mirrors the raw column shape rather than the `PosInvoiceItem`
 /// entity: `net_amount` is the already-computed line net (qty x price - discount), not re-derived here.
+/// `company_id` is denormalised from the parent ticket so the child row carries its own ADR-0008 RLS
+/// fence (ADR-0010 Decision A) — the caller (the write service) reads it off the sale input.
 pub struct NewInvoiceItemRow<'a> {
     pub id: Uuid,
+    pub company_id: Uuid,
     pub pos_invoice_id: Uuid,
     pub item_id: Uuid,
     pub description: Option<&'a str>,
@@ -91,10 +94,10 @@ impl PosInvoiceItemRepository {
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO pos.pos_invoice_items
-                (id, pos_invoice_id, item_id, description, quantity, unit_price, discount_amount, net_amount, revenue_account_id)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)"#,
+                (id, company_id, pos_invoice_id, item_id, description, quantity, unit_price, discount_amount, net_amount, revenue_account_id)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)"#,
         )
-        .bind(l.id).bind(l.pos_invoice_id).bind(l.item_id).bind(l.description).bind(l.quantity)
+        .bind(l.id).bind(l.company_id).bind(l.pos_invoice_id).bind(l.item_id).bind(l.description).bind(l.quantity)
         .bind(l.unit_price).bind(l.discount_amount).bind(l.net_amount).bind(l.revenue_account_id)
         .execute(conn)
         .await?;

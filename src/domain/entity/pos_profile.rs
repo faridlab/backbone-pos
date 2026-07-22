@@ -341,6 +341,9 @@ impl backbone_orm::EntityRepoMeta for PosProfile {
     fn search_fields() -> &'static [&'static str] {
         &["name", "currency"]
     }
+    fn company_field() -> Option<&'static str> {
+        Some("company_id")
+    }
 }
 
 /// Builder for PosProfile entity

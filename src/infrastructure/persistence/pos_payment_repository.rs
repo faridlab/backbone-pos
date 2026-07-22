@@ -41,9 +41,12 @@ impl PosPaymentRepository {
 
 /// The exact row a tender writes. Mirrors the raw column shape rather than the `PosPayment` entity:
 /// `payment_method` binds as `&str` with a DB-side cast (`$3::pos_payment_method`), so an unknown
-/// method fails as a DB error rather than a deserialize panic.
+/// method fails as a DB error rather than a deserialize panic. `company_id` is denormalised from the
+/// parent ticket so the child row carries its own ADR-0008 RLS fence (ADR-0010 Decision A) — the
+/// caller (the write service) reads it off the ticket header.
 pub struct NewTenderRow<'a> {
     pub id: Uuid,
+    pub company_id: Uuid,
     pub pos_invoice_id: Uuid,
     pub payment_method: &'a str,
     pub amount: Decimal,
@@ -75,10 +78,10 @@ impl PosPaymentRepository {
         t: &NewTenderRow<'_>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"INSERT INTO pos.pos_payments (id, pos_invoice_id, payment_method, amount, reference_no)
-               VALUES ($1,$2,$3::pos_payment_method,$4,$5)"#,
+            r#"INSERT INTO pos.pos_payments (id, company_id, pos_invoice_id, payment_method, amount, reference_no)
+               VALUES ($1,$2,$3,$4::pos_payment_method,$5,$6)"#,
         )
-        .bind(t.id).bind(t.pos_invoice_id).bind(t.payment_method).bind(t.amount).bind(t.reference_no)
+        .bind(t.id).bind(t.company_id).bind(t.pos_invoice_id).bind(t.payment_method).bind(t.amount).bind(t.reference_no)
         .execute(conn)
         .await?;
         Ok(())

@@ -186,6 +186,7 @@ impl From<PosInvoiceItemId> for Uuid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PosInvoiceItemDto {
     pub id: PosInvoiceItemId,
+    pub company_id: Uuid,
     pub pos_invoice_id: Uuid,
     pub item_id: Uuid,
     pub description: Option<String>,
@@ -247,6 +248,7 @@ impl From<PosPaymentId> for Uuid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PosPaymentDto {
     pub id: PosPaymentId,
+    pub company_id: Uuid,
     pub pos_invoice_id: Uuid,
     pub payment_method: PosPaymentMethod,
     pub amount: Decimal,
