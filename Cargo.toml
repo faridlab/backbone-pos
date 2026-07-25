@@ -1,6 +1,6 @@
 [package]
 name = "backbone-pos"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "Point of sale — cashier session, ticket + multi-tender; orchestrates billing (revenue) + payment (settlement), posts no GL directly"
 
@@ -91,7 +91,12 @@ rand = "0.8"
 # Invoice) + backbone-payment (settle the tender) + backbone-accounting (the ledger) through in-test
 # ACL adapters implementing POS's BillingPort/PaymentPort. Dev-dependencies ONLY — the shipped POS
 # library has ZERO normal edges (verify: `cargo tree -e normal -i backbone-billing` etc. are empty).
-backbone-accounting = { path = "../backbone-accounting" }
-backbone-billing = { path = "../backbone-billing" }
-backbone-payment = { path = "../backbone-payment" }
-backbone-inventory = { path = "../backbone-inventory" }
+# DUAL-MODE wiring (Cargo forbids `path` + `git` on the same dependency line, so it's split):
+#   • Prod / standalone clone / CI → the git tags below are the source; no sibling checkouts needed.
+#   • Local dev (full workspace)   → .cargo/config.toml (gitignored) [patch]es each git source back
+#     to ../backbone-*, so uncommitted sibling edits propagate instantly. Recreate it from
+#     .cargo/config.toml.example. Without that file present, Cargo falls through to the git tags.
+backbone-accounting = { git = "https://github.com/faridlab/backbone-accounting", tag = "v0.4.0" }
+backbone-billing = { git = "https://github.com/faridlab/backbone-billing", tag = "v0.3.2" }
+backbone-payment = { git = "https://github.com/faridlab/backbone-payment", tag = "v0.6.1" }
+backbone-inventory = { git = "https://github.com/faridlab/backbone-inventory", tag = "v0.3.1" }

@@ -1,0 +1,15 @@
+# Copy this file to .cargo/config.toml (which is gitignored) to develop backbone-pos against the
+# LOCAL sibling checkouts at ../backbone-*. Without this file, Cargo builds the four siblings from
+# their pinned git tags (the prod/CI path). See the [dev-dependencies] block in Cargo.toml.
+
+[patch."https://github.com/faridlab/backbone-accounting"]
+backbone-accounting = { path = "../backbone-accounting" }
+
+[patch."https://github.com/faridlab/backbone-billing"]
+backbone-billing = { path = "../backbone-billing" }
+
+[patch."https://github.com/faridlab/backbone-payment"]
+backbone-payment = { path = "../backbone-payment" }
+
+[patch."https://github.com/faridlab/backbone-inventory"]
+backbone-inventory = { path = "../backbone-inventory" }

@@ -23,3 +23,7 @@ Thumbs.db
 .claude/
 # graphify knowledge graph (local, not committed)
 graphify-out/
+
+# Local Cargo override — redirects sibling git deps to ../backbone-* paths in dev.
+# .cargo/config.toml.example is tracked as the template; the real file stays local.
+.cargo/config.toml
