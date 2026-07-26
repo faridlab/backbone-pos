@@ -307,7 +307,7 @@ async fn retail_return_reverses_both_legs_and_is_idempotent() {
     assert_eq!(balance(&pool, coa["4000"]).await, d("-100000.00"));
 
     // Return it — both legs reverse; revenue, cash, A/R all net to ZERO.
-    let ret = pos.return_sale(sale, &billing_port, &payment_port).await.unwrap();
+    let ret = pos.return_sale(sale, &billing_port, &payment_port, None).await.unwrap();
     assert_eq!(balance(&pool, coa["1200"]).await, d("0.00"), "A/R still zero after return");
     assert_eq!(balance(&pool, coa["4000"]).await, d("0.00"), "revenue reversed to zero");
     assert_eq!(balance(&pool, coa["1110"]).await, d("0.00"), "cash refunded to zero");
@@ -319,7 +319,7 @@ async fn retail_return_reverses_both_legs_and_is_idempotent() {
     assert_eq!(against, Some(sale));
 
     // Idempotent: a second return does not double-refund — GL stays at zero, one return ticket only.
-    pos.return_sale(sale, &billing_port, &payment_port).await.unwrap();
+    pos.return_sale(sale, &billing_port, &payment_port, None).await.unwrap();
     assert_eq!(balance(&pool, coa["1110"]).await, d("0.00"), "no double refund");
     assert_eq!(balance(&pool, coa["4000"]).await, d("0.00"), "no double credit note");
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pos.pos_invoices WHERE return_against=$1 AND is_return=true").bind(sale).fetch_one(&pool).await.unwrap();

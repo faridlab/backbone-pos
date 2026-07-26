@@ -301,6 +301,10 @@ pub enum PosError {
     PricingRejected { code: String, message: String },
     InventoryRejected { code: String, message: String },
     InvalidCashMovement(&'static str),
+    /// Forward-compatible seam (council 2026-07-26, #5): `return_sale` accepts an optional
+    /// `PartialCredit`, but partial-return behavior is not yet implemented — it lands when
+    /// backbone-billing's credit note honors a line subset (ADR-001 park; gate: merchant demand).
+    PartialReturnsNotImplemented,
     Db(sqlx::Error),
 }
 
@@ -323,6 +327,7 @@ impl PosError {
             PosError::PricingRejected { code, .. } => code.clone(),
             PosError::InventoryRejected { code, .. } => code.clone(),
             PosError::InvalidCashMovement(_) => "invalid_cash_movement".into(),
+            PosError::PartialReturnsNotImplemented => "partial_returns_not_implemented".into(),
             PosError::Db(_) => "internal_error".into(),
         }
     }

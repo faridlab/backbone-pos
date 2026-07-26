@@ -72,12 +72,41 @@ pub struct PosRejected {
     pub message: String,
 }
 
+/// A line to credit on a partial return — mirrors the [`SaleLine`] shape POS handed billing on the
+/// sale (`qty · unit_price` is the line's net; `item_id` is the logical catalog FK).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CreditLine {
+    pub item_id: Uuid,
+    pub quantity: Decimal,
+    pub unit_price: Decimal,
+    pub revenue_account_id: Uuid,
+}
+
+/// Optional partial-credit payload for [`CreditNoteRequest`].
+///
+/// **Forward-compatible seam (council 2026-07-26, #5 slice):** added now so POS can request a
+/// line-level credit note the moment `backbone-billing`'s `credit_note` / `reverse_sales_invoice`
+/// honors a line subset — without a later wire ABI break. `amount`, when set, overrides the summed
+/// line total (e.g. a header-level partial). POS does not construct this yet (full-ticket returns
+/// only — ADR-001 park); `return_sale` gates `Some(_)` as `PartialReturnsNotImplemented`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PartialCredit {
+    /// The subset of sale lines to reverse (item + qty). Empty = amount-only partial.
+    pub lines: Vec<CreditLine>,
+    /// Optional override for the total to credit; otherwise the sum of `lines`.
+    pub amount: Option<Decimal>,
+}
+
 /// The request POS hands billing to CREDIT-NOTE a sale (reverse the revenue) on a return.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CreditNoteRequest {
     pub company_id: Uuid,
     /// The billing Sales Invoice to credit-note (`Dr Revenue · Cr A/R`, invoice → cancelled).
     pub invoice_ref: Uuid,
+    /// Optional line-level / amount partial. `None` = whole-invoice credit note (today's behavior).
+    /// `#[serde(default)]` keeps the wire backward-compatible with adapters that don't send it.
+    #[serde(default)]
+    pub partial: Option<PartialCredit>,
 }
 
 /// The request POS hands payment to REFUND a settled sale (reverse the tender) on a return.

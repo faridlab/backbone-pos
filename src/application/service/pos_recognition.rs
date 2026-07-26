@@ -18,8 +18,8 @@ use crate::infrastructure::persistence::NewReturnInvoiceRow;
 
 use super::pos_events::{PosEvent, PosInvoicePaid, PosInvoiceReturned};
 use super::pos_ports::{
-    BillingPort, CreditNoteRequest, InventoryPort, PaymentPort, RefundRequest, SaleInvoiceRequest,
-    SaleLine, SettlementRequest, StockIssueLine, StockIssueRequest,
+    BillingPort, CreditNoteRequest, InventoryPort, PartialCredit, PaymentPort, RefundRequest,
+    SaleInvoiceRequest, SaleLine, SettlementRequest, StockIssueLine, StockIssueRequest,
 };
 use super::pos_write_service::{PosError, PosWriteService, RecognizeOutcome, ReturnOutcome};
 
@@ -151,7 +151,13 @@ impl PosWriteService {
     /// `return_against`, flips the original → `returned`, emits `PosInvoiceReturned`. **Idempotent:**
     /// both downstream reversals are idempotent, and the ticket/event are gated on the original's
     /// `paid→returned` transition — a repeat return refunds/credits at most once. POS posts no GL.
-    pub async fn return_sale(&self, original_pos_invoice_id: Uuid, billing: &dyn BillingPort, payment: &dyn PaymentPort) -> Result<ReturnOutcome, PosError> {
+    pub async fn return_sale(&self, original_pos_invoice_id: Uuid, billing: &dyn BillingPort, payment: &dyn PaymentPort, partial: Option<PartialCredit>) -> Result<ReturnOutcome, PosError> {
+        // Forward-compatible seam (council 2026-07-26, #5): the optional line-subset is accepted but
+        // not yet honored — partial returns need backbone-billing's credit note to take a line subset
+        // (ADR-001 park; gate: merchant demand). Today only full-ticket returns are supported.
+        if partial.is_some() {
+            return Err(PosError::PartialReturnsNotImplemented);
+        }
         // RLS scope (ADR-0008), ID-only pattern — see `add_tender`: the lookup is fenced by the
         // request-dedicated connection, so another company's ticket is simply not found.
         let o = self.invoices
@@ -170,7 +176,7 @@ impl PosWriteService {
         // Drive the two reversals (both idempotent downstream): refund the tender + credit-note the sale.
         payment.refund(&RefundRequest { company_id, invoice_ref: billing_invoice_id, payment_id, amount: rounded_total })
             .await.map_err(|e| PosError::PaymentRejected { code: e.code, message: e.message })?;
-        billing.credit_note(&CreditNoteRequest { company_id, invoice_ref: billing_invoice_id })
+        billing.credit_note(&CreditNoteRequest { company_id, invoice_ref: billing_invoice_id, partial: None })
             .await.map_err(|e| PosError::BillingRejected { code: e.code, message: e.message })?;
 
         // Gate the return ticket + event on the original's paid→returned transition (exactly-once).
