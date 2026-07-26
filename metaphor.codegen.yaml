@@ -11,6 +11,11 @@
 # Add your hand-authored services, handlers, tests, and docs below as you write them.
 
 user_owned:
+  # The deliberate, published integration surface a composing service depends on. Hand-authored;
+  # gathers the public API under one namespace so consumers don't reach into the DDD layer tree
+  # (council 2026-07-26, Contract Seat). The `pub mod integration;` declaration sits in a CUSTOM
+  # block in lib.rs.
+  - "src/integration.rs"
   - "src/application/service/pos_events.rs"
   - "src/application/service/pos_ports.rs"
   - "src/application/service/pos_write_service.rs"
