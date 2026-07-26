@@ -35,6 +35,7 @@ use backbone_payment::application::service::payment_gl::{
 use backbone_payment::application::service::payment_write_service::{NewAllocation, NewPayment, PaymentWriteService};
 
 use backbone_accounting::application::service::posting_service::{PostingLine, PostingRequest, PostingService};
+use backbone_accounting::infrastructure::persistence::SqlxPostingRepository;
 
 use backbone_inventory::application::service::inventory_gl::{
     AccountingPostEnvelope as InvEnv, GlPostAck as InvAck, GlPostRejected as InvRej, GlPostSink as InvSink,
@@ -67,34 +68,12 @@ impl BillSink for GlAdapter {
         }
     }
 }
-#[async_trait::async_trait]
-impl PaySink for GlAdapter {
-    async fn post(&self, e: &PayEnv) -> Result<PayAck, PayRej> {
-        let lines = e.lines.iter().map(pl_pay).collect();
-        match self.go(e.company_id, &e.source_type, e.source_id, e.source_reference.clone(), e.posting_date, &e.posting_type, e.reverses_post_id, lines).await {
-            Ok((post_id, journal_id, idempotent_reuse)) => Ok(PayAck { post_id, journal_id, idempotent_reuse }),
-            Err((code, message)) => Err(PayRej { code, message }),
-        }
-    }
-}
+// (Removed the duplicate `impl PaySink` + `impl InvSink` for GlAdapter: billing_gl, payment_gl, and
+// inventory_gl GlPostSink are now the SAME trait + unified envelope/line types — all re-export
+// backbone_gl_posting (framework v2.7.5). The single `impl BillSink` above + `pl` already satisfy all
+// three services' GlPostSink requirement; their envelopes route to the one impl.)
 fn pl(l: &backbone_billing::application::service::billing_gl::GlPostLine) -> PostingLine {
     PostingLine { account_id: l.account_id, debit: l.debit, credit: l.credit, party_type: l.party_type.clone(), party_id: l.party_id, cost_center_id: None, project_id: None, department_id: None, description: l.description.clone() }
-}
-fn pl_pay(l: &backbone_payment::application::service::payment_gl::GlPostLine) -> PostingLine {
-    PostingLine { account_id: l.account_id, debit: l.debit, credit: l.credit, party_type: l.party_type.clone(), party_id: l.party_id, cost_center_id: None, project_id: None, department_id: None, description: l.description.clone() }
-}
-#[async_trait::async_trait]
-impl InvSink for GlAdapter {
-    async fn post(&self, e: &InvEnv) -> Result<InvAck, InvRej> {
-        let lines = e.lines.iter().map(|l| PostingLine {
-            account_id: l.account_id, debit: l.debit, credit: l.credit, party_type: l.party_type.clone(),
-            party_id: l.party_id, cost_center_id: None, project_id: None, department_id: None, description: l.description.clone(),
-        }).collect();
-        match self.go(e.company_id, &e.source_type, e.source_id, e.source_reference.clone(), e.posting_date, &e.posting_type, None, lines).await {
-            Ok((post_id, journal_id, idempotent_reuse)) => Ok(InvAck { post_id, journal_id, idempotent_reuse }),
-            Err((code, message)) => Err(InvRej { code, message }),
-        }
-    }
 }
 
 /// InventoryPort over the real inventory service: issue an outward Delivery Note (relieve on-hand +
@@ -163,6 +142,7 @@ impl PaymentPort for PaymentAdapter {
             currency: Some(req.currency.clone()), mode_of_payment_id: None, bank_account_id: req.bank_account_id,
             party_account_id: req.party_account_id, paid_amount: req.amount, reference_no: None,
             allocations: vec![NewAllocation { invoice_ref: req.invoice_ref, invoice_kind: "sales".into(), amount: req.amount }],
+            withholding_amount: rust_decimal::Decimal::ZERO, withholding_account_id: None, withholding_tax_type: "none".into(),
         }).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
         let out = self.payment.post_payment(pay, &*self.gl).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
         self.billing.apply_settlement(req.invoice_ref, "sales", req.amount).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
@@ -232,7 +212,7 @@ async fn retail_cash_sale_across_four_modules() {
 
     let rec = RecordingPosSink::default();
     let pos = PosWriteService::with_sink(pool.clone(), Arc::new(rec.clone()));
-    let gl = Arc::new(GlAdapter { svc: PostingService::new(pool.clone()) });
+    let gl = Arc::new(GlAdapter { svc: PostingService::new(Arc::new(SqlxPostingRepository::new(pool.clone()))) });
     let billing_port = BillingAdapter { billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
     let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
 
@@ -286,7 +266,7 @@ async fn retail_return_reverses_both_legs_and_is_idempotent() {
     let item = Uuid::new_v4();
 
     let pos = PosWriteService::new(pool.clone());
-    let gl = Arc::new(GlAdapter { svc: PostingService::new(pool.clone()) });
+    let gl = Arc::new(GlAdapter { svc: PostingService::new(Arc::new(SqlxPostingRepository::new(pool.clone()))) });
     let billing_port = BillingAdapter { billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
     let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
     let prof = Uuid::new_v4();
@@ -350,7 +330,7 @@ async fn retail_ppn_sale_books_output_tax() {
         .bind(prof).bind(company).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(ppn).bind(customer).execute(&pool).await.unwrap();
 
     let pos = PosWriteService::new(pool.clone());
-    let gl = Arc::new(GlAdapter { svc: PostingService::new(pool.clone()) });
+    let gl = Arc::new(GlAdapter { svc: PostingService::new(Arc::new(SqlxPostingRepository::new(pool.clone()))) });
     let billing_port = BillingAdapter { billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
     let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
 
@@ -401,7 +381,7 @@ async fn retail_sale_decrements_stock_and_books_cogs() {
     }
 
     let inv = InventoryWriteService::new(pool.clone());
-    let gl = Arc::new(GlAdapter { svc: PostingService::new(pool.clone()) });
+    let gl = Arc::new(GlAdapter { svc: PostingService::new(Arc::new(SqlxPostingRepository::new(pool.clone()))) });
 
     // Warehouse + stock item + opening on-hand: receive 10 @ 60,000.
     let wh = inv.create_warehouse(NewWarehouse { company_id: company, code: uq("WH"), name: "Toko".into(), warehouse_type: None, parent_warehouse_id: None, is_group: false }).await.unwrap();
