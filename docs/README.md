@@ -45,6 +45,7 @@ the path.
 This handbook is the *narrative*. Reference sets live alongside it — link out, don't duplicate:
 
 - **Product docs** — the [BRD](BRD.md) (business rules), [PRD](PRD.md) (problem + goals), and [FSD](FSD.md) (functional spec) for POS.
+- **[End-to-end use cases & data transformation](USE_CASES.md)** — the cashier sale flow, custom/integration use cases, the ticket → invoice → settlement → GL field mappings, and how POS is consumed (with the retail-vs-ecommerce and why-no-catalog answers).
 - **[Business flows](business-flows/README.md)** — the flows POS owns, each linked to its executable oracle; the [golden cases](business-flows/golden-cases.md) mirror `tests/pos_golden_cases.rs`, `tests/integrity_probes.rs`, and `tests/retail_sale_seam.rs` one-to-one.
 - **[Schema DSL reference](schema/README.md)** — the exact YAML grammar: [types](schema/TYPES.md), [model rules](schema/RULE_FORMAT_MODELS.md), [generation targets](schema/GENERATION.md), [error codes](schema/ERROR_CODES.md), [examples](schema/EXAMPLES.md). The *Reference* corner of Diátaxis; the handbook explains the *why*.
 - **[Module decision record](adr/ADR-001-pos-boundary-and-retail-seam.md)** — why POS owns the session + ticket, posts no GL, and orchestrates billing + payment (the retail seam).
