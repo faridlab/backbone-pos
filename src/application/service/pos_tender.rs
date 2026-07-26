@@ -55,20 +55,9 @@ impl PosWriteService {
             let fully_tendered = paid_total >= rounded_total;
             if fully_tendered && (paid_total - money(amount)) < rounded_total {
                 if let Some(schema) = &self.outbox_schema {
-                    let rec = backbone_outbox::record::OutboxRecord {
-                        id: Uuid::new_v4(),
-                        event_type: "PosTenderCompleted".to_string(),
-                        aggregate_type: "PosSale".to_string(),
-                        aggregate_id: pos_invoice_id.to_string(),
-                        payload: serde_json::json!({
-                            "pos_invoice_id": pos_invoice_id,
-                            "company_id": hdr_company,
-                        }),
-                        occurred_at: chrono::Utc::now(),
-                        correlation_id: None,
-                        causation_id: None,
-                        version: 1,
-                    };
+                    // Outbox fenced by `company_id` (ADR-0011, mirrored from backbone-payment) — see
+                    // `tender_completed_outbox_record` for the fence contract.
+                    let rec = tender_completed_outbox_record(pos_invoice_id, hdr_company, chrono::Utc::now());
                     backbone_outbox::outbox::stage(&mut *tx, schema, &rec)
                         .await
                         .map_err(|e| PosError::Db(sqlx::Error::Protocol(e.to_string())))?;
@@ -87,5 +76,53 @@ impl PosWriteService {
             }));
         }
         Ok(TenderOutcome { paid_total, change_due, fully_tendered })
+    }
+}
+
+/// The fenced outbox record for a just-completed tender (ADR-0011, mirrored from backbone-payment).
+///
+/// `company_id` is the owning tenant. backbone-outbox v2.7.4's `multi_tenant` feature fences
+/// `<schema>.outbox_events` by it — a backfilled `company_id` column + a fail-closed RLS policy —
+/// so a tenant-scoped relay cannot read another company's staged event. `OutboxRecord::new` sets the
+/// top-level field; the payload keeps a copy for consumers that read it from the JSON.
+fn tender_completed_outbox_record(
+    pos_invoice_id: Uuid,
+    company_id: Uuid,
+    now: chrono::DateTime<chrono::Utc>,
+) -> backbone_outbox::OutboxRecord {
+    let payload = serde_json::json!({
+        "pos_invoice_id": pos_invoice_id,
+        "company_id": company_id,
+    });
+    backbone_outbox::OutboxRecord::new(
+        "PosTenderCompleted",
+        "PosSale",
+        pos_invoice_id.to_string(),
+        company_id,
+        payload,
+        now,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression guard for the ADR-0011 outbox fence (mirrored from backbone-payment): the staged
+    /// `PosTenderCompleted` record MUST carry the owning tenant as its top-level `company_id` — the
+    /// column the RLS policy fences on. If someone reverts to the pre-fence struct literal
+    /// (company_id only in the payload, outbox v2.7.1), this fails.
+    #[test]
+    fn tender_completed_record_is_fenced_by_company() {
+        let company = Uuid::new_v4();
+        let ticket = Uuid::new_v4();
+        let rec = tender_completed_outbox_record(ticket, company, chrono::Utc::now());
+        assert_eq!(
+            rec.company_id, company,
+            "PosTenderCompleted outbox record must carry the owning tenant (ADR-0011 fence)"
+        );
+        assert_eq!(rec.event_type, "PosTenderCompleted");
+        assert_eq!(rec.aggregate_type, "PosSale");
+        assert_eq!(rec.aggregate_id, ticket.to_string());
     }
 }
