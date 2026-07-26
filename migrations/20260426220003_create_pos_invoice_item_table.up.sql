@@ -5,6 +5,7 @@ CREATE SCHEMA IF NOT EXISTS pos;
 
 CREATE TABLE IF NOT EXISTS pos.pos_invoice_items (
     id UUID NOT NULL DEFAULT gen_random_uuid(),
+    company_id UUID NOT NULL,
     pos_invoice_id UUID NOT NULL,
     item_id UUID NOT NULL,
     description TEXT,

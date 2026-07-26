@@ -14,6 +14,7 @@ CREATE SCHEMA IF NOT EXISTS pos;
 
 CREATE TABLE IF NOT EXISTS pos.pos_payments (
     id UUID NOT NULL DEFAULT gen_random_uuid(),
+    company_id UUID NOT NULL,
     pos_invoice_id UUID NOT NULL,
     payment_method pos_payment_method NOT NULL,
     amount NUMERIC(18, 2) NOT NULL CHECK (amount >= 0),

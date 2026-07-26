@@ -6,6 +6,7 @@
 
 -- INSERT INTO pos.pos_invoice_items (
 --     id,
+--     company_id,
 --     pos_invoice_id,
 --     item_id,
 --     description,

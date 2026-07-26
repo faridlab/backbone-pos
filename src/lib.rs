@@ -23,11 +23,11 @@ pub mod infrastructure;
 pub mod application;
 pub mod presentation;
 pub mod seeders;
+
 // <<< CUSTOM
 /// Stable integration surface for composing services (the deliberate public API consumers depend on).
 pub mod integration;
 // END CUSTOM
-
 // Re-exports for convenience - Domain entities
 pub use domain::entity::*;
 

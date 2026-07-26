@@ -10,6 +10,16 @@ DROP POLICY IF EXISTS pos_invoices_company_isolation ON pos.pos_invoices;
 ALTER TABLE pos.pos_invoices NO FORCE ROW LEVEL SECURITY;
 ALTER TABLE pos.pos_invoices DISABLE ROW LEVEL SECURITY;
 
+-- Reverse the company RLS fence for pos.pos_invoice_items
+DROP POLICY IF EXISTS pos_invoice_items_company_isolation ON pos.pos_invoice_items;
+ALTER TABLE pos.pos_invoice_items NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE pos.pos_invoice_items DISABLE ROW LEVEL SECURITY;
+
+-- Reverse the company RLS fence for pos.pos_payments
+DROP POLICY IF EXISTS pos_payments_company_isolation ON pos.pos_payments;
+ALTER TABLE pos.pos_payments NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE pos.pos_payments DISABLE ROW LEVEL SECURITY;
+
 -- Reverse the company RLS fence for pos.pos_profiles
 DROP POLICY IF EXISTS pos_profiles_company_isolation ON pos.pos_profiles;
 ALTER TABLE pos.pos_profiles NO FORCE ROW LEVEL SECURITY;

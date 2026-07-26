@@ -6,6 +6,7 @@
 
 -- INSERT INTO pos.pos_payments (
 --     id,
+--     company_id,
 --     pos_invoice_id,
 --     payment_method,
 --     amount,
