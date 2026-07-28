@@ -60,13 +60,13 @@ use sqlx::PgPool;
 /// let router = pos.all_crud_routes();
 /// ```
 pub struct PosModule {
-    pub pos_closing_entry_service: Arc<PosClosingEntryService>,
-    pub pos_invoice_service: Arc<PosInvoiceService>,
-    pub pos_invoice_item_service: Arc<PosInvoiceItemService>,
-    pub pos_payment_service: Arc<PosPaymentService>,
-    pub pos_profile_service: Arc<PosProfileService>,
-    pub pos_opening_entry_service: Arc<PosOpeningEntryService>,
-    pub pos_cash_movement_service: Arc<PosCashMovementService>,
+    pub(crate) pos_closing_entry_service: Arc<PosClosingEntryService>,
+    pub(crate) pos_invoice_service: Arc<PosInvoiceService>,
+    pub(crate) pos_invoice_item_service: Arc<PosInvoiceItemService>,
+    pub(crate) pos_payment_service: Arc<PosPaymentService>,
+    pub(crate) pos_profile_service: Arc<PosProfileService>,
+    pub(crate) pos_opening_entry_service: Arc<PosOpeningEntryService>,
+    pub(crate) pos_cash_movement_service: Arc<PosCashMovementService>,
 }
 
 impl PosModule {
