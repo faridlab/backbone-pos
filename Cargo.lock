@@ -209,6 +209,7 @@ dependencies = [
 [[package]]
 name = "backbone-accounting"
 version = "0.4.0"
+source = "git+https://github.com/faridlab/backbone-accounting?tag=v0.4.0#464eb1505a279e6b07f4f285342aaed1f55c5124"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -471,7 +472,7 @@ dependencies = [
 
 [[package]]
 name = "backbone-pos"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4450,15 +4451,3 @@ name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
-
-[[patch.unused]]
-name = "backbone-billing"
-version = "0.4.0"
-
-[[patch.unused]]
-name = "backbone-inventory"
-version = "0.3.2"
-
-[[patch.unused]]
-name = "backbone-payment"
-version = "0.7.1"
