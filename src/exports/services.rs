@@ -5,8 +5,6 @@
 //! These services provide the public API for other modules.
 //! They only expose read operations - writes go through events.
 
-use std::sync::Arc;
-
 use anyhow::Result;
 use async_trait::async_trait;
 use uuid::Uuid;
@@ -86,21 +84,6 @@ pub trait PosQueryService: Send + Sync {
     /// Check if PosCashMovement exists
     async fn pos_cash_movement_exists(&self, id: PosCashMovementId) -> Result<bool>;
 
-}
-
-// ============================================================================
-// QUERY SERVICE IMPLEMENTATION
-// ============================================================================
-
-/// Default implementation of PosQueryService
-pub struct PosQueryServiceImpl<R> {
-    repository: Arc<R>,
-}
-
-impl<R> PosQueryServiceImpl<R> {
-    pub fn new(repository: Arc<R>) -> Self {
-        Self { repository }
-    }
 }
 
 // ============================================================================
