@@ -411,3 +411,4 @@ impl backbone_core::ApplyUpdateDto<UpdatePosProfileDto> for PosProfile {
 // Add custom DTOs specific to PosProfile here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
+

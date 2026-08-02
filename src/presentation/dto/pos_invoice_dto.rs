@@ -113,30 +113,6 @@ pub struct UpdatePosInvoiceDto {
     #[cfg_attr(feature = "openapi", schema(example = "2024-01-01T00:00:00Z"))]
     #[serde(alias = "posting_at")]
     pub posting_at: DateTime<Utc>,
-    #[serde(alias = "net_total")]
-    pub net_total: Decimal,
-    #[serde(alias = "tax_total")]
-    pub tax_total: Decimal,
-    #[serde(alias = "grand_total")]
-    pub grand_total: Decimal,
-    #[serde(alias = "rounding_adjustment")]
-    pub rounding_adjustment: Decimal,
-    #[serde(alias = "rounded_total")]
-    pub rounded_total: Decimal,
-    #[serde(alias = "paid_total")]
-    pub paid_total: Decimal,
-    #[serde(alias = "change_due")]
-    pub change_due: Decimal,
-    #[serde(default, skip_serializing_if = "Option::is_none", alias = "billing_invoice_id")]
-    pub billing_invoice_id: Option<Uuid>,
-    #[serde(default, skip_serializing_if = "Option::is_none", alias = "payment_entry_id")]
-    pub payment_entry_id: Option<Uuid>,
-    #[cfg_attr(feature = "openapi", schema(example = true))]
-    #[serde(alias = "is_return")]
-    pub is_return: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none", alias = "return_against")]
-    pub return_against: Option<Uuid>,
-    pub status: PosInvoiceStatus,
 }
 
 // =============================================================================
@@ -172,37 +148,12 @@ pub struct PatchPosInvoiceDto {
     #[cfg_attr(feature = "openapi", schema(example = "2024-01-01T00:00:00Z"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "posting_at")]
     pub posting_at: Option<DateTime<Utc>>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "net_total")]
-    pub net_total: Option<Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "tax_total")]
-    pub tax_total: Option<Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "grand_total")]
-    pub grand_total: Option<Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "rounding_adjustment")]
-    pub rounding_adjustment: Option<Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "rounded_total")]
-    pub rounded_total: Option<Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "paid_total")]
-    pub paid_total: Option<Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "change_due")]
-    pub change_due: Option<Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "billing_invoice_id")]
-    pub billing_invoice_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "payment_entry_id")]
-    pub payment_entry_id: Option<Uuid>,
-    #[cfg_attr(feature = "openapi", schema(example = true))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "is_return")]
-    pub is_return: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "return_against")]
-    pub return_against: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<PosInvoiceStatus>,
 }
 
 impl PatchPosInvoiceDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.pos_profile_id.is_some() || self.opening_entry_id.is_some() || self.branch_id.is_some() || self.customer_id.is_some() || self.receipt_number.is_some() || self.posting_at.is_some() || self.net_total.is_some() || self.tax_total.is_some() || self.grand_total.is_some() || self.rounding_adjustment.is_some() || self.rounded_total.is_some() || self.paid_total.is_some() || self.change_due.is_some() || self.billing_invoice_id.is_some() || self.payment_entry_id.is_some() || self.is_return.is_some() || self.return_against.is_some() || self.status.is_some()
+        self.company_id.is_some() || self.pos_profile_id.is_some() || self.opening_entry_id.is_some() || self.branch_id.is_some() || self.customer_id.is_some() || self.receipt_number.is_some() || self.posting_at.is_some()
     }
 }
 
@@ -424,18 +375,6 @@ impl backbone_core::ApplyUpdateDto<UpdatePosInvoiceDto> for PosInvoice {
         self.customer_id = dto.customer_id;
         self.receipt_number = dto.receipt_number;
         self.posting_at = dto.posting_at;
-        self.net_total = dto.net_total;
-        self.tax_total = dto.tax_total;
-        self.grand_total = dto.grand_total;
-        self.rounding_adjustment = dto.rounding_adjustment;
-        self.rounded_total = dto.rounded_total;
-        self.paid_total = dto.paid_total;
-        self.change_due = dto.change_due;
-        self.billing_invoice_id = dto.billing_invoice_id;
-        self.payment_entry_id = dto.payment_entry_id;
-        self.is_return = dto.is_return;
-        self.return_against = dto.return_against;
-        self.status = dto.status;
         Ok(self)
     }
 }
@@ -448,3 +387,4 @@ impl backbone_core::ApplyUpdateDto<UpdatePosInvoiceDto> for PosInvoice {
 // Add custom DTOs specific to PosInvoice here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
+

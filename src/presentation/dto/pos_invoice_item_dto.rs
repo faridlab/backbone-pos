@@ -86,8 +86,6 @@ pub struct UpdatePosInvoiceItemDto {
     pub unit_price: Decimal,
     #[serde(alias = "discount_amount")]
     pub discount_amount: Decimal,
-    #[serde(alias = "net_amount")]
-    pub net_amount: Decimal,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "revenue_account_id")]
     pub revenue_account_id: Option<Uuid>,
 }
@@ -123,8 +121,6 @@ pub struct PatchPosInvoiceItemDto {
     pub unit_price: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "discount_amount")]
     pub discount_amount: Option<Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "net_amount")]
-    pub net_amount: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "revenue_account_id")]
     pub revenue_account_id: Option<Uuid>,
 }
@@ -132,7 +128,7 @@ pub struct PatchPosInvoiceItemDto {
 impl PatchPosInvoiceItemDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.pos_invoice_id.is_some() || self.item_id.is_some() || self.description.is_some() || self.quantity.is_some() || self.unit_price.is_some() || self.discount_amount.is_some() || self.net_amount.is_some() || self.revenue_account_id.is_some()
+        self.company_id.is_some() || self.pos_invoice_id.is_some() || self.item_id.is_some() || self.description.is_some() || self.quantity.is_some() || self.unit_price.is_some() || self.discount_amount.is_some() || self.revenue_account_id.is_some()
     }
 }
 
@@ -311,7 +307,6 @@ impl backbone_core::ApplyUpdateDto<UpdatePosInvoiceItemDto> for PosInvoiceItem {
         self.quantity = dto.quantity;
         self.unit_price = dto.unit_price;
         self.discount_amount = dto.discount_amount;
-        self.net_amount = dto.net_amount;
         self.revenue_account_id = dto.revenue_account_id;
         Ok(self)
     }
@@ -325,3 +320,4 @@ impl backbone_core::ApplyUpdateDto<UpdatePosInvoiceItemDto> for PosInvoiceItem {
 // Add custom DTOs specific to PosInvoiceItem here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
+

@@ -48,51 +48,51 @@ models:
         description: "Sale timestamp"
       net_total:
         type: decimal
-        attributes: ["@default(0)", "@precision(18,2)", "@non_negative"]
+        attributes: ["@default(0)", "@precision(18,2)", "@non_negative", "@immutable"]
         description: "Σ line net amounts (pre-tax)"
       tax_total:
         type: decimal
-        attributes: ["@default(0)", "@precision(18,2)", "@non_negative"]
+        attributes: ["@default(0)", "@precision(18,2)", "@non_negative", "@immutable"]
         description: "Supplied tax total (PPN; computed by tax/billing)"
       grand_total:
         type: decimal
-        attributes: ["@default(0)", "@precision(18,2)", "@non_negative"]
+        attributes: ["@default(0)", "@precision(18,2)", "@non_negative", "@immutable"]
         description: "net_total + tax_total"
       rounding_adjustment:
         type: decimal
-        attributes: ["@default(0)", "@precision(18,2)"]
+        attributes: ["@default(0)", "@precision(18,2)", "@immutable"]
         description: "rounded_total − grand_total (IDR receipt rounding; may be negative)"
       rounded_total:
         type: decimal
-        attributes: ["@default(0)", "@precision(18,2)", "@non_negative"]
+        attributes: ["@default(0)", "@precision(18,2)", "@non_negative", "@immutable"]
         description: "The amount actually charged (grand_total + rounding_adjustment)"
       paid_total:
         type: decimal
-        attributes: ["@default(0)", "@precision(18,2)", "@non_negative"]
+        attributes: ["@default(0)", "@precision(18,2)", "@non_negative", "@immutable"]
         description: "Σ tender amounts"
       change_due:
         type: decimal
-        attributes: ["@default(0)", "@precision(18,2)", "@non_negative"]
+        attributes: ["@default(0)", "@precision(18,2)", "@non_negative", "@immutable"]
         description: "Cash overpayment returned (paid_total − rounded_total, cash only)"
       billing_invoice_id:
         type: uuid?
-        attributes: ["@exclude_from_foreign_key_check"]
+        attributes: ["@exclude_from_foreign_key_check", "@immutable"]
         description: "The real Sales Invoice billing raised # logical FK to billing.SalesInvoice.id"
       payment_entry_id:
         type: uuid?
-        attributes: ["@exclude_from_foreign_key_check"]
+        attributes: ["@exclude_from_foreign_key_check", "@immutable"]
         description: "The PaymentEntry that settled this ticket, persisted at recognition so a return can refund the tender without a cross-schema lookup # logical FK to payment.PaymentEntry.id"
       is_return:
         type: bool
-        attributes: ["@default(false)"]
+        attributes: ["@default(false)", "@immutable"]
         description: "A return/refund ticket"
       return_against:
         type: uuid?
-        attributes: ["@exclude_from_foreign_key_check"]
+        attributes: ["@exclude_from_foreign_key_check", "@immutable"]
         description: "The original sale this returns # logical FK to PosInvoice.id"
       status:
         type: PosInvoiceStatus
-        attributes: ["@default(draft)"]
+        attributes: ["@default(draft)", "@immutable"]
         description: "Ticket lifecycle"
       metadata:
         type: Metadata
@@ -157,7 +157,7 @@ models:
         description: "Line discount"
       net_amount:
         type: decimal
-        attributes: ["@default(0)", "@precision(18,2)", "@non_negative"]
+        attributes: ["@default(0)", "@precision(18,2)", "@non_negative", "@immutable"]
         description: "money(qty*price) − discount"
       revenue_account_id:
         type: uuid?
@@ -210,7 +210,7 @@ models:
         description: "Card/QRIS/e-wallet reference"
       payment_entry_id:
         type: uuid?
-        attributes: ["@exclude_from_foreign_key_check"]
+        attributes: ["@exclude_from_foreign_key_check", "@immutable"]
         description: "The payment.PaymentEntry that settled this # logical FK to payment.PaymentEntry.id"
       metadata:
         type: Metadata

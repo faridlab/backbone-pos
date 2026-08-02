@@ -323,3 +323,4 @@ impl backbone_core::ApplyUpdateDto<UpdatePosCashMovementDto> for PosCashMovement
 // Add custom DTOs specific to PosCashMovement here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
+

@@ -75,8 +75,6 @@ pub struct UpdatePosPaymentDto {
     #[cfg_attr(feature = "validation", validate(length(max = 140)))]
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "reference_no")]
     pub reference_no: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", alias = "payment_entry_id")]
-    pub payment_entry_id: Option<Uuid>,
 }
 
 // =============================================================================
@@ -105,14 +103,12 @@ pub struct PatchPosPaymentDto {
     #[cfg_attr(feature = "validation", validate(length(max = 140)))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "reference_no")]
     pub reference_no: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "payment_entry_id")]
-    pub payment_entry_id: Option<Uuid>,
 }
 
 impl PatchPosPaymentDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.pos_invoice_id.is_some() || self.payment_method.is_some() || self.amount.is_some() || self.reference_no.is_some() || self.payment_entry_id.is_some()
+        self.company_id.is_some() || self.pos_invoice_id.is_some() || self.payment_method.is_some() || self.amount.is_some() || self.reference_no.is_some()
     }
 }
 
@@ -276,7 +272,6 @@ impl backbone_core::ApplyUpdateDto<UpdatePosPaymentDto> for PosPayment {
         self.payment_method = dto.payment_method;
         self.amount = dto.amount;
         self.reference_no = dto.reference_no;
-        self.payment_entry_id = dto.payment_entry_id;
         Ok(self)
     }
 }
@@ -289,3 +284,4 @@ impl backbone_core::ApplyUpdateDto<UpdatePosPaymentDto> for PosPayment {
 // Add custom DTOs specific to PosPayment here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
+

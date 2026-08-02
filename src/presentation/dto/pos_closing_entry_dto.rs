@@ -346,3 +346,4 @@ impl backbone_core::ApplyUpdateDto<UpdatePosClosingEntryDto> for PosClosingEntry
 // Add custom DTOs specific to PosClosingEntry here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
+
