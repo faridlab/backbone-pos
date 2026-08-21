@@ -66,7 +66,7 @@ pub struct PosInvoiceItem {
 impl PosInvoiceItem {
     /// Create a builder for PosInvoiceItem
     pub fn builder() -> PosInvoiceItemBuilder {
-        PosInvoiceItemBuilder::default()
+        <PosInvoiceItemBuilder as Default>::default()
     }
 
     /// Create a new PosInvoiceItem with required fields

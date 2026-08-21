@@ -20,8 +20,8 @@ async fn pool() -> PgPool {
 }
 async fn profile(pool: &PgPool, company: Uuid) -> Uuid {
     let id = Uuid::new_v4();
-    sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, allow_discount, is_active)
-        VALUES ($1,$2,'Register 1','IDR',true,true)"#).bind(id).bind(company).execute(pool).await.unwrap();
+    sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, allow_discount, status)
+        VALUES ($1,$2,'Register 1','IDR',true,'active')"#).bind(id).bind(company).execute(pool).await.unwrap();
     id
 }
 fn line(item: Uuid, qty: &str, price: &str, disc: &str) -> NewSaleLine {

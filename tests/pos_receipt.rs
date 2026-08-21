@@ -23,7 +23,7 @@ async fn receipt_renders_lines_ppn_total_and_change() {
     let company = Uuid::new_v4();
     let prof = Uuid::new_v4();
     // PKP register: 11% PPN.
-    sqlx::query("INSERT INTO pos.pos_profiles (id, company_id, name, currency, tax_account_id, tax_rate, allow_discount, is_active) VALUES ($1,$2,'Register 1','IDR',$3,0.1100,true,true)")
+    sqlx::query("INSERT INTO pos.pos_profiles (id, company_id, name, currency, tax_account_id, tax_rate, allow_discount, status) VALUES ($1,$2,'Register 1','IDR',$3,0.1100,true,'active')")
         .bind(prof).bind(company).bind(Uuid::new_v4()).execute(&pool).await.unwrap();
 
     let session = w.open_session(NewSession {

@@ -70,11 +70,11 @@ impl PosEventSink for Recorder { fn publish(&self, e: PosEvent) { self.events.lo
 async fn profile(pool: &PgPool, company: Uuid, with_accounts: bool, customer: Option<Uuid>) -> Uuid {
     let id = Uuid::new_v4();
     if with_accounts {
-        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, receivable_account_id, income_account_id, cash_account_id, default_customer_id, allow_discount, is_active)
-            VALUES ($1,$2,'R','IDR',$3,$4,$5,$6,true,true)"#)
+        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, receivable_account_id, income_account_id, cash_account_id, default_customer_id, allow_discount, status)
+            VALUES ($1,$2,'R','IDR',$3,$4,$5,$6,true,'active')"#)
             .bind(id).bind(company).bind(Uuid::new_v4()).bind(Uuid::new_v4()).bind(Uuid::new_v4()).bind(customer).execute(pool).await.unwrap();
     } else {
-        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, allow_discount, is_active) VALUES ($1,$2,'R','IDR',true,true)"#)
+        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, allow_discount, status) VALUES ($1,$2,'R','IDR',true,'active')"#)
             .bind(id).bind(company).execute(pool).await.unwrap();
     }
     id

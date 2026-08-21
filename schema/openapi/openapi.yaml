@@ -3422,7 +3422,7 @@ components:
         - currency
         - tax_rate
         - allow_discount
-        - is_active
+        - status
         - metadata
       properties:
         id:
@@ -3481,8 +3481,8 @@ components:
           format: uuid
         allow_discount:
           type: boolean
-        is_active:
-          type: boolean
+        status:
+          type: string
         metadata:
           type: object
 
@@ -3507,7 +3507,7 @@ components:
         - currency
         - tax_rate
         - allow_discount
-        - is_active
+        - status
         - metadata
       properties:
         company_id:
@@ -3563,8 +3563,8 @@ components:
           format: uuid
         allow_discount:
           type: boolean
-        is_active:
-          type: boolean
+        status:
+          type: string
         metadata:
           type: object
 
@@ -3576,7 +3576,7 @@ components:
         - currency
         - tax_rate
         - allow_discount
-        - is_active
+        - status
         - metadata
       properties:
         company_id:
@@ -3632,8 +3632,8 @@ components:
           format: uuid
         allow_discount:
           type: boolean
-        is_active:
-          type: boolean
+        status:
+          type: string
         metadata:
           type: object
 
@@ -3693,8 +3693,8 @@ components:
           format: uuid
         allow_discount:
           type: boolean
-        is_active:
-          type: boolean
+        status:
+          type: string
         metadata:
           type: object
 

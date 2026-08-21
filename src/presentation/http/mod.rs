@@ -11,12 +11,10 @@ pub mod pos_invoice_item_handler;
 pub mod pos_payment_handler;
 pub mod pos_profile_handler;
 pub mod pos_opening_entry_handler;
-// <<< CUSTOM
-pub mod guarded_routes;
-// END CUSTOM
 pub mod pos_cash_movement_handler;
 
 // <<< CUSTOM
+pub mod guarded_routes;
 // END CUSTOM
 
 // Re-exports

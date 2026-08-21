@@ -69,7 +69,7 @@ pub struct PosClosingEntry {
 impl PosClosingEntry {
     /// Create a builder for PosClosingEntry
     pub fn builder() -> PosClosingEntryBuilder {
-        PosClosingEntryBuilder::default()
+        <PosClosingEntryBuilder as Default>::default()
     }
 
     /// Create a new PosClosingEntry with required fields
@@ -363,7 +363,7 @@ impl PosClosingEntryBuilder {
             grand_total: self.grand_total.unwrap_or(Decimal::from(0)),
             invoice_count: self.invoice_count.unwrap_or(0),
             difference_total: self.difference_total.unwrap_or(Decimal::from(0)),
-            status: self.status.unwrap_or(PosClosingStatus::default()),
+            status: self.status.unwrap_or_default(),
             metadata: AuditMetadata::default(),
         })
     }

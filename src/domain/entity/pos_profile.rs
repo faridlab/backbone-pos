@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
 use rust_decimal::Decimal;
+
+use super::PosProfileStatus;
 use super::AuditMetadata;
 
 /// Strongly-typed ID for PosProfile
@@ -64,7 +66,7 @@ pub struct PosProfile {
     pub cogs_account_id: Option<Uuid>,
     pub inventory_account_id: Option<Uuid>,
     pub allow_discount: bool,
-    pub is_active: bool,
+    pub status: PosProfileStatus,
     #[serde(default)]
     #[sqlx(json)]
     pub metadata: AuditMetadata,
@@ -73,11 +75,11 @@ pub struct PosProfile {
 impl PosProfile {
     /// Create a builder for PosProfile
     pub fn builder() -> PosProfileBuilder {
-        PosProfileBuilder::default()
+        <PosProfileBuilder as Default>::default()
     }
 
     /// Create a new PosProfile with required fields
-    pub fn new(company_id: Uuid, name: String, currency: String, tax_rate: Decimal, allow_discount: bool, is_active: bool) -> Self {
+    pub fn new(company_id: Uuid, name: String, currency: String, tax_rate: Decimal, allow_discount: bool, status: PosProfileStatus) -> Self {
         Self {
             id: Uuid::new_v4(),
             company_id,
@@ -95,7 +97,7 @@ impl PosProfile {
             cogs_account_id: None,
             inventory_account_id: None,
             allow_discount,
-            is_active,
+            status,
             metadata: AuditMetadata::default(),
         }
     }
@@ -148,6 +150,11 @@ impl PosProfile {
     /// Get who deleted this entity
     pub fn deleted_by(&self) -> Option<&Uuid> {
         self.metadata.deleted_by.as_ref()
+    }
+
+    /// Get the current status
+    pub fn status(&self) -> &PosProfileStatus {
+        &self.status
     }
 
 
@@ -268,8 +275,8 @@ impl PosProfile {
                 "allow_discount" => {
                     if let Ok(v) = serde_json::from_value(value) { self.allow_discount = v; }
                 }
-                "is_active" => {
-                    if let Ok(v) = serde_json::from_value(value) { self.is_active = v; }
+                "status" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.status = v; }
                 }
                 _ => {} // ignore unknown fields
             }
@@ -336,6 +343,7 @@ impl backbone_orm::EntityRepoMeta for PosProfile {
         m.insert("warehouse_id".to_string(), "uuid".to_string());
         m.insert("cogs_account_id".to_string(), "uuid".to_string());
         m.insert("inventory_account_id".to_string(), "uuid".to_string());
+        m.insert("status".to_string(), "pos_profile_status".to_string());
         m
     }
     fn search_fields() -> &'static [&'static str] {
@@ -367,7 +375,7 @@ pub struct PosProfileBuilder {
     cogs_account_id: Option<Uuid>,
     inventory_account_id: Option<Uuid>,
     allow_discount: Option<bool>,
-    is_active: Option<bool>,
+    status: Option<PosProfileStatus>,
 }
 
 impl PosProfileBuilder {
@@ -461,9 +469,9 @@ impl PosProfileBuilder {
         self
     }
 
-    /// Set the is_active field (default: `true`)
-    pub fn is_active(mut self, value: bool) -> Self {
-        self.is_active = Some(value);
+    /// Set the status field (default: `PosProfileStatus::default()`)
+    pub fn status(mut self, value: PosProfileStatus) -> Self {
+        self.status = Some(value);
         self
     }
 
@@ -491,7 +499,7 @@ impl PosProfileBuilder {
             cogs_account_id: self.cogs_account_id,
             inventory_account_id: self.inventory_account_id,
             allow_discount: self.allow_discount.unwrap_or(true),
-            is_active: self.is_active.unwrap_or(true),
+            status: self.status.unwrap_or_default(),
             metadata: AuditMetadata::default(),
         })
     }

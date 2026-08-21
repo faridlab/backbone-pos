@@ -78,10 +78,11 @@ models:
         type: bool
         attributes: ["@default(true)"]
         description: "Whether line discounts are permitted"
-      is_active:
-        type: bool
-        attributes: ["@default(true)"]
-        description: "Available for opening a session"
+      # replaces is_active (boolean flipped to lifecycle enum)
+      status:
+        type: PosProfileStatus
+        attributes: ["@default(active)"]
+        description: "Lifecycle (only an active register can open a session)"
       metadata:
         type: Metadata
         attributes: ["@audit_metadata"]
@@ -89,7 +90,7 @@ models:
 
     indexes:
       - type: index
-        fields: [company_id, is_active]
+        fields: [company_id, status]
 
   - name: PosOpeningEntry
     collection: pos_opening_entries
@@ -137,6 +138,15 @@ models:
         fields: [company_id, pos_profile_id, status]
 
 enums:
+  - name: PosProfileStatus
+    description: "Lifecycle of a POS register profile"
+    variants:
+      - name: active
+        description: "The register can open a session"
+        default: true
+      - name: inactive
+        description: "Retired register; historical sessions remain readable"
+
   - name: PosSessionStatus
     description: "Cashier session state"
     variants:

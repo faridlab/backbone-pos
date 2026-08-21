@@ -25,21 +25,19 @@ use backbone_pos::application::service::pos_write_service::{NewClose, NewSale, N
 
 use backbone_billing::application::service::billing_gl::{
     AccountingPostEnvelope as BillEnv, GlPostAck as BillAck, GlPostRejected as BillRej, GlPostSink as BillSink,
+    ReconcileEdgeAck, ReconcileLine, ReconcileOrigin, ReconcilePairRequest, ReconcileRejected,
+    ReconcileSink, UnreconcilePairRequest,
 };
 use backbone_billing::application::service::billing_write_service::{
     BillingWriteService, NewInvoiceLine, NewSalesInvoice, NewTaxLine,
 };
-use backbone_payment::application::service::payment_gl::{
-    AccountingPostEnvelope as PayEnv, GlPostAck as PayAck, GlPostRejected as PayRej, GlPostSink as PaySink,
-};
 use backbone_payment::application::service::payment_write_service::{NewAllocation, NewPayment, PaymentWriteService};
 
 use backbone_accounting::application::service::posting_service::{PostingLine, PostingRequest, PostingService};
-use backbone_accounting::infrastructure::persistence::SqlxPostingRepository;
+use backbone_accounting::application::service::reconcile_write_service::ReconcileWriteService;
+use backbone_accounting::domain::reconcile_graph::{LineLocator, PairRequest};
+use backbone_accounting::infrastructure::persistence::{SqlxPostingRepository, SqlxReconcileGraphRepository};
 
-use backbone_inventory::application::service::inventory_gl::{
-    AccountingPostEnvelope as InvEnv, GlPostAck as InvAck, GlPostRejected as InvRej, GlPostSink as InvSink,
-};
 use backbone_inventory::application::service::inventory_write_service::{
     DeliveryLine, InventoryWriteService, NewDelivery, NewReceipt, NewStockItem, NewWarehouse,
     ReceiptLine as InvReceiptLine,
@@ -76,6 +74,58 @@ fn pl(l: &backbone_billing::application::service::billing_gl::GlPostLine) -> Pos
     PostingLine { account_id: l.account_id, debit: l.debit, credit: l.credit, party_type: l.party_type.clone(), party_id: l.party_id, cost_center_id: None, project_id: None, department_id: None, description: l.description.clone() }
 }
 
+/// ACL: billing's reconciliation port over accounting's `ReconcileWriteService` — the same reference
+/// shape billing's own settlement-graph seam test uses. `apply_settlement` / `reverse_settlement`
+/// draw the invoice down through this sink so the subledger and the reconcile graph commit together.
+struct AccountingReconcileSink { svc: ReconcileWriteService }
+fn reconcile_sink(pool: &PgPool) -> AccountingReconcileSink {
+    AccountingReconcileSink {
+        svc: ReconcileWriteService::new(
+            Arc::new(SqlxReconcileGraphRepository::new()),
+            Arc::new(SqlxPostingRepository::new(pool.clone())),
+            pool.clone(),
+            None,
+        ),
+    }
+}
+#[async_trait::async_trait]
+impl ReconcileSink for AccountingReconcileSink {
+    async fn reconcile_pair_on(&self, conn: &mut sqlx::PgConnection, req: &ReconcilePairRequest) -> Result<ReconcileEdgeAck, ReconcileRejected> {
+        let origin = match req.origin {
+            ReconcileOrigin::Settlement => "settlement",
+            ReconcileOrigin::Clearing => "clearing",
+            ReconcileOrigin::Manual => "manual",
+        };
+        let to_loc = |l: &ReconcileLine| LineLocator {
+            source_type: l.source_type.clone(),
+            source_id: l.source_id,
+            account_id: l.account_id,
+            reversing: l.reversing,
+        };
+        match self.svc.reconcile_pair_on(conn, &PairRequest {
+            company_id: req.company_id,
+            debit: to_loc(&req.debit),
+            credit: to_loc(&req.credit),
+            amount: req.amount,
+            origin: origin.to_string(),
+            actor: None,
+        }).await {
+            Ok(o) => Ok(ReconcileEdgeAck { partial_id: o.partial_id, applied: o.applied, full_reconcile_id: o.full_reconcile_id }),
+            Err(e) => Err(ReconcileRejected { code: e.code().to_string(), message: e.to_string() }),
+        }
+    }
+    async fn unreconcile_pair_on(&self, conn: &mut sqlx::PgConnection, req: &UnreconcilePairRequest) -> Result<(), ReconcileRejected> {
+        let to_loc = |l: &ReconcileLine| LineLocator {
+            source_type: l.source_type.clone(),
+            source_id: l.source_id,
+            account_id: l.account_id,
+            reversing: l.reversing,
+        };
+        self.svc.unreconcile_pair_on(conn, req.company_id, &to_loc(&req.debit), &to_loc(&req.credit)).await
+            .map_err(|e| ReconcileRejected { code: e.code().to_string(), message: e.to_string() })
+    }
+}
+
 /// InventoryPort over the real inventory service: issue an outward Delivery Note (relieve on-hand +
 /// post `Dr COGS · Cr Inventory` at moving-average cost).
 struct InventoryAdapter { inv: InventoryWriteService, gl: Arc<GlAdapter> }
@@ -85,6 +135,7 @@ impl InventoryPort for InventoryAdapter {
         let id = self.inv.create_delivery_note(NewDelivery {
             delivery_number: uq("DN"), company_id: req.company_id, branch_id: req.branch_id, customer_id: req.customer_id,
             source_so_id: Some(req.source_pos_id), warehouse_id: req.warehouse_id, posting_date: req.posting_date,
+            currency: "IDR".into(),
             cogs_account_id: req.cogs_account_id, inventory_account_id: req.inventory_account_id,
             lines: req.lines.iter().map(|l| DeliveryLine { item_id: l.item_id, quantity: l.quantity }).collect(),
         }).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
@@ -106,14 +157,17 @@ impl BillingPort for BillingAdapter {
             (Some(account_id), true) => vec![NewTaxLine {
                 account_id, basis: "output".into(), description: Some("PPN".into()),
                 rate: req.tax_rate, tax_amount: req.tax_total,
+                taxable_base: Decimal::ZERO, tax_template_id: None, repartition_line_id: None,
+                real_account_id: None, exigibility: None,
             }],
             _ => vec![],
         };
         let inv = self.billing.create_sales_invoice(NewSalesInvoice {
             invoice_number: uq("SI"), company_id: req.company_id, branch_id: None, customer_id: req.customer_id,
             source_so_id: Some(req.source_pos_id), posting_date: req.posting_date, due_date: None,
+            payment_term_id: None,
             currency: Some(req.currency.clone()), receivable_account_id: req.receivable_account_id,
-            lines: req.lines.iter().map(|l| NewInvoiceLine { item_id: l.item_id, account_id: l.revenue_account_id, description: None, quantity: l.quantity, unit_price: l.unit_price }).collect(),
+            lines: req.lines.iter().map(|l| NewInvoiceLine { item_id: l.item_id, account_id: l.revenue_account_id, description: None, quantity: l.quantity, unit_price: l.unit_price, tax_template_id: None }).collect(),
             tax_lines,
         }).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
         let out = self.billing.post_sales_invoice(inv, &*self.gl).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
@@ -132,7 +186,7 @@ impl BillingPort for BillingAdapter {
 /// module's private table, which only works when all four schemas co-locate in one DB. `RefundRequest`
 /// now carries `payment_id` (persisted by POS on the ticket at recognition), so the refund is
 /// self-contained and would survive payment running on its own database/bus.
-struct PaymentAdapter { payment: PaymentWriteService, billing: BillingWriteService, gl: Arc<GlAdapter> }
+struct PaymentAdapter { payment: PaymentWriteService, billing: BillingWriteService, gl: Arc<GlAdapter>, reconcile: Arc<AccountingReconcileSink> }
 #[async_trait::async_trait]
 impl PaymentPort for PaymentAdapter {
     async fn settle(&self, req: &SettlementRequest) -> Result<SettlementAck, PosRejected> {
@@ -141,11 +195,12 @@ impl PaymentPort for PaymentAdapter {
             party_type: Some("customer".into()), party_id: Some(req.customer_id), posting_date: req.posting_date,
             currency: Some(req.currency.clone()), mode_of_payment_id: None, bank_account_id: req.bank_account_id,
             party_account_id: req.party_account_id, paid_amount: req.amount, reference_no: None,
+            method: None, provider_txn_id: None,
             allocations: vec![NewAllocation { invoice_ref: req.invoice_ref, invoice_kind: "sales".into(), amount: req.amount }],
             withholding_amount: rust_decimal::Decimal::ZERO, withholding_account_id: None, withholding_tax_type: "none".into(),
         }).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
         let out = self.payment.post_payment(pay, &*self.gl).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
-        self.billing.apply_settlement(req.invoice_ref, "sales", req.amount).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
+        self.billing.apply_settlement(req.company_id, req.invoice_ref, "sales", req.amount, pay, self.reconcile.as_ref()).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
         Ok(SettlementAck { payment_id: pay, journal_id: out.journal_id })
     }
     async fn refund(&self, req: &RefundRequest) -> Result<ReversalAck, PosRejected> {
@@ -153,7 +208,7 @@ impl PaymentPort for PaymentAdapter {
         // from the request (POS persisted it on the ticket at recognition) — no cross-schema read into
         // payment.payment_allocations, so this refund is satisfiable with payment on its own database.
         let out = self.payment.reverse_payment(req.payment_id, &*self.gl).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
-        self.billing.reverse_settlement(req.invoice_ref, "sales", req.amount).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
+        self.billing.reverse_settlement(req.company_id, req.invoice_ref, "sales", req.amount, req.payment_id, self.reconcile.as_ref()).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
         Ok(ReversalAck { journal_id: out.journal_id })
     }
 }
@@ -172,17 +227,19 @@ async fn pool() -> PgPool {
 }
 async fn seed_coa(pool: &PgPool) -> (Uuid, HashMap<&'static str, Uuid>) {
     let company = Uuid::new_v4();
-    let coa: &[(&str, &str, &str, &str, &str)] = &[
-        ("1200", "Piutang Usaha", "asset", "accounts_receivable", "debit"),
-        ("4000", "Pendapatan Ritel", "revenue", "operating_revenue", "credit"),
-        ("1110", "Kas", "asset", "cash", "debit"),
+    // The A/R control and the tender account must be reconcilable — payment probes the tender's
+    // landing account, and billing's settlement edges pair on the A/R control.
+    let coa: &[(&str, &str, &str, &str, &str, bool)] = &[
+        ("1200", "Piutang Usaha", "asset", "accounts_receivable", "debit", true),
+        ("4000", "Pendapatan Ritel", "revenue", "operating_revenue", "credit", false),
+        ("1110", "Kas", "asset", "cash", "debit", true),
     ];
     let mut m = HashMap::new();
-    for (code, name, a, s, nb) in coa {
+    for (code, name, a, s, nb, rec) in coa {
         let id = Uuid::new_v4();
-        sqlx::query(r#"INSERT INTO accounting.accounts (id, company_id, account_number, account_code, name, account_type, account_subtype, normal_balance, is_header, is_detail, status)
-            VALUES ($1,$2,$3,$4,$5,$6::account_type,$7::account_subtype,$8::normal_balance,false,true,'active'::account_status)"#)
-            .bind(id).bind(company).bind(code).bind(code).bind(name).bind(a).bind(s).bind(nb).execute(pool).await.expect("seed acct");
+        sqlx::query(r#"INSERT INTO accounting.accounts (id, company_id, account_number, account_code, name, account_type, account_subtype, normal_balance, is_header, is_detail, is_reconcilable, status)
+            VALUES ($1,$2,$3,$4,$5,$6::account_type,$7::account_subtype,$8::normal_balance,false,true,$9,'active'::account_status)"#)
+            .bind(id).bind(company).bind(code).bind(code).bind(name).bind(a).bind(s).bind(nb).bind(rec).execute(pool).await.expect("seed acct");
         m.insert(*code, id);
     }
     (company, m)
@@ -206,15 +263,16 @@ async fn retail_cash_sale_across_four_modules() {
 
     // POS profile wired to the register's GL accounts + a default walk-in customer.
     let prof = Uuid::new_v4();
-    sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, receivable_account_id, income_account_id, cash_account_id, default_customer_id, allow_discount, is_active)
-        VALUES ($1,$2,'Register 1','IDR',$3,$4,$5,$6,true,true)"#)
+    sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, receivable_account_id, income_account_id, cash_account_id, default_customer_id, allow_discount, status)
+        VALUES ($1,$2,'Register 1','IDR',$3,$4,$5,$6,true,'active')"#)
         .bind(prof).bind(company).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(customer).execute(&pool).await.unwrap();
 
     let rec = RecordingPosSink::default();
     let pos = PosWriteService::with_sink(pool.clone(), Arc::new(rec.clone()));
     let gl = Arc::new(GlAdapter { svc: PostingService::new(Arc::new(SqlxPostingRepository::new(pool.clone()))) });
     let billing_port = BillingAdapter { billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
-    let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
+    let reconcile = Arc::new(reconcile_sink(&pool));
+    let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone(), reconcile };
 
     // 1) open the till, ring a 100,000 sale, take 100,000 cash.
     let session = pos.open_session(NewSession {
@@ -268,10 +326,11 @@ async fn retail_return_reverses_both_legs_and_is_idempotent() {
     let pos = PosWriteService::new(pool.clone());
     let gl = Arc::new(GlAdapter { svc: PostingService::new(Arc::new(SqlxPostingRepository::new(pool.clone()))) });
     let billing_port = BillingAdapter { billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
-    let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
+    let reconcile = Arc::new(reconcile_sink(&pool));
+    let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone(), reconcile };
     let prof = Uuid::new_v4();
-    sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, receivable_account_id, income_account_id, cash_account_id, default_customer_id, allow_discount, is_active)
-        VALUES ($1,$2,'R','IDR',$3,$4,$5,$6,true,true)"#)
+    sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, receivable_account_id, income_account_id, cash_account_id, default_customer_id, allow_discount, status)
+        VALUES ($1,$2,'R','IDR',$3,$4,$5,$6,true,'active')"#)
         .bind(prof).bind(company).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(customer).execute(&pool).await.unwrap();
 
     // A recognised 100,000 cash sale (A/R 0, Revenue -100k, Cash +100k).
@@ -325,14 +384,15 @@ async fn retail_ppn_sale_books_output_tax() {
 
     // PKP register: 11% PPN wired to the output-tax account.
     let prof = Uuid::new_v4();
-    sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, receivable_account_id, income_account_id, cash_account_id, tax_account_id, tax_rate, default_customer_id, allow_discount, is_active)
-        VALUES ($1,$2,'PKP Register','IDR',$3,$4,$5,$6,0.1100,$7,true,true)"#)
+    sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, receivable_account_id, income_account_id, cash_account_id, tax_account_id, tax_rate, default_customer_id, allow_discount, status)
+        VALUES ($1,$2,'PKP Register','IDR',$3,$4,$5,$6,0.1100,$7,true,'active')"#)
         .bind(prof).bind(company).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(ppn).bind(customer).execute(&pool).await.unwrap();
 
     let pos = PosWriteService::new(pool.clone());
     let gl = Arc::new(GlAdapter { svc: PostingService::new(Arc::new(SqlxPostingRepository::new(pool.clone()))) });
     let billing_port = BillingAdapter { billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
-    let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
+    let reconcile = Arc::new(reconcile_sink(&pool));
+    let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone(), reconcile };
 
     let session = pos.open_session(NewSession { company_id: company, pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(), opened_at: at(), opening_balances: vec![] }).await.unwrap();
     let sale = pos.ring_sale(NewSale {
@@ -389,6 +449,7 @@ async fn retail_sale_decrements_stock_and_books_cogs() {
     let receipt = inv.create_purchase_receipt(NewReceipt {
         receipt_number: uq("PR"), company_id: company, branch_id: None, supplier_id: Uuid::new_v4(), source_po_id: None,
         warehouse_id: wh, posting_date: at().date(), inventory_account_id: inv_acct, grir_account_id: grir_acct,
+        currency: "IDR".into(),
         lines: vec![InvReceiptLine { item_id: item, quantity: d("10"), rate: d("60000") }],
     }).await.unwrap();
     inv.submit_purchase_receipt(receipt, &*gl).await.unwrap();
@@ -396,13 +457,14 @@ async fn retail_sale_decrements_stock_and_books_cogs() {
 
     // POS profile: stock-tracking register.
     let prof = Uuid::new_v4();
-    sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, receivable_account_id, income_account_id, cash_account_id, warehouse_id, cogs_account_id, inventory_account_id, default_customer_id, allow_discount, is_active)
-        VALUES ($1,$2,'Register 1','IDR',$3,$4,$5,$6,$7,$8,$9,true,true)"#)
+    sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, receivable_account_id, income_account_id, cash_account_id, warehouse_id, cogs_account_id, inventory_account_id, default_customer_id, allow_discount, status)
+        VALUES ($1,$2,'Register 1','IDR',$3,$4,$5,$6,$7,$8,$9,true,'active')"#)
         .bind(prof).bind(company).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(wh).bind(cogs_acct).bind(inv_acct).bind(customer).execute(&pool).await.unwrap();
 
     let pos = PosWriteService::new(pool.clone());
     let billing_port = BillingAdapter { billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
-    let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
+    let reconcile = Arc::new(reconcile_sink(&pool));
+    let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone(), reconcile };
     let inventory_port = InventoryAdapter { inv: InventoryWriteService::new(pool.clone()), gl: gl.clone() };
 
     let session = pos.open_session(NewSession { company_id: company, pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(), opened_at: at(), opening_balances: vec![] }).await.unwrap();

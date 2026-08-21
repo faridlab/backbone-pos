@@ -78,7 +78,7 @@ fn post(uri: &str, body: String, bearer: Option<&str>) -> Request<Body> {
 
 /// Seed a non-PKP register (tax_rate 0) — ring_sale now loads the profile to compute server-side PPN.
 async fn seed_profile(pool: &sqlx::PgPool, id: Uuid, company: Uuid) {
-    sqlx::query("INSERT INTO pos.pos_profiles (id, company_id, name, currency, allow_discount, is_active) VALUES ($1,$2,'Register 1','IDR',true,true)")
+    sqlx::query("INSERT INTO pos.pos_profiles (id, company_id, name, currency, allow_discount, status) VALUES ($1,$2,'Register 1','IDR',true,'active')")
         .bind(id).bind(company).execute(pool).await.unwrap();
 }
 

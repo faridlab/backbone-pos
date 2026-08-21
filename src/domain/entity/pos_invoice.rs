@@ -78,7 +78,7 @@ pub struct PosInvoice {
 impl PosInvoice {
     /// Create a builder for PosInvoice
     pub fn builder() -> PosInvoiceBuilder {
-        PosInvoiceBuilder::default()
+        <PosInvoiceBuilder as Default>::default()
     }
 
     /// Create a new PosInvoice with required fields
@@ -507,7 +507,7 @@ impl PosInvoiceBuilder {
             payment_entry_id: self.payment_entry_id,
             is_return: self.is_return.unwrap_or(false),
             return_against: self.return_against,
-            status: self.status.unwrap_or(PosInvoiceStatus::default()),
+            status: self.status.unwrap_or_default(),
             metadata: AuditMetadata::default(),
         })
     }

@@ -322,7 +322,7 @@ pub struct PosProfileDto {
     pub cogs_account_id: Option<Uuid>,
     pub inventory_account_id: Option<Uuid>,
     pub allow_discount: bool,
-    pub is_active: bool,
+    pub status: PosProfileStatus,
     pub metadata: serde_json::Value,
 }
 
@@ -331,6 +331,7 @@ pub struct PosProfileDto {
 pub struct PosProfileSummary {
     pub id: PosProfileId,
     pub name: String,
+    pub status: PosProfileStatus,
 }
 
 /// Reference to PosProfile for foreign key relationships

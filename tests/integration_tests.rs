@@ -107,4 +107,3 @@ async fn test_pos_cash_movement_api() {
         panic!("{} tests failed", failed.len());
     }
 }
-

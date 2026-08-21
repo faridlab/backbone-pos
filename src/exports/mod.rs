@@ -8,7 +8,7 @@
 //! ## Usage from other modules
 //!
 //! ```text
-//! use pos::exports::{PosClosingEntryDto, PosQueryService};
+//! use pos::exports::{PosClosingEntryDto};
 //! ```
 
 mod types;
@@ -48,9 +48,6 @@ pub use events::*;
 /// - `PosCashMovementDto` - Data transfer object for PosCashMovement
 /// - `PosCashMovementSummary` - Summary view of PosCashMovement
 /// - `PosCashMovementId` - Type-safe ID wrapper
-///
-/// ## Public Services
-/// - `PosQueryService` - Read-only queries
 ///
 /// ## Public Events
 /// - `PosClosingEntryCreatedEvent` - Published when PosClosingEntry is created

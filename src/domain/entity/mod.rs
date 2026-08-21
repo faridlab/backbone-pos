@@ -12,6 +12,7 @@ pub mod pos_cash_movement;
 pub mod pos_closing_status;
 pub mod pos_invoice_status;
 pub mod pos_payment_method;
+pub mod pos_profile_status;
 pub mod pos_session_status;
 pub mod pos_cash_movement_type;
 
@@ -40,6 +41,7 @@ pub use pos_cash_movement::PosCashMovementId;
 pub use pos_closing_status::PosClosingStatus;
 pub use pos_invoice_status::PosInvoiceStatus;
 pub use pos_payment_method::PosPaymentMethod;
+pub use pos_profile_status::PosProfileStatus;
 pub use pos_session_status::PosSessionStatus;
 pub use pos_cash_movement_type::PosCashMovementType;
 

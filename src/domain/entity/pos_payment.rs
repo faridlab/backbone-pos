@@ -65,7 +65,7 @@ pub struct PosPayment {
 impl PosPayment {
     /// Create a builder for PosPayment
     pub fn builder() -> PosPaymentBuilder {
-        PosPaymentBuilder::default()
+        <PosPaymentBuilder as Default>::default()
     }
 
     /// Create a new PosPayment with required fields

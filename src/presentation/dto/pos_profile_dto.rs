@@ -19,6 +19,7 @@ use validator::Validate;
 
 use crate::domain::entity::PosProfile;
 use crate::domain::entity::AuditMetadata;
+use crate::domain::entity::PosProfileStatus;
 
 // =============================================================================
 // Create DTO
@@ -67,9 +68,7 @@ pub struct CreatePosProfileDto {
     #[cfg_attr(feature = "openapi", schema(example = true))]
     #[serde(alias = "allow_discount")]
     pub allow_discount: bool,
-    #[cfg_attr(feature = "openapi", schema(example = true))]
-    #[serde(alias = "is_active")]
-    pub is_active: bool,
+    pub status: PosProfileStatus,
 }
 
 // =============================================================================
@@ -119,9 +118,7 @@ pub struct UpdatePosProfileDto {
     #[cfg_attr(feature = "openapi", schema(example = true))]
     #[serde(alias = "allow_discount")]
     pub allow_discount: bool,
-    #[cfg_attr(feature = "openapi", schema(example = true))]
-    #[serde(alias = "is_active")]
-    pub is_active: bool,
+    pub status: PosProfileStatus,
 }
 
 // =============================================================================
@@ -173,15 +170,14 @@ pub struct PatchPosProfileDto {
     #[cfg_attr(feature = "openapi", schema(example = true))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "allow_discount")]
     pub allow_discount: Option<bool>,
-    #[cfg_attr(feature = "openapi", schema(example = true))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "is_active")]
-    pub is_active: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<PosProfileStatus>,
 }
 
 impl PatchPosProfileDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.branch_id.is_some() || self.name.is_some() || self.default_customer_id.is_some() || self.currency.is_some() || self.income_account_id.is_some() || self.receivable_account_id.is_some() || self.cash_account_id.is_some() || self.write_off_account_id.is_some() || self.tax_account_id.is_some() || self.tax_rate.is_some() || self.warehouse_id.is_some() || self.cogs_account_id.is_some() || self.inventory_account_id.is_some() || self.allow_discount.is_some() || self.is_active.is_some()
+        self.company_id.is_some() || self.branch_id.is_some() || self.name.is_some() || self.default_customer_id.is_some() || self.currency.is_some() || self.income_account_id.is_some() || self.receivable_account_id.is_some() || self.cash_account_id.is_some() || self.write_off_account_id.is_some() || self.tax_account_id.is_some() || self.tax_rate.is_some() || self.warehouse_id.is_some() || self.cogs_account_id.is_some() || self.inventory_account_id.is_some() || self.allow_discount.is_some() || self.status.is_some()
     }
 }
 
@@ -218,8 +214,7 @@ pub struct PosProfileResponseDto {
     pub inventory_account_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = true))]
     pub allow_discount: bool,
-    #[cfg_attr(feature = "openapi", schema(example = true))]
-    pub is_active: bool,
+    pub status: PosProfileStatus,
     pub metadata: AuditMetadata,
 }
 
@@ -306,7 +301,7 @@ impl From<PosProfile> for PosProfileResponseDto {
             cogs_account_id: entity.cogs_account_id,
             inventory_account_id: entity.inventory_account_id,
             allow_discount: entity.allow_discount,
-            is_active: entity.is_active,
+            status: entity.status,
             metadata: entity.metadata,
         }
     }
@@ -344,7 +339,7 @@ impl From<CreatePosProfileDto> for PosProfile {
             cogs_account_id: dto.cogs_account_id,
             inventory_account_id: dto.inventory_account_id,
             allow_discount: dto.allow_discount,
-            is_active: dto.is_active,
+            status: dto.status,
             metadata: AuditMetadata::default(),
         }
     }
@@ -369,7 +364,7 @@ impl From<&PosProfile> for PosProfileResponseDto {
             cogs_account_id: entity.cogs_account_id.clone(),
             inventory_account_id: entity.inventory_account_id.clone(),
             allow_discount: entity.allow_discount.clone(),
-            is_active: entity.is_active.clone(),
+            status: entity.status.clone(),
             metadata: entity.metadata.clone(),
         }
     }
@@ -398,7 +393,7 @@ impl backbone_core::ApplyUpdateDto<UpdatePosProfileDto> for PosProfile {
         self.cogs_account_id = dto.cogs_account_id;
         self.inventory_account_id = dto.inventory_account_id;
         self.allow_discount = dto.allow_discount;
-        self.is_active = dto.is_active;
+        self.status = dto.status;
         Ok(self)
     }
 }
@@ -411,4 +406,3 @@ impl backbone_core::ApplyUpdateDto<UpdatePosProfileDto> for PosProfile {
 // Add custom DTOs specific to PosProfile here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
-

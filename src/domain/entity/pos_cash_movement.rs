@@ -67,7 +67,7 @@ pub struct PosCashMovement {
 impl PosCashMovement {
     /// Create a builder for PosCashMovement
     pub fn builder() -> PosCashMovementBuilder {
-        PosCashMovementBuilder::default()
+        <PosCashMovementBuilder as Default>::default()
     }
 
     /// Create a new PosCashMovement with required fields

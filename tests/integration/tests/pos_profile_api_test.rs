@@ -39,7 +39,7 @@ impl TestDataGenerator for PosProfileTestData {
             "cogs_account_id": null,
             "inventory_account_id": null,
             "allow_discount": false,
-            "is_active": false,
+            "status": "active",
             "metadata": json!({}),
         })
     }
@@ -63,7 +63,7 @@ impl TestDataGenerator for PosProfileTestData {
             "cogs_account_id": null,
             "inventory_account_id": null,
             "allow_discount": false,
-            "is_active": false,
+            "status": "active",
             "metadata": json!({}),
         })
     }

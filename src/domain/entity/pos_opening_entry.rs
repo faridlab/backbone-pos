@@ -65,7 +65,7 @@ pub struct PosOpeningEntry {
 impl PosOpeningEntry {
     /// Create a builder for PosOpeningEntry
     pub fn builder() -> PosOpeningEntryBuilder {
-        PosOpeningEntryBuilder::default()
+        <PosOpeningEntryBuilder as Default>::default()
     }
 
     /// Create a new PosOpeningEntry with required fields
@@ -328,7 +328,7 @@ impl PosOpeningEntryBuilder {
             cashier_party_id,
             opened_at,
             opening_balances: self.opening_balances,
-            status: self.status.unwrap_or(PosSessionStatus::default()),
+            status: self.status.unwrap_or_default(),
             metadata: AuditMetadata::default(),
         })
     }
