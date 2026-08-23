@@ -1,0 +1,215 @@
+# =============================================================================
+# pos Hooks — cashier-session + ticket lifecycle and write-path rules
+# =============================================================================
+# Declarative spec of the validated write surface in src/application/service/
+# (pos_write_service.rs and its chunks: pos_sale, pos_tender, pos_recognition,
+# pos_drawer, pos_receipt), proven by tests/ (pos_golden_cases, integrity_probes,
+# pos_cash_movement, pos_receipt, company_guard, retail_sale_seam).
+#
+# ADR-0015 enforcement vocabulary: db = a DB object (CHECK / unique index / enum /
+# trigger) enforces it on every write path incl. raw SQL; service = write-path only;
+# both = DB backstop + service pre-check (friendly 422 instead of a 500).
+#
+# POS posts NO GL itself — on recognition it drives billing + payment through ports;
+# every money rule below guards the ticket/session shape it hands them.
+
+module: pos
+version: 2
+
+# -----------------------------------------------------------------------------
+# State machines - one per entity that has a status lifecycle.
+# -----------------------------------------------------------------------------
+state_machines:
+  # The cashier session. Opened with a per-method float; ONE close (the Z-report).
+  # There is deliberately no reopen: a closed session is terminal, and every write
+  # path (ring, tender, cash movement, x-report) re-checks status='open' first.
+  - entity: PosOpeningEntry
+    field: status
+    initial: open
+    states: [open, closed]
+    transitions:
+      - { from: open, to: closed, on: close_session }
+
+  # The counter ticket. draft while being rung/tendered; paid once recognised
+  # (billing invoice raised + tender settled); returned reverses a paid ticket
+  # (credit note + refund; a linked is_return ticket records the reversal).
+  # 'consolidated' and 'void' are enum values reserved for later work
+  # (end-of-day consolidation into a single invoice; ticket voiding) — no live
+  # transition emits them in this module version; stated here so the enum shape
+  # on record matches pos_invoice_status.
+  - entity: PosInvoice
+    field: status
+    initial: draft
+    states: [draft, paid, consolidated, returned, void]
+    transitions:
+      - { from: draft, to: paid,     on: recognize_sale }
+      - { from: paid,  to: returned, on: return_sale }
+
+  # Register configuration lifecycle (status replaced the active boolean).
+  - entity: PosProfile
+    field: status
+    initial: active
+    states: [active, inactive]
+    transitions:
+      - { from: active,   to: inactive, on: deactivate }
+      - { from: inactive, to: active,   on: reactivate }
+
+# -----------------------------------------------------------------------------
+# Write-path rules - validated before any write. Each maps to a stable error_code
+# (PosError) and to the test that proves it.
+# -----------------------------------------------------------------------------
+rules:
+  - id: R1
+    name: session_must_be_open
+    when: ringing/tendering/cash_movement/x_report/close
+    assert: "the opening entry exists, belongs to the caller's company, and status == 'open'"
+    error_code: session_not_open
+    enforcement: service
+    note: "every write path reads the session status through the company-scoped helpers (RLS fences the lookup so another company's session is simply not found) and refuses unless open; close_session flips status inside the closing transaction so a counted drawer always closes the session"
+
+  - id: R2
+    name: one_open_session_per_config
+    when: opening_session
+    assert: "no other session with status='open' exists for the same (company_id, pos_profile_id)"
+    error_code: none
+    enforcement: none
+    note: "DECLARED GAP, stated not silently dropped: no guard exists in either layer today — open_session inserts unconditionally and the (company_id, pos_profile_id, status) index is not unique. Proposed backstop is a partial unique index ... WHERE status='open' plus an open_session pre-check returning a friendly 422 (enforcement: both); parked as follow-up because this pass touches no migrations beyond the ADR-0014 re-statement"
+
+  - id: R3
+    name: non_empty_basket
+    when: ringing
+    assert: "count(lines) >= 1"
+    error_code: empty_document
+    enforcement: service
+    note: "a header-only ticket is inert (totals default 0) and the guarded surface is the only creator; a deferred trigger would be needed for a DB arm — revisit if a raw writer ever creates tickets"
+
+  - id: R4
+    name: non_negative_line_money
+    when: ringing
+    assert: "line.quantity >= 0 AND line.unit_price >= 0 AND line.discount_amount >= 0 AND line.net_amount >= 0"
+    error_code: negative_amount
+    enforcement: both
+    note: "DB arm: CHECK constraints on pos_invoice_items (quantity, unit_price, discount_amount, net_amount) and on the ticket totals; service arm returns a friendly 422 before any insert"
+
+  - id: R5
+    name: server_owned_tax
+    when: ringing
+    assert: "tax_total is computed server-side as net_total * register tax rate (0 for a non-PKP till); a client-supplied tax total is ignored"
+    error_code: none
+    enforcement: service
+    note: "compute-time: the guarded route hardcodes the input to zero and ring_sale derives the tax from the register's configured rate — a merchant can neither omit nor overstate the VAT"
+
+  - id: R6
+    name: receipt_number_unique
+    when: ringing
+    assert: "receipt_number is unique among non-deleted tickets"
+    error_code: duplicate_number
+    enforcement: both
+    note: "DB arm: partial unique index idx_pos_invoices_receipt_number WHERE deleted_at IS NULL; service arm maps the unique violation to a friendly 422 (is_dup on the insert error)"
+
+  - id: R7
+    name: tender_draft_only
+    when: adding_tender
+    assert: "ticket.status == 'draft'"
+    error_code: not_draft
+    enforcement: service
+    note: "the header is read before the tender insert; recognition's flip is itself a gated UPDATE (WHERE status='draft') so a racing tender cannot land on a paid ticket"
+
+  - id: R8
+    name: tender_positive
+    when: adding_tender
+    assert: "amount > 0"
+    error_code: negative_amount
+    enforcement: both
+    note: "DB arm: pos_payments.amount CHECK (amount >= 0); the service is stricter (refuses zero too) and rounds to 2dp before insert"
+
+  - id: R9
+    name: change_only_overpayment
+    when: adding_tender
+    assert: "change_due == max(paid_total - rounded_total, 0), cash only"
+    error_code: none
+    enforcement: both
+    note: "DB arm: pos_invoices.change_due CHECK (change_due >= 0); the re-sum (sum_paid_total_on) and the change computation commit in the tender's own transaction"
+
+  - id: R10
+    name: recognize_fully_tendered
+    when: recognizing
+    assert: "paid_total >= rounded_total"
+    error_code: not_fully_tendered
+    enforcement: service
+    note: "checked on the freshly-read ticket before driving billing/payment; recognition is replay-safe so a retry after a late tender succeeds"
+
+  - id: R11
+    name: accounts_present_when_needed
+    when: recognizing
+    assert: "tax_total > 0 => register tax account; always: receivable + cash accounts; customer on the ticket or the profile default; every line a revenue account (line or profile income)"
+    error_code: missing_account
+    enforcement: service
+    note: "the handoff needs the GL seats it debits/credits; POS posts no GL itself, so refusing early keeps billing/payment from receiving an unbookable request"
+
+  - id: R12
+    name: recognition_at_most_once
+    when: recognizing
+    assert: "a retry reuses the raised billing invoice (billing_invoice_id persisted while still draft) and the draft->paid flip is a gated UPDATE; replay returns the persisted billing/payment ids"
+    error_code: none
+    enforcement: service
+    note: "procedural by construction (cross-service orchestration); a decline-then-retry at the counter must not double the revenue journal — billing does not dedup on the POS ticket"
+
+  - id: R13
+    name: return_from_paid
+    when: returning
+    assert: "original.status in ('paid','returned') AND billing_invoice_id present"
+    error_code: not_returnable
+    enforcement: service
+
+  - id: R14
+    name: return_exactly_once
+    when: returning
+    assert: "the return ticket + event are gated on the original's paid->returned flip; both downstream reversals (refund, credit note) are idempotent; a repeat return reuses the existing return ticket"
+    error_code: none
+    enforcement: service
+    note: "partial returns are a declared forward seam: the line-subset input is accepted but refused (partial_returns_not_implemented) until billing's credit note honors a line subset"
+
+  - id: R15
+    name: cash_movement_kind_and_amount
+    when: recording_cash_movement
+    assert: "movement_type in (pay_in, pay_out, drop, no_sale); no_sale => amount == 0; others => amount > 0"
+    error_code: invalid_cash_movement
+    enforcement: both
+    note: "DB arm: the pos_cash_movement_type enum rejects unknown kinds and amount CHECK (amount >= 0); the amount-vs-type rule is service-side (no DB CHECK expresses it); close_session folds the net (pay_in - pay_out - drop) into the expected cash drawer"
+
+  - id: R16
+    name: close_persists_reconciliation
+    when: closing
+    assert: "the closing entry (per-method expected vs counted + difference_total) and the session's flip to closed commit in ONE transaction"
+    error_code: none
+    enforcement: service
+    note: "a drawer is never counted without the session closing; the expected-drawer computation is shared with the mid-shift x_report (compute_drawer) so the two reads cannot drift"
+
+  - id: R17
+    name: tender_event_once_on_crossing
+    when: adding_tender
+    assert: "PosTenderCompleted is emitted (and outbox-staged when configured) exactly on the tender that crosses full payment — never re-emitted on extra tenders"
+    error_code: none
+    enforcement: service
+    note: "the outbox record carries company_id as its top-level fence field (ADR-0011); double-delivery is a no-op because recognition is replay-safe"
+
+# -----------------------------------------------------------------------------
+# Domain events (emission is the service's responsibility; sink or outbox).
+# -----------------------------------------------------------------------------
+events:
+  PosSessionOpened:
+    when: "open_session commits"
+    payload: [opening_entry_id, pos_profile_id, company_id]
+  PosTenderCompleted:
+    when: "a tender crosses full payment (R17)"
+    payload: [pos_invoice_id, company_id]
+  PosInvoicePaid:
+    when: "the draft->paid flip commits (recognition)"
+    payload: [pos_invoice_id, company_id, grand_total, rounded_total, billing_invoice_id, payment_id]
+  PosInvoiceReturned:
+    when: "the paid->returned flip commits (return)"
+    payload: [pos_invoice_id, return_ticket_id, company_id, billing_invoice_id, amount]
+  PosSessionClosed:
+    when: "close_session commits"
+    payload: [closing_entry_id, opening_entry_id, company_id, difference_total]

@@ -14,6 +14,14 @@ version: 2
 schema: pos
 description: "pos domain module"
 
+# ADR-0014 company fence: every entity here is company-scoped and fenced strict — the register
+# config (pos_profiles), the cashier session (pos_opening_entries), the ticket (pos_invoices)
+# plus its parent-scoped children (pos_invoice_items, pos_payments — company_id denormalised
+# onto each child row per ADR-0010 Decision A), the close/Z-report (pos_closing_entries), and
+# the non-sale drawer movements (pos_cash_movements). No config-table exceptions: a register
+# belongs to exactly one company's books, so pos_profiles is fenced like every other entity.
+company_fence: strict
+
 config:
   database: postgresql
   soft_delete: true

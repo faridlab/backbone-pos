@@ -9,7 +9,7 @@ version: 2
 
 # Import all hook files.
 imports:
-  - example.hook.yaml
+  - pos.hook.yaml
 
 # =============================================================================
 # Module-level configuration
@@ -33,4 +33,17 @@ events: {}
 # =============================================================================
 # Scheduled jobs
 # =============================================================================
+# This module owns NO cron today, and no `posture:` is declared — an owner ruling
+# is pending for the ported old-session alert. The reference behavior
+# (pos.session._alert_old_session) schedules a "Session open over 7 days" activity
+# on the session's user for every non-closed session older than 7 days that has no
+# such activity yet; in the reference tree it owns no cron row and piggy-backs the
+# stock scheduler. Candidate postures under ADR-0020:
+#   - host_riding on the future inventory scheduler (faithful to the source shape;
+#     backbone-inventory declares no scheduler yet, so the host does not exist)
+#   - deferred (declare nothing now; revisit when an inventory scheduler lands)
+#   - read_time_lazy (surface stale-session warnings from the existing x_report /
+#     close reads instead of any scheduler)
+# Do not add a `pull` cron here without the ruling — it would diverge from the
+# ported shape (no native scheduled job) by design.
 scheduled_jobs: {}

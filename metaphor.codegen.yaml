@@ -45,6 +45,12 @@ user_owned:
   - "tests/company_guard.rs"
   - "tests/pos_cash_movement.rs"
   - "tests/pos_receipt.rs"
+  # Hand-written migration the generator cannot re-derive from the schema: the
+  # company-fence (ADR-0014) strict re-statement of the live RLS policies on all
+  # seven pos tables. Unlisted, a `--force` regen can drop it — the same
+  # protection payment's and promo's fence migrations carry in their manifests.
+  - "migrations/20260823100000_company_fence_strict.up.sql"
+  - "migrations/20260823100000_company_fence_strict.down.sql"
   - "scripts/**"
   # Hand-authored behavior (services + their HTTP surface). Examples:
   # - "src/application/service/onboarding_service.rs"
