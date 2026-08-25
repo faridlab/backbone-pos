@@ -209,6 +209,7 @@ dependencies = [
 [[package]]
 name = "backbone-accounting"
 version = "0.6.5"
+source = "git+https://github.com/faridlab/backbone-accounting?tag=v0.6.5#56f2f4f79753bec78b8cbf7d9da5e07ce4c10886"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -270,6 +271,7 @@ dependencies = [
 [[package]]
 name = "backbone-billing"
 version = "0.5.2"
+source = "git+https://github.com/faridlab/backbone-billing?tag=v0.5.2#78c9c1316543ad38953daf8ac4ceddb955b52049"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -345,6 +347,7 @@ dependencies = [
 [[package]]
 name = "backbone-inventory"
 version = "0.4.3"
+source = "git+https://github.com/faridlab/backbone-inventory?tag=v0.4.3#eb3c3bcdbcfb0ce00e3b2d8836e64aae0e3d4c4c"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -425,6 +428,7 @@ dependencies = [
 [[package]]
 name = "backbone-payment"
 version = "0.8.1"
+source = "git+https://github.com/faridlab/backbone-payment?tag=v0.8.1#428a921eb54d5ca7c18fd31da4566a016d428635"
 dependencies = [
  "anyhow",
  "async-trait",
