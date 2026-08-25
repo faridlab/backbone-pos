@@ -808,6 +808,20 @@ impl PosWriteService {
         // stay as defense-in-depth. This is the pattern every custom write service should follow.
         let company = s.company_id;
         company_scope::with_company_scope(Some(company), async move {
+            // The register must exist in THIS tenant before anything is written: without the
+            // check a session opens against a uuid the company does not own (or that does not
+            // exist at all), and the close later fails when its register joins resolve nothing.
+            // The lookup runs under the same fence as the insert, so a uuid owned by another
+            // tenant reads as plain absence — the refusal cannot distinguish whose it is, and
+            // must not (that distinction would be a cross-tenant oracle).
+            let profile_known = self
+                .profiles
+                .exists(&self.db_pool, s.pos_profile_id, s.company_id)
+                .await
+                .map_err(PosError::from)?;
+            if !profile_known {
+                return Err(PosError::ProfileNotFound(s.pos_profile_id));
+            }
             let id = Uuid::new_v4();
             let opening = serde_json::Value::Array(s.opening_balances.iter().map(|(m, a)| {
                 serde_json::json!({ "method": m, "amount": a.to_string() })
@@ -822,8 +836,11 @@ impl PosWriteService {
                 opening_balances: opening,
             }).await;
             if let Err(e) = r {
-                // The one-open-session-per-register partial unique (on pos_profile_id) is the DB
-                // arm; map its violation to the typed refusal instead of an internal error.
+                // The one-open-session-per-register partial unique (on (company_id, pos_profile_id)
+                // — the register slot is the tenant's own) is the DB arm; map its violation to the
+                // typed refusal instead of an internal error. Both the current company-scoped index
+                // name and the older profile-only one carry the "pos_profile_id" fragment this
+                // matcher keys on, so the mapping holds on databases either side of the re-key.
                 return Err(match dup_constraint(&e).as_deref() {
                     Some(c) if c.contains("pos_profile_id") => PosError::SessionAlreadyOpen,
                     _ => e.into(),

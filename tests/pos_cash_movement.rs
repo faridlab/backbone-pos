@@ -22,10 +22,17 @@ fn mv(company: Uuid, prof: Uuid, session: Uuid, kind: &str, amount: &str) -> New
     }
 }
 
-/// Open a session on a bare register (no profile row needed — no sale is ever rung here) + set up the
-/// manager credential the close verifies.
-async fn setup(w: &PosWriteService, company: Uuid, float: &str) -> (Uuid, Uuid, backbone_pos::application::service::pos_write_service::ManagerAuth) {
+/// Open a session on a bare register (a profile row with no configuration — no sale is ever rung
+/// here) + set up the manager credential the close verifies. Opening requires the register to exist
+/// in the tenant, so the fixture seeds one.
+async fn setup(pool: &sqlx::PgPool, w: &PosWriteService, company: Uuid, float: &str) -> (Uuid, Uuid, backbone_pos::application::service::pos_write_service::ManagerAuth) {
     let prof = Uuid::new_v4();
+    sqlx::query(
+        r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, tax_template_ids, allow_discount, status)
+           VALUES ($1,$2,'Register 1','IDR','[]'::jsonb,true,'active')"#,
+    )
+    .bind(prof).bind(company)
+    .execute(pool).await.unwrap();
     let session = w.open_session(NewSession {
         company_id: company, pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(),
         opened_at: at(), opening_balances: vec![("cash".into(), d(float))],
@@ -62,7 +69,7 @@ async fn cash_movements_fold_into_the_expected_drawer() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
     let company = Uuid::new_v4();
-    let (prof, session, manager) = setup(&w, company, "500000").await;
+    let (prof, session, manager) = setup(&pool, &w, company, "500000").await;
     let variance = RecordingVariance::default();
 
     w.record_cash_movement(mv(company, prof, session, "pay_in", "100000")).await.unwrap();
@@ -86,7 +93,7 @@ async fn x_report_reads_the_drawer_without_closing() {
     let w = PosWriteService::new(pool.clone());
     let company = Uuid::new_v4();
     let other = Uuid::new_v4();
-    let (prof, session, manager) = setup(&w, company, "500000").await;
+    let (prof, session, manager) = setup(&pool, &w, company, "500000").await;
     let variance = RecordingVariance::default();
     w.record_cash_movement(mv(company, prof, session, "pay_in", "100000")).await.unwrap();
     w.record_cash_movement(mv(company, prof, session, "drop", "200000")).await.unwrap();
@@ -146,7 +153,7 @@ async fn cash_movement_validation_and_scoping() {
     let w = PosWriteService::new(pool.clone());
     let company = Uuid::new_v4();
     let other = Uuid::new_v4();
-    let (prof, session, manager) = setup(&w, company, "0").await;
+    let (prof, session, manager) = setup(&pool, &w, company, "0").await;
     let variance = RecordingVariance::default();
 
     // no_sale must carry amount 0.

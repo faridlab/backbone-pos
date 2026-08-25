@@ -1,6 +1,6 @@
 [package]
 name = "backbone-pos"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "Point of sale — cashier session, ticket + multi-tender; orchestrates billing (revenue) + payment (settlement), posts no GL directly"
 

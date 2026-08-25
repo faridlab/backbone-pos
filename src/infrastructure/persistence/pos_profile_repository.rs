@@ -85,6 +85,31 @@ impl PosProfileRepository {
             allow_discount: r.get("allow_discount"),
         }))
     }
+
+    /// Does this register exist in this tenant (and is it not soft-deleted)?
+    ///
+    /// The pre-write validation for opening a cashier session: a session must never open
+    /// against a register uuid the tenant does not own — the id may be unknown outright or
+    /// belong to another tenant, and the fence deliberately cannot tell the two apart (the
+    /// caller gets one typed "no such register" refusal either way). The explicit
+    /// `company_id = $2` filter is defense-in-depth ON TOP of the RLS fence; the caller wraps
+    /// this in `with_company_scope(Some(company))`.
+    pub async fn exists(
+        &self,
+        pool: &PgPool,
+        pos_profile_id: Uuid,
+        company_id: Uuid,
+    ) -> Result<bool, sqlx::Error> {
+        let found: Option<i32> = company_scope::fetch_optional_scalar_scoped(
+            pool,
+            sqlx::query_scalar(
+                "SELECT 1 FROM pos.pos_profiles WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL",
+            )
+            .bind(pos_profile_id).bind(company_id),
+        )
+        .await?;
+        Ok(found.is_some())
+    }
 }
 
 backbone_core::impl_crud_repository!(PosProfileRepository, PosProfile, soft_delete);

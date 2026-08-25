@@ -217,6 +217,11 @@ impl PosWriteService {
             Decimal::ZERO
         };
         self.invoices.update_tender_totals(&mut tx, id, paid_total, change_due).await?;
+        // Durable recognition event, staged INSIDE this (company-bound) transaction — atomic with
+        // the ticket, the same contract the online `add_tender` path holds. A staging failure
+        // fails the replay: a silently lost event would leave the ticket draft forever with no
+        // trace of why.
+        self.stage_tender_completed_in_tx(&mut tx, id, s.company_id, computed.rounded_total, paid_total).await?;
         tx.commit().await?;
         self.emit_sync_events(id, s.company_id, totals.rounded_total, paid_total).await;
         Ok(SyncOutcome {
@@ -329,6 +334,11 @@ impl PosWriteService {
             ).await);
         }
         self.sync_write_children(&mut tx, id, s.company_id, &computed, &s).await?;
+        // Durable recognition event, staged INSIDE this (company-bound) transaction — atomic with
+        // the rewrite, the same contract the online `add_tender` path holds. A staging failure
+        // fails the replay: a silently lost event would leave the ticket draft forever with no
+        // trace of why.
+        self.stage_tender_completed_in_tx(&mut tx, id, s.company_id, computed.rounded_total, totals.paid_total).await?;
         tx.commit().await?;
         self.emit_sync_events(id, s.company_id, totals.rounded_total, totals.paid_total).await;
         Ok(SyncOutcome { pos_invoice_id: id, action: SyncAction::Updated, totals })
@@ -378,19 +388,39 @@ impl PosWriteService {
         Ok(())
     }
 
-    /// Emit recognition triggers for a replay that (now) crosses full payment — the SAME contract as
-    /// `add_tender`: durable outbox staging first (when configured), fire-and-forget sink second.
-    /// Double delivery is safe: recognition is replay-safe end to end.
-    async fn emit_sync_events(&self, pos_invoice_id: Uuid, company_id: Uuid, rounded_total: Decimal, paid_total: Decimal) {
+    /// Durable staging half of a replay's recognition triggers: when the replay crosses full
+    /// payment AND an outbox schema is configured, stage `PosTenderCompleted` INSIDE the replay's
+    /// own transaction — atomic with the ticket, the same contract the online `add_tender` path
+    /// holds. The caller's transaction is company-bound, so the fenced outbox INSERT passes the
+    /// row-level-security WITH CHECK under a restricted app role; a second, unbound transaction is
+    /// exactly what the fence rejects (and what this staging must never revert to). A staging
+    /// failure propagates and fails the whole replay — the durable event must never be lost
+    /// silently behind a reported sync success.
+    async fn stage_tender_completed_in_tx(
+        &self,
+        tx: &mut sqlx::PgConnection,
+        pos_invoice_id: Uuid,
+        company_id: Uuid,
+        rounded_total: Decimal,
+        paid_total: Decimal,
+    ) -> Result<(), PosError> {
         if paid_total >= rounded_total && rounded_total > Decimal::ZERO {
             if let Some(schema) = &self.outbox_schema {
                 let rec = super::pos_tender::tender_completed_outbox_record(pos_invoice_id, company_id, chrono::Utc::now());
-                if let Ok(mut tx) = self.db_pool.begin().await {
-                    if backbone_outbox::outbox::stage(&mut *tx, schema, &rec).await.is_ok() {
-                        let _ = tx.commit().await;
-                    }
-                }
+                backbone_outbox::outbox::stage(&mut *tx, schema, &rec)
+                    .await
+                    .map_err(|e| PosError::Db(sqlx::Error::Protocol(e.to_string())))?;
             }
+        }
+        Ok(())
+    }
+
+    /// Fire-and-forget recognition trigger for a replay that (now) crosses full payment — the
+    /// in-process half of the SAME contract as `add_tender`: durable outbox staging first (inside
+    /// the replay's transaction, before its commit — see [`Self::stage_tender_completed_in_tx`]),
+    /// fire-and-forget sink second. Double delivery is safe: recognition is replay-safe end to end.
+    async fn emit_sync_events(&self, pos_invoice_id: Uuid, company_id: Uuid, rounded_total: Decimal, paid_total: Decimal) {
+        if paid_total >= rounded_total && rounded_total > Decimal::ZERO {
             self.sink.publish(PosEvent::PosTenderCompleted(PosTenderCompleted {
                 pos_invoice_id, company_id,
             }));

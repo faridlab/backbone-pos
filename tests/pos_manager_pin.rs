@@ -186,6 +186,12 @@ async fn close_without_any_credential_refuses() {
     let w = PosWriteService::new(pool.clone());
     let company = Uuid::new_v4();
     let prof = Uuid::new_v4();
+    sqlx::query(
+        r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, tax_template_ids, allow_discount, status)
+           VALUES ($1,$2,'Register 1','IDR','[]'::jsonb,true,'active')"#,
+    )
+    .bind(prof).bind(company)
+    .execute(&pool).await.unwrap();
     let session = w.open_session(NewSession {
         company_id: company, pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(),
         opened_at: at(), opening_balances: vec![("cash".into(), d("0"))],

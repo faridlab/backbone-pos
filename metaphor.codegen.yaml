@@ -69,6 +69,15 @@ user_owned:
   # Offline-sync + manager-PIN + document-grade tax behavior tests, and the shared in-test port
   # fakes + DB seeders they all use.
   - "tests/pos_sync_ui.rs"
+  # Offline-sync durable-event staging under the production RLS fence: mints a NOBYPASSRLS app role
+  # on a scratch Postgres (BACKBONE_POS_RLS_DSN) — the only posture under which a fence-violating
+  # staging write is observable (owner/superuser DSNs bypass RLS and cannot see this class).
+  - "tests/pos_sync_outbox_rls.rs"
+  # Cashier-session open tenant scoping under the same fence: the one-open-session register
+  # slot keyed per (company, register) admits the same register uuid across two tenants,
+  # and a register uuid the tenant does not own is a typed refusal — never a session
+  # opened against nothing, and never a block on the rightful tenant's register.
+  - "tests/pos_open_session_rls.rs"
   - "tests/pos_manager_pin.rs"
   - "tests/pos_tax_compute.rs"
   # Restaurant-lane behavior (seating, transfer, one draft per table, server-priced order
@@ -99,6 +108,12 @@ user_owned:
   - "migrations/20260824100010_add_pos_table_ref_and_course_grouping.down.sql"
   - "migrations/20260824100020_enforce_one_open_session_per_profile.up.sql"
   - "migrations/20260824100020_enforce_one_open_session_per_profile.down.sql"
+  # Re-key of the one-open-session-per-register unique from the register uuid alone
+  # (global across tenants) to (company_id, pos_profile_id): the register slot belongs
+  # to the tenant that owns the register, so a row carrying another tenant's register
+  # uuid must not occupy it.
+  - "migrations/20260825100000_scope_open_session_unique_to_company.up.sql"
+  - "migrations/20260825100000_scope_open_session_unique_to_company.down.sql"
   - "migrations/20260824100030_add_cash_rounding_to_pos_profiles.up.sql"
   - "migrations/20260824100030_add_cash_rounding_to_pos_profiles.down.sql"
   - "migrations/20260824100040_add_tax_template_refs_to_pos_profiles.up.sql"
