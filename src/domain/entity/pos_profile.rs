@@ -4,6 +4,7 @@ use sqlx::FromRow;
 use uuid::Uuid;
 use rust_decimal::Decimal;
 
+use super::PosCashRoundingStrategy;
 use super::PosProfileStatus;
 use super::AuditMetadata;
 
@@ -62,10 +63,13 @@ pub struct PosProfile {
     pub write_off_account_id: Option<Uuid>,
     pub tax_account_id: Option<Uuid>,
     pub tax_rate: Decimal,
+    pub tax_template_ids: Option<serde_json::Value>,
     pub warehouse_id: Option<Uuid>,
     pub cogs_account_id: Option<Uuid>,
     pub inventory_account_id: Option<Uuid>,
     pub allow_discount: bool,
+    pub cash_rounding_strategy: PosCashRoundingStrategy,
+    pub cash_rounding_unit: Decimal,
     pub status: PosProfileStatus,
     #[serde(default)]
     #[sqlx(json)]
@@ -79,7 +83,7 @@ impl PosProfile {
     }
 
     /// Create a new PosProfile with required fields
-    pub fn new(company_id: Uuid, name: String, currency: String, tax_rate: Decimal, allow_discount: bool, status: PosProfileStatus) -> Self {
+    pub fn new(company_id: Uuid, name: String, currency: String, tax_rate: Decimal, allow_discount: bool, cash_rounding_strategy: PosCashRoundingStrategy, cash_rounding_unit: Decimal, status: PosProfileStatus) -> Self {
         Self {
             id: Uuid::new_v4(),
             company_id,
@@ -93,10 +97,13 @@ impl PosProfile {
             write_off_account_id: None,
             tax_account_id: None,
             tax_rate,
+            tax_template_ids: None,
             warehouse_id: None,
             cogs_account_id: None,
             inventory_account_id: None,
             allow_discount,
+            cash_rounding_strategy,
+            cash_rounding_unit,
             status,
             metadata: AuditMetadata::default(),
         }
@@ -204,6 +211,12 @@ impl PosProfile {
         self
     }
 
+    /// Set the tax_template_ids field (chainable)
+    pub fn with_tax_template_ids(mut self, value: serde_json::Value) -> Self {
+        self.tax_template_ids = Some(value);
+        self
+    }
+
     /// Set the warehouse_id field (chainable)
     pub fn with_warehouse_id(mut self, value: Uuid) -> Self {
         self.warehouse_id = Some(value);
@@ -263,6 +276,9 @@ impl PosProfile {
                 "tax_rate" => {
                     if let Ok(v) = serde_json::from_value(value) { self.tax_rate = v; }
                 }
+                "tax_template_ids" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.tax_template_ids = v; }
+                }
                 "warehouse_id" => {
                     if let Ok(v) = serde_json::from_value(value) { self.warehouse_id = v; }
                 }
@@ -274,6 +290,12 @@ impl PosProfile {
                 }
                 "allow_discount" => {
                     if let Ok(v) = serde_json::from_value(value) { self.allow_discount = v; }
+                }
+                "cash_rounding_strategy" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.cash_rounding_strategy = v; }
+                }
+                "cash_rounding_unit" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.cash_rounding_unit = v; }
                 }
                 "status" => {
                     if let Ok(v) = serde_json::from_value(value) { self.status = v; }
@@ -343,6 +365,7 @@ impl backbone_orm::EntityRepoMeta for PosProfile {
         m.insert("warehouse_id".to_string(), "uuid".to_string());
         m.insert("cogs_account_id".to_string(), "uuid".to_string());
         m.insert("inventory_account_id".to_string(), "uuid".to_string());
+        m.insert("cash_rounding_strategy".to_string(), "pos_cash_rounding_strategy".to_string());
         m.insert("status".to_string(), "pos_profile_status".to_string());
         m
     }
@@ -371,10 +394,13 @@ pub struct PosProfileBuilder {
     write_off_account_id: Option<Uuid>,
     tax_account_id: Option<Uuid>,
     tax_rate: Option<Decimal>,
+    tax_template_ids: Option<serde_json::Value>,
     warehouse_id: Option<Uuid>,
     cogs_account_id: Option<Uuid>,
     inventory_account_id: Option<Uuid>,
     allow_discount: Option<bool>,
+    cash_rounding_strategy: Option<PosCashRoundingStrategy>,
+    cash_rounding_unit: Option<Decimal>,
     status: Option<PosProfileStatus>,
 }
 
@@ -445,6 +471,12 @@ impl PosProfileBuilder {
         self
     }
 
+    /// Set the tax_template_ids field (optional)
+    pub fn tax_template_ids(mut self, value: serde_json::Value) -> Self {
+        self.tax_template_ids = Some(value);
+        self
+    }
+
     /// Set the warehouse_id field (optional)
     pub fn warehouse_id(mut self, value: Uuid) -> Self {
         self.warehouse_id = Some(value);
@@ -466,6 +498,18 @@ impl PosProfileBuilder {
     /// Set the allow_discount field (default: `true`)
     pub fn allow_discount(mut self, value: bool) -> Self {
         self.allow_discount = Some(value);
+        self
+    }
+
+    /// Set the cash_rounding_strategy field (default: `PosCashRoundingStrategy::default()`)
+    pub fn cash_rounding_strategy(mut self, value: PosCashRoundingStrategy) -> Self {
+        self.cash_rounding_strategy = Some(value);
+        self
+    }
+
+    /// Set the cash_rounding_unit field (default: `Decimal::from(0)`)
+    pub fn cash_rounding_unit(mut self, value: Decimal) -> Self {
+        self.cash_rounding_unit = Some(value);
         self
     }
 
@@ -495,10 +539,13 @@ impl PosProfileBuilder {
             write_off_account_id: self.write_off_account_id,
             tax_account_id: self.tax_account_id,
             tax_rate: self.tax_rate.unwrap_or(Decimal::from(0)),
+            tax_template_ids: self.tax_template_ids,
             warehouse_id: self.warehouse_id,
             cogs_account_id: self.cogs_account_id,
             inventory_account_id: self.inventory_account_id,
             allow_discount: self.allow_discount.unwrap_or(true),
+            cash_rounding_strategy: self.cash_rounding_strategy.unwrap_or_default(),
+            cash_rounding_unit: self.cash_rounding_unit.unwrap_or(Decimal::from(0)),
             status: self.status.unwrap_or_default(),
             metadata: AuditMetadata::default(),
         })

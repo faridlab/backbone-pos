@@ -11,6 +11,10 @@ mod pos_payment_repository;
 mod pos_profile_repository;
 mod pos_opening_entry_repository;
 mod pos_cash_movement_repository;
+mod pos_discount_repository;
+mod pos_manager_pin_repository;
+mod pos_floor_plan_repository;
+mod pos_table_repository;
 
 // Custom persistence modules
 // <<< CUSTOM
@@ -23,10 +27,11 @@ pub use pos_invoice_item_repository::{
 };
 pub use pos_invoice_repository::{
     NewDraftInvoiceRow, NewReturnInvoiceRow, PaidStateRow, ReceiptHeaderRow, RecognitionRow,
-    ReturnSourceRow, TenderHeaderRow,
+    ReturnSourceRow, SyncLookupRow, TenderHeaderRow,
 };
 pub use pos_opening_entry_repository::NewOpeningEntryRow;
 pub use pos_payment_repository::{MethodTotalRow, NewTenderRow, ReceiptTenderRow};
+pub use pos_profile_repository::TaxConfigRow;
 // END CUSTOM
 
 // Re-exports
@@ -37,6 +42,10 @@ pub use pos_payment_repository::PosPaymentRepository;
 pub use pos_profile_repository::PosProfileRepository;
 pub use pos_opening_entry_repository::PosOpeningEntryRepository;
 pub use pos_cash_movement_repository::PosCashMovementRepository;
+pub use pos_discount_repository::PosDiscountRepository;
+pub use pos_manager_pin_repository::PosManagerPinRepository;
+pub use pos_floor_plan_repository::PosFloorPlanRepository;
+pub use pos_table_repository::PosTableRepository;
 
 // Re-export backbone-orm types
 pub use backbone_orm::repository::{
@@ -47,4 +56,12 @@ pub use backbone_orm::repository::{
 
 // Re-export custom persistence types
 // <<< CUSTOM
+// Sibling files adding hand-written methods to GENERATED repositories (the module's sanctioned
+// custom-code convention; each sibling is user_owned in metaphor.codegen.yaml).
+mod pos_discount_repository_custom;
+mod pos_table_repository_custom;
+
+pub use pos_discount_repository_custom::DiscountRow;
+pub use pos_opening_entry_repository::StaleSessionRow;
+pub use pos_table_repository_custom::TableRow;
 // END CUSTOM

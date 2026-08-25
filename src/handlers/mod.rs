@@ -16,6 +16,10 @@ use crate::application::service::PosPaymentService;
 use crate::application::service::PosProfileService;
 use crate::application::service::PosOpeningEntryService;
 use crate::application::service::PosCashMovementService;
+use crate::application::service::PosDiscountService;
+use crate::application::service::PosManagerPinService;
+use crate::application::service::PosFloorPlanService;
+use crate::application::service::PosTableService;
 
 /// Application state for dependency injection.
 ///
@@ -49,6 +53,14 @@ pub struct AppState {
     pub pos_opening_entry_service: Arc<PosOpeningEntryService>,
     /// PosCashMovement service
     pub pos_cash_movement_service: Arc<PosCashMovementService>,
+    /// PosDiscount service
+    pub pos_discount_service: Arc<PosDiscountService>,
+    /// PosManagerPin service
+    pub pos_manager_pin_service: Arc<PosManagerPinService>,
+    /// PosFloorPlan service
+    pub pos_floor_plan_service: Arc<PosFloorPlanService>,
+    /// PosTable service
+    pub pos_table_service: Arc<PosTableService>,
 }
 
 impl AppState {
@@ -60,7 +72,11 @@ impl AppState {
         pos_payment_service: Arc<PosPaymentService>,
         pos_profile_service: Arc<PosProfileService>,
         pos_opening_entry_service: Arc<PosOpeningEntryService>,
-        pos_cash_movement_service: Arc<PosCashMovementService>
+        pos_cash_movement_service: Arc<PosCashMovementService>,
+        pos_discount_service: Arc<PosDiscountService>,
+        pos_manager_pin_service: Arc<PosManagerPinService>,
+        pos_floor_plan_service: Arc<PosFloorPlanService>,
+        pos_table_service: Arc<PosTableService>
     ) -> Self {
         Self {
             pos_closing_entry_service,
@@ -70,6 +86,10 @@ impl AppState {
             pos_profile_service,
             pos_opening_entry_service,
             pos_cash_movement_service,
+            pos_discount_service,
+            pos_manager_pin_service,
+            pos_floor_plan_service,
+            pos_table_service,
         }
     }
 
@@ -83,6 +103,10 @@ impl AppState {
             pos_profile_service: module.pos_profile_service.clone(),
             pos_opening_entry_service: module.pos_opening_entry_service.clone(),
             pos_cash_movement_service: module.pos_cash_movement_service.clone(),
+            pos_discount_service: module.pos_discount_service.clone(),
+            pos_manager_pin_service: module.pos_manager_pin_service.clone(),
+            pos_floor_plan_service: module.pos_floor_plan_service.clone(),
+            pos_table_service: module.pos_table_service.clone(),
         }
     }
 }
@@ -99,6 +123,10 @@ pub struct AppStateBuilder {
     pos_profile_service: Option<Arc<PosProfileService>>,
     pos_opening_entry_service: Option<Arc<PosOpeningEntryService>>,
     pos_cash_movement_service: Option<Arc<PosCashMovementService>>,
+    pos_discount_service: Option<Arc<PosDiscountService>>,
+    pos_manager_pin_service: Option<Arc<PosManagerPinService>>,
+    pos_floor_plan_service: Option<Arc<PosFloorPlanService>>,
+    pos_table_service: Option<Arc<PosTableService>>,
 }
 
 impl AppStateBuilder {
@@ -149,6 +177,30 @@ impl AppStateBuilder {
         self
     }
 
+    /// Set the PosDiscount service.
+    pub fn with_pos_discount_service(mut self, service: Arc<PosDiscountService>) -> Self {
+        self.pos_discount_service = Some(service);
+        self
+    }
+
+    /// Set the PosManagerPin service.
+    pub fn with_pos_manager_pin_service(mut self, service: Arc<PosManagerPinService>) -> Self {
+        self.pos_manager_pin_service = Some(service);
+        self
+    }
+
+    /// Set the PosFloorPlan service.
+    pub fn with_pos_floor_plan_service(mut self, service: Arc<PosFloorPlanService>) -> Self {
+        self.pos_floor_plan_service = Some(service);
+        self
+    }
+
+    /// Set the PosTable service.
+    pub fn with_pos_table_service(mut self, service: Arc<PosTableService>) -> Self {
+        self.pos_table_service = Some(service);
+        self
+    }
+
     /// Build the AppState.
     ///
     /// # Panics
@@ -163,6 +215,10 @@ impl AppStateBuilder {
             pos_profile_service: self.pos_profile_service.expect("pos_profile_service is required"),
             pos_opening_entry_service: self.pos_opening_entry_service.expect("pos_opening_entry_service is required"),
             pos_cash_movement_service: self.pos_cash_movement_service.expect("pos_cash_movement_service is required"),
+            pos_discount_service: self.pos_discount_service.expect("pos_discount_service is required"),
+            pos_manager_pin_service: self.pos_manager_pin_service.expect("pos_manager_pin_service is required"),
+            pos_floor_plan_service: self.pos_floor_plan_service.expect("pos_floor_plan_service is required"),
+            pos_table_service: self.pos_table_service.expect("pos_table_service is required"),
         }
     }
 }

@@ -45,6 +45,10 @@ pub struct CreatePosInvoiceItemDto {
     #[cfg_attr(feature = "validation", validate(length(max = 300)))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "client_uuid")]
+    pub client_uuid: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub course: Option<i32>,
     pub quantity: Decimal,
     #[serde(alias = "unit_price")]
     pub unit_price: Decimal,
@@ -81,6 +85,8 @@ pub struct UpdatePosInvoiceItemDto {
     #[cfg_attr(feature = "validation", validate(length(max = 300)))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub course: Option<i32>,
     pub quantity: Decimal,
     #[serde(alias = "unit_price")]
     pub unit_price: Decimal,
@@ -116,6 +122,8 @@ pub struct PatchPosInvoiceItemDto {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub course: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub quantity: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "unit_price")]
     pub unit_price: Option<Decimal>,
@@ -128,7 +136,7 @@ pub struct PatchPosInvoiceItemDto {
 impl PatchPosInvoiceItemDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.pos_invoice_id.is_some() || self.item_id.is_some() || self.description.is_some() || self.quantity.is_some() || self.unit_price.is_some() || self.discount_amount.is_some() || self.revenue_account_id.is_some()
+        self.company_id.is_some() || self.pos_invoice_id.is_some() || self.item_id.is_some() || self.description.is_some() || self.course.is_some() || self.quantity.is_some() || self.unit_price.is_some() || self.discount_amount.is_some() || self.revenue_account_id.is_some()
     }
 }
 
@@ -153,6 +161,8 @@ pub struct PosInvoiceItemResponseDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub item_id: Uuid,
     pub description: Option<String>,
+    pub client_uuid: Option<Uuid>,
+    pub course: Option<i32>,
     pub quantity: Decimal,
     pub unit_price: Decimal,
     pub discount_amount: Decimal,
@@ -233,6 +243,8 @@ impl From<PosInvoiceItem> for PosInvoiceItemResponseDto {
             pos_invoice_id: entity.pos_invoice_id,
             item_id: entity.item_id,
             description: entity.description,
+            client_uuid: entity.client_uuid,
+            course: entity.course,
             quantity: entity.quantity,
             unit_price: entity.unit_price,
             discount_amount: entity.discount_amount,
@@ -264,6 +276,8 @@ impl From<CreatePosInvoiceItemDto> for PosInvoiceItem {
             pos_invoice_id: dto.pos_invoice_id,
             item_id: dto.item_id,
             description: dto.description,
+            client_uuid: dto.client_uuid,
+            course: dto.course,
             quantity: dto.quantity,
             unit_price: dto.unit_price,
             discount_amount: dto.discount_amount,
@@ -282,6 +296,8 @@ impl From<&PosInvoiceItem> for PosInvoiceItemResponseDto {
             pos_invoice_id: entity.pos_invoice_id.clone(),
             item_id: entity.item_id.clone(),
             description: entity.description.clone(),
+            client_uuid: entity.client_uuid.clone(),
+            course: entity.course.clone(),
             quantity: entity.quantity.clone(),
             unit_price: entity.unit_price.clone(),
             discount_amount: entity.discount_amount.clone(),
@@ -304,6 +320,7 @@ impl backbone_core::ApplyUpdateDto<UpdatePosInvoiceItemDto> for PosInvoiceItem {
         self.pos_invoice_id = dto.pos_invoice_id;
         self.item_id = dto.item_id;
         self.description = dto.description;
+        self.course = dto.course;
         self.quantity = dto.quantity;
         self.unit_price = dto.unit_price;
         self.discount_amount = dto.discount_amount;

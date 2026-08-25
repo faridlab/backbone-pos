@@ -39,6 +39,7 @@ impl PosWriteService {
                 id: Uuid::new_v4(),
                 company_id: hdr_company,
                 pos_invoice_id,
+                client_uuid: None,
                 payment_method: method,
                 amount: money(amount),
                 reference_no: reference_no.as_deref(),
@@ -85,7 +86,7 @@ impl PosWriteService {
 /// `<schema>.outbox_events` by it — a backfilled `company_id` column + a fail-closed RLS policy —
 /// so a tenant-scoped relay cannot read another company's staged event. `OutboxRecord::new` sets the
 /// top-level field; the payload keeps a copy for consumers that read it from the JSON.
-fn tender_completed_outbox_record(
+pub(super) fn tender_completed_outbox_record(
     pos_invoice_id: Uuid,
     company_id: Uuid,
     now: chrono::DateTime<chrono::Utc>,

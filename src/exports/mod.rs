@@ -48,6 +48,18 @@ pub use events::*;
 /// - `PosCashMovementDto` - Data transfer object for PosCashMovement
 /// - `PosCashMovementSummary` - Summary view of PosCashMovement
 /// - `PosCashMovementId` - Type-safe ID wrapper
+/// - `PosDiscountDto` - Data transfer object for PosDiscount
+/// - `PosDiscountSummary` - Summary view of PosDiscount
+/// - `PosDiscountId` - Type-safe ID wrapper
+/// - `PosManagerPinDto` - Data transfer object for PosManagerPin
+/// - `PosManagerPinSummary` - Summary view of PosManagerPin
+/// - `PosManagerPinId` - Type-safe ID wrapper
+/// - `PosFloorPlanDto` - Data transfer object for PosFloorPlan
+/// - `PosFloorPlanSummary` - Summary view of PosFloorPlan
+/// - `PosFloorPlanId` - Type-safe ID wrapper
+/// - `PosTableDto` - Data transfer object for PosTable
+/// - `PosTableSummary` - Summary view of PosTable
+/// - `PosTableId` - Type-safe ID wrapper
 ///
 /// ## Public Events
 /// - `PosClosingEntryCreatedEvent` - Published when PosClosingEntry is created
@@ -71,4 +83,16 @@ pub use events::*;
 /// - `PosCashMovementCreatedEvent` - Published when PosCashMovement is created
 /// - `PosCashMovementUpdatedEvent` - Published when PosCashMovement is updated
 /// - `PosCashMovementDeletedEvent` - Published when PosCashMovement is deleted
+/// - `PosDiscountCreatedEvent` - Published when PosDiscount is created
+/// - `PosDiscountUpdatedEvent` - Published when PosDiscount is updated
+/// - `PosDiscountDeletedEvent` - Published when PosDiscount is deleted
+/// - `PosManagerPinCreatedEvent` - Published when PosManagerPin is created
+/// - `PosManagerPinUpdatedEvent` - Published when PosManagerPin is updated
+/// - `PosManagerPinDeletedEvent` - Published when PosManagerPin is deleted
+/// - `PosFloorPlanCreatedEvent` - Published when PosFloorPlan is created
+/// - `PosFloorPlanUpdatedEvent` - Published when PosFloorPlan is updated
+/// - `PosFloorPlanDeletedEvent` - Published when PosFloorPlan is deleted
+/// - `PosTableCreatedEvent` - Published when PosTable is created
+/// - `PosTableUpdatedEvent` - Published when PosTable is updated
+/// - `PosTableDeletedEvent` - Published when PosTable is deleted
 pub struct ExportSummary;

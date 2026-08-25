@@ -200,6 +200,114 @@ pub struct PosCashMovementDeletedEvent {
 }
 
 // ============================================================================
+// POSDISCOUNT EVENTS
+// ============================================================================
+
+/// Event published when a PosDiscount is created
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosDiscountCreatedEvent {
+    pub id: PosDiscountId,
+    pub data: PosDiscountDto,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// Event published when a PosDiscount is updated
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosDiscountUpdatedEvent {
+    pub id: PosDiscountId,
+    pub data: PosDiscountDto,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// Event published when a PosDiscount is deleted
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosDiscountDeletedEvent {
+    pub id: PosDiscountId,
+    pub occurred_at: DateTime<Utc>,
+}
+
+// ============================================================================
+// POSMANAGERPIN EVENTS
+// ============================================================================
+
+/// Event published when a PosManagerPin is created
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosManagerPinCreatedEvent {
+    pub id: PosManagerPinId,
+    pub data: PosManagerPinDto,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// Event published when a PosManagerPin is updated
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosManagerPinUpdatedEvent {
+    pub id: PosManagerPinId,
+    pub data: PosManagerPinDto,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// Event published when a PosManagerPin is deleted
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosManagerPinDeletedEvent {
+    pub id: PosManagerPinId,
+    pub occurred_at: DateTime<Utc>,
+}
+
+// ============================================================================
+// POSFLOORPLAN EVENTS
+// ============================================================================
+
+/// Event published when a PosFloorPlan is created
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosFloorPlanCreatedEvent {
+    pub id: PosFloorPlanId,
+    pub data: PosFloorPlanDto,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// Event published when a PosFloorPlan is updated
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosFloorPlanUpdatedEvent {
+    pub id: PosFloorPlanId,
+    pub data: PosFloorPlanDto,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// Event published when a PosFloorPlan is deleted
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosFloorPlanDeletedEvent {
+    pub id: PosFloorPlanId,
+    pub occurred_at: DateTime<Utc>,
+}
+
+// ============================================================================
+// POSTABLE EVENTS
+// ============================================================================
+
+/// Event published when a PosTable is created
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosTableCreatedEvent {
+    pub id: PosTableId,
+    pub data: PosTableDto,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// Event published when a PosTable is updated
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosTableUpdatedEvent {
+    pub id: PosTableId,
+    pub data: PosTableDto,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// Event published when a PosTable is deleted
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosTableDeletedEvent {
+    pub id: PosTableId,
+    pub occurred_at: DateTime<Utc>,
+}
+
+// ============================================================================
 // MODULE EVENT ENUM
 // ============================================================================
 
@@ -228,6 +336,18 @@ pub enum PosEvent {
     PosCashMovementCreated(PosCashMovementCreatedEvent),
     PosCashMovementUpdated(PosCashMovementUpdatedEvent),
     PosCashMovementDeleted(PosCashMovementDeletedEvent),
+    PosDiscountCreated(PosDiscountCreatedEvent),
+    PosDiscountUpdated(PosDiscountUpdatedEvent),
+    PosDiscountDeleted(PosDiscountDeletedEvent),
+    PosManagerPinCreated(PosManagerPinCreatedEvent),
+    PosManagerPinUpdated(PosManagerPinUpdatedEvent),
+    PosManagerPinDeleted(PosManagerPinDeletedEvent),
+    PosFloorPlanCreated(PosFloorPlanCreatedEvent),
+    PosFloorPlanUpdated(PosFloorPlanUpdatedEvent),
+    PosFloorPlanDeleted(PosFloorPlanDeletedEvent),
+    PosTableCreated(PosTableCreatedEvent),
+    PosTableUpdated(PosTableUpdatedEvent),
+    PosTableDeleted(PosTableDeletedEvent),
 }
 
 /// Metadata for module events

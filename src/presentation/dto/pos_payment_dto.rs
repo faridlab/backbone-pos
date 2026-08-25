@@ -46,6 +46,8 @@ pub struct CreatePosPaymentDto {
     #[cfg_attr(feature = "validation", validate(length(max = 140)))]
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "reference_no")]
     pub reference_no: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "client_uuid")]
+    pub client_uuid: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "payment_entry_id")]
     pub payment_entry_id: Option<Uuid>,
 }
@@ -133,6 +135,7 @@ pub struct PosPaymentResponseDto {
     pub payment_method: PosPaymentMethod,
     pub amount: Decimal,
     pub reference_no: Option<String>,
+    pub client_uuid: Option<Uuid>,
     pub payment_entry_id: Option<Uuid>,
     pub metadata: AuditMetadata,
 }
@@ -210,6 +213,7 @@ impl From<PosPayment> for PosPaymentResponseDto {
             payment_method: entity.payment_method,
             amount: entity.amount,
             reference_no: entity.reference_no,
+            client_uuid: entity.client_uuid,
             payment_entry_id: entity.payment_entry_id,
             metadata: entity.metadata,
         }
@@ -238,6 +242,7 @@ impl From<CreatePosPaymentDto> for PosPayment {
             payment_method: dto.payment_method,
             amount: dto.amount,
             reference_no: dto.reference_no,
+            client_uuid: dto.client_uuid,
             payment_entry_id: dto.payment_entry_id,
             metadata: AuditMetadata::default(),
         }
@@ -253,6 +258,7 @@ impl From<&PosPayment> for PosPaymentResponseDto {
             payment_method: entity.payment_method.clone(),
             amount: entity.amount.clone(),
             reference_no: entity.reference_no.clone(),
+            client_uuid: entity.client_uuid.clone(),
             payment_entry_id: entity.payment_entry_id.clone(),
             metadata: entity.metadata.clone(),
         }

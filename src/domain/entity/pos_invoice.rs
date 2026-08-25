@@ -56,7 +56,9 @@ pub struct PosInvoice {
     pub opening_entry_id: Uuid,
     pub branch_id: Option<Uuid>,
     pub customer_id: Option<Uuid>,
+    pub pos_table_id: Option<Uuid>,
     pub receipt_number: String,
+    pub client_uuid: Option<Uuid>,
     pub posting_at: DateTime<Utc>,
     pub net_total: Decimal,
     pub tax_total: Decimal,
@@ -90,7 +92,9 @@ impl PosInvoice {
             opening_entry_id,
             branch_id: None,
             customer_id: None,
+            pos_table_id: None,
             receipt_number,
+            client_uuid: None,
             posting_at,
             net_total,
             tax_total,
@@ -180,6 +184,18 @@ impl PosInvoice {
         self
     }
 
+    /// Set the pos_table_id field (chainable)
+    pub fn with_pos_table_id(mut self, value: Uuid) -> Self {
+        self.pos_table_id = Some(value);
+        self
+    }
+
+    /// Set the client_uuid field (chainable)
+    pub fn with_client_uuid(mut self, value: Uuid) -> Self {
+        self.client_uuid = Some(value);
+        self
+    }
+
     /// Set the billing_invoice_id field (chainable)
     pub fn with_billing_invoice_id(mut self, value: Uuid) -> Self {
         self.billing_invoice_id = Some(value);
@@ -221,8 +237,14 @@ impl PosInvoice {
                 "customer_id" => {
                     if let Ok(v) = serde_json::from_value(value) { self.customer_id = v; }
                 }
+                "pos_table_id" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.pos_table_id = v; }
+                }
                 "receipt_number" => {
                     if let Ok(v) = serde_json::from_value(value) { self.receipt_number = v; }
+                }
+                "client_uuid" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.client_uuid = v; }
                 }
                 "posting_at" => {
                     if let Ok(v) = serde_json::from_value(value) { self.posting_at = v; }
@@ -322,6 +344,7 @@ impl backbone_orm::EntityRepoMeta for PosInvoice {
         m.insert("opening_entry_id".to_string(), "uuid".to_string());
         m.insert("branch_id".to_string(), "uuid".to_string());
         m.insert("customer_id".to_string(), "uuid".to_string());
+        m.insert("pos_table_id".to_string(), "uuid".to_string());
         m.insert("billing_invoice_id".to_string(), "uuid".to_string());
         m.insert("payment_entry_id".to_string(), "uuid".to_string());
         m.insert("status".to_string(), "pos_invoice_status".to_string());
@@ -346,7 +369,9 @@ pub struct PosInvoiceBuilder {
     opening_entry_id: Option<Uuid>,
     branch_id: Option<Uuid>,
     customer_id: Option<Uuid>,
+    pos_table_id: Option<Uuid>,
     receipt_number: Option<String>,
+    client_uuid: Option<Uuid>,
     posting_at: Option<DateTime<Utc>>,
     net_total: Option<Decimal>,
     tax_total: Option<Decimal>,
@@ -393,9 +418,21 @@ impl PosInvoiceBuilder {
         self
     }
 
+    /// Set the pos_table_id field (optional)
+    pub fn pos_table_id(mut self, value: Uuid) -> Self {
+        self.pos_table_id = Some(value);
+        self
+    }
+
     /// Set the receipt_number field (required)
     pub fn receipt_number(mut self, value: String) -> Self {
         self.receipt_number = Some(value);
+        self
+    }
+
+    /// Set the client_uuid field (optional)
+    pub fn client_uuid(mut self, value: Uuid) -> Self {
+        self.client_uuid = Some(value);
         self
     }
 
@@ -494,7 +531,9 @@ impl PosInvoiceBuilder {
             opening_entry_id,
             branch_id: self.branch_id,
             customer_id: self.customer_id,
+            pos_table_id: self.pos_table_id,
             receipt_number,
+            client_uuid: self.client_uuid,
             posting_at,
             net_total: self.net_total.unwrap_or(Decimal::from(0)),
             tax_total: self.tax_total.unwrap_or(Decimal::from(0)),

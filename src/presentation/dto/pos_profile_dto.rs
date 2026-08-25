@@ -19,6 +19,7 @@ use validator::Validate;
 
 use crate::domain::entity::PosProfile;
 use crate::domain::entity::AuditMetadata;
+use crate::domain::entity::PosCashRoundingStrategy;
 use crate::domain::entity::PosProfileStatus;
 
 // =============================================================================
@@ -59,6 +60,8 @@ pub struct CreatePosProfileDto {
     pub tax_account_id: Option<Uuid>,
     #[serde(alias = "tax_rate")]
     pub tax_rate: Decimal,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "tax_template_ids")]
+    pub tax_template_ids: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "warehouse_id")]
     pub warehouse_id: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "cogs_account_id")]
@@ -68,6 +71,10 @@ pub struct CreatePosProfileDto {
     #[cfg_attr(feature = "openapi", schema(example = true))]
     #[serde(alias = "allow_discount")]
     pub allow_discount: bool,
+    #[serde(alias = "cash_rounding_strategy")]
+    pub cash_rounding_strategy: PosCashRoundingStrategy,
+    #[serde(alias = "cash_rounding_unit")]
+    pub cash_rounding_unit: Decimal,
     pub status: PosProfileStatus,
 }
 
@@ -109,6 +116,8 @@ pub struct UpdatePosProfileDto {
     pub tax_account_id: Option<Uuid>,
     #[serde(alias = "tax_rate")]
     pub tax_rate: Decimal,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "tax_template_ids")]
+    pub tax_template_ids: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "warehouse_id")]
     pub warehouse_id: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "cogs_account_id")]
@@ -118,6 +127,10 @@ pub struct UpdatePosProfileDto {
     #[cfg_attr(feature = "openapi", schema(example = true))]
     #[serde(alias = "allow_discount")]
     pub allow_discount: bool,
+    #[serde(alias = "cash_rounding_strategy")]
+    pub cash_rounding_strategy: PosCashRoundingStrategy,
+    #[serde(alias = "cash_rounding_unit")]
+    pub cash_rounding_unit: Decimal,
     pub status: PosProfileStatus,
 }
 
@@ -161,6 +174,8 @@ pub struct PatchPosProfileDto {
     pub tax_account_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "tax_rate")]
     pub tax_rate: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "tax_template_ids")]
+    pub tax_template_ids: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "warehouse_id")]
     pub warehouse_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "cogs_account_id")]
@@ -170,6 +185,10 @@ pub struct PatchPosProfileDto {
     #[cfg_attr(feature = "openapi", schema(example = true))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "allow_discount")]
     pub allow_discount: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "cash_rounding_strategy")]
+    pub cash_rounding_strategy: Option<PosCashRoundingStrategy>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "cash_rounding_unit")]
+    pub cash_rounding_unit: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<PosProfileStatus>,
 }
@@ -177,7 +196,7 @@ pub struct PatchPosProfileDto {
 impl PatchPosProfileDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.branch_id.is_some() || self.name.is_some() || self.default_customer_id.is_some() || self.currency.is_some() || self.income_account_id.is_some() || self.receivable_account_id.is_some() || self.cash_account_id.is_some() || self.write_off_account_id.is_some() || self.tax_account_id.is_some() || self.tax_rate.is_some() || self.warehouse_id.is_some() || self.cogs_account_id.is_some() || self.inventory_account_id.is_some() || self.allow_discount.is_some() || self.status.is_some()
+        self.company_id.is_some() || self.branch_id.is_some() || self.name.is_some() || self.default_customer_id.is_some() || self.currency.is_some() || self.income_account_id.is_some() || self.receivable_account_id.is_some() || self.cash_account_id.is_some() || self.write_off_account_id.is_some() || self.tax_account_id.is_some() || self.tax_rate.is_some() || self.tax_template_ids.is_some() || self.warehouse_id.is_some() || self.cogs_account_id.is_some() || self.inventory_account_id.is_some() || self.allow_discount.is_some() || self.cash_rounding_strategy.is_some() || self.cash_rounding_unit.is_some() || self.status.is_some()
     }
 }
 
@@ -209,11 +228,14 @@ pub struct PosProfileResponseDto {
     pub write_off_account_id: Option<Uuid>,
     pub tax_account_id: Option<Uuid>,
     pub tax_rate: Decimal,
+    pub tax_template_ids: Option<serde_json::Value>,
     pub warehouse_id: Option<Uuid>,
     pub cogs_account_id: Option<Uuid>,
     pub inventory_account_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = true))]
     pub allow_discount: bool,
+    pub cash_rounding_strategy: PosCashRoundingStrategy,
+    pub cash_rounding_unit: Decimal,
     pub status: PosProfileStatus,
     pub metadata: AuditMetadata,
 }
@@ -297,10 +319,13 @@ impl From<PosProfile> for PosProfileResponseDto {
             write_off_account_id: entity.write_off_account_id,
             tax_account_id: entity.tax_account_id,
             tax_rate: entity.tax_rate,
+            tax_template_ids: entity.tax_template_ids,
             warehouse_id: entity.warehouse_id,
             cogs_account_id: entity.cogs_account_id,
             inventory_account_id: entity.inventory_account_id,
             allow_discount: entity.allow_discount,
+            cash_rounding_strategy: entity.cash_rounding_strategy,
+            cash_rounding_unit: entity.cash_rounding_unit,
             status: entity.status,
             metadata: entity.metadata,
         }
@@ -335,10 +360,13 @@ impl From<CreatePosProfileDto> for PosProfile {
             write_off_account_id: dto.write_off_account_id,
             tax_account_id: dto.tax_account_id,
             tax_rate: dto.tax_rate,
+            tax_template_ids: dto.tax_template_ids,
             warehouse_id: dto.warehouse_id,
             cogs_account_id: dto.cogs_account_id,
             inventory_account_id: dto.inventory_account_id,
             allow_discount: dto.allow_discount,
+            cash_rounding_strategy: dto.cash_rounding_strategy,
+            cash_rounding_unit: dto.cash_rounding_unit,
             status: dto.status,
             metadata: AuditMetadata::default(),
         }
@@ -360,10 +388,13 @@ impl From<&PosProfile> for PosProfileResponseDto {
             write_off_account_id: entity.write_off_account_id.clone(),
             tax_account_id: entity.tax_account_id.clone(),
             tax_rate: entity.tax_rate.clone(),
+            tax_template_ids: entity.tax_template_ids.clone(),
             warehouse_id: entity.warehouse_id.clone(),
             cogs_account_id: entity.cogs_account_id.clone(),
             inventory_account_id: entity.inventory_account_id.clone(),
             allow_discount: entity.allow_discount.clone(),
+            cash_rounding_strategy: entity.cash_rounding_strategy.clone(),
+            cash_rounding_unit: entity.cash_rounding_unit.clone(),
             status: entity.status.clone(),
             metadata: entity.metadata.clone(),
         }
@@ -389,10 +420,13 @@ impl backbone_core::ApplyUpdateDto<UpdatePosProfileDto> for PosProfile {
         self.write_off_account_id = dto.write_off_account_id;
         self.tax_account_id = dto.tax_account_id;
         self.tax_rate = dto.tax_rate;
+        self.tax_template_ids = dto.tax_template_ids;
         self.warehouse_id = dto.warehouse_id;
         self.cogs_account_id = dto.cogs_account_id;
         self.inventory_account_id = dto.inventory_account_id;
         self.allow_discount = dto.allow_discount;
+        self.cash_rounding_strategy = dto.cash_rounding_strategy;
+        self.cash_rounding_unit = dto.cash_rounding_unit;
         self.status = dto.status;
         Ok(self)
     }

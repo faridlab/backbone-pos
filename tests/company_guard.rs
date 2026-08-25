@@ -8,6 +8,10 @@
 //! TG-2  token with no company_id claim    → 401
 //! TG-3  token for company B vs A's session → rejected (cross-tenant write closed)
 //! TG-4  token for company A vs A's session → 201 Created
+//! TG-5  the new route bases carry no pos- prefix (`/sales`, `/sales/sync`, `/sales/priced`)
+
+mod support;
+use support::{at, d, pool, StubBilling, StubPayment, TestTax};
 
 use axum::body::Body;
 use axum::http::{header, Request, StatusCode};
@@ -46,18 +50,9 @@ fn token(company_id: Option<Uuid>) -> String {
     encode(&Header::new(Algorithm::HS256), &claims, &EncodingKey::from_secret(SECRET)).unwrap()
 }
 
-async fn pool() -> PgPool {
-    let url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://postgres:postgres@localhost:5433/backbone_pos".to_string());
-    PgPool::connect(&url).await.expect("connect DB")
-}
-
-fn at() -> chrono::NaiveDateTime {
-    chrono::NaiveDate::from_ymd_opt(2026, 7, 14).unwrap().and_hms_opt(9, 0, 0).unwrap()
-}
-
 fn ring_body(opening_entry_id: Uuid, profile: Uuid) -> String {
-    // NOTE: no `companyId` field — it is derived from the token now.
+    // NOTE: no `companyId` field — it is derived from the token now. No total fields either: tax and
+    // rounding are server-derived (the body carries inputs only).
     json!({
         "posProfileId": profile,
         "openingEntryId": opening_entry_id,
@@ -76,10 +71,10 @@ fn post(uri: &str, body: String, bearer: Option<&str>) -> Request<Body> {
     b.body(Body::from(body)).unwrap()
 }
 
-/// Seed a non-PKP register (tax_rate 0) — ring_sale now loads the profile to compute server-side PPN.
-async fn seed_profile(pool: &sqlx::PgPool, id: Uuid, company: Uuid) {
-    sqlx::query("INSERT INTO pos.pos_profiles (id, company_id, name, currency, allow_discount, status) VALUES ($1,$2,'Register 1','IDR',true,'active')")
-        .bind(id).bind(company).execute(pool).await.unwrap();
+/// Seed a non-PKP register (one ZERO-RATE template — the non-PKP expression now that flat tax_rate is
+/// retired) and return the matching in-test tax port.
+async fn seed_profile(pool: &sqlx::PgPool, company: Uuid) -> (Uuid, TestTax) {
+    support::profile_at_rate(pool, company, "0").await
 }
 
 #[tokio::test]
@@ -87,8 +82,7 @@ async fn pos_write_surface_enforces_tenant_from_principal() {
     let pool = pool().await;
     let company_a = Uuid::new_v4();
     let company_b = Uuid::new_v4();
-    let profile = Uuid::new_v4();
-    seed_profile(&pool, profile, company_a).await;
+    let (profile, tax) = seed_profile(&pool, company_a).await;
 
     // Seed an OPEN session owned by company A (real write path, not raw SQL).
     let svc = PosWriteService::new(pool.clone());
@@ -105,16 +99,25 @@ async fn pos_write_surface_enforces_tenant_from_principal() {
         .expect("seed open session for company A");
 
     let module = PosModule::builder().with_database(pool.clone()).build().expect("build PosModule");
-    let app = create_guarded_pos_routes(&module, pool.clone(), CompanyVerifier::hs256(SECRET), Arc::new(LoggingSink));
+    let app = create_guarded_pos_routes(
+        &module,
+        pool.clone(),
+        CompanyVerifier::hs256(SECRET),
+        Arc::new(LoggingSink),
+        Arc::new(tax),
+        Arc::new(support::RecordingVariance::default()),
+        Arc::new(StubBilling::default()),
+        Arc::new(StubPayment),
+    );
 
     // TG-1: no token → 401.
-    let r = app.clone().oneshot(post("/pos-sales", ring_body(session_a, profile), None)).await.unwrap();
+    let r = app.clone().oneshot(post("/sales", ring_body(session_a, profile), None)).await.unwrap();
     assert_eq!(r.status(), StatusCode::UNAUTHORIZED, "TG-1: unauthenticated write must be 401");
 
     // TG-2: token without a company_id claim → 401.
     let r = app
         .clone()
-        .oneshot(post("/pos-sales", ring_body(session_a, profile), Some(&token(None))))
+        .oneshot(post("/sales", ring_body(session_a, profile), Some(&token(None))))
         .await
         .unwrap();
     assert_eq!(r.status(), StatusCode::UNAUTHORIZED, "TG-2: token lacking company_id must be 401");
@@ -124,7 +127,7 @@ async fn pos_write_surface_enforces_tenant_from_principal() {
     // by id alone. Now the session lookup is scoped by the token's company_id, so B cannot see A's.
     let r = app
         .clone()
-        .oneshot(post("/pos-sales", ring_body(session_a, profile), Some(&token(Some(company_b)))))
+        .oneshot(post("/sales", ring_body(session_a, profile), Some(&token(Some(company_b)))))
         .await
         .unwrap();
     assert_ne!(r.status(), StatusCode::CREATED, "TG-3: cross-tenant ring must NOT create an invoice");
@@ -133,10 +136,74 @@ async fn pos_write_surface_enforces_tenant_from_principal() {
     // TG-4: company A's own token against its session → 201 Created.
     let r = app
         .clone()
-        .oneshot(post("/pos-sales", ring_body(session_a, profile), Some(&token(Some(company_a)))))
+        .oneshot(post("/sales", ring_body(session_a, profile), Some(&token(Some(company_a)))))
         .await
         .unwrap();
     assert_eq!(r.status(), StatusCode::CREATED, "TG-4: authenticated same-tenant ring must succeed");
+}
+
+/// TG-5: the offline replay verb rides the same tenant fence on the new base (`/sales/sync`), and the
+/// unauthenticated call is 401 before the service is reached.
+#[tokio::test]
+async fn sync_route_is_tenant_fenced_and_unauthenticated_calls_fail() {
+    let pool = pool().await;
+    let company_a = Uuid::new_v4();
+    let (profile, tax) = seed_profile(&pool, company_a).await;
+    let svc = PosWriteService::new(pool.clone());
+    let session_a = svc
+        .open_session(NewSession {
+            company_id: company_a,
+            pos_profile_id: profile,
+            branch_id: None,
+            cashier_party_id: Uuid::new_v4(),
+            opened_at: at(),
+            opening_balances: vec![],
+        })
+        .await
+        .expect("seed open session");
+
+    let module = PosModule::builder().with_database(pool.clone()).build().expect("build PosModule");
+    let app = create_guarded_pos_routes(
+        &module,
+        pool.clone(),
+        CompanyVerifier::hs256(SECRET),
+        Arc::new(LoggingSink),
+        Arc::new(tax),
+        Arc::new(support::RecordingVariance::default()),
+        Arc::new(StubBilling::default()),
+        Arc::new(StubPayment),
+    );
+
+    let client_uuid = Uuid::new_v4();
+    let body = json!({
+        "clientUuid": client_uuid,
+        "posProfileId": profile,
+        "openingEntryId": session_a,
+        "postingAt": "2026-07-14T09:00:00",
+        "lines": [{ "clientUuid": Uuid::new_v4(), "itemId": Uuid::new_v4(), "quantity": "1", "unitPrice": "100000" }],
+        "tenders": [{ "clientUuid": Uuid::new_v4(), "method": "cash", "amount": "100000" }],
+    })
+    .to_string();
+
+    // No token → 401.
+    let r = app.clone().oneshot(post("/sales/sync", body.clone(), None)).await.unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED, "sync must require auth");
+
+    // Company B's token → the session is invisible to it (4xx, nothing created).
+    let r = app.clone().oneshot(post("/sales/sync", body.clone(), Some(&token(Some(Uuid::new_v4()))))).await.unwrap();
+    assert!(r.status().is_client_error(), "cross-tenant sync is a client error, got {}", r.status());
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pos.pos_invoices WHERE client_uuid=$1")
+        .bind(client_uuid).fetch_one(&pool).await.unwrap();
+    assert_eq!(n, 0, "no ticket may be created for a cross-tenant or unauthenticated sync");
+
+    // Company A's token → 200 with the created action + server-computed totals.
+    let r = app.oneshot(post("/sales/sync", body, Some(&token(Some(company_a))))).await.unwrap();
+    assert_eq!(r.status(), StatusCode::OK, "same-tenant sync must succeed");
+    let bytes = axum::body::to_bytes(r.into_body(), usize::MAX).await.unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["action"], "created");
+    let wire_total = rust_decimal::Decimal::from_str_exact(v["totals"]["grandTotal"].as_str().unwrap()).unwrap();
+    assert_eq!(wire_total, d("100000.00"), "totals are server-derived");
 }
 
 /// A stand-in pricer: 50% off every line. Proves the priced route rings from the PRICER's result, not
@@ -162,9 +229,7 @@ impl CartPricingPort for HalfOffPricer {
 async fn priced_route_rings_from_the_server_pricer_not_the_client_price() {
     let pool = pool().await;
     let company_a = Uuid::new_v4();
-    let profile = Uuid::new_v4();
-    seed_profile(&pool, profile, company_a).await;
-
+    let (profile, tax) = seed_profile(&pool, company_a).await;
     let svc = PosWriteService::new(pool.clone());
     let session_a = svc
         .open_session(NewSession {
@@ -178,7 +243,13 @@ async fn priced_route_rings_from_the_server_pricer_not_the_client_price() {
         .await
         .expect("seed open session");
 
-    let app = create_guarded_pos_priced_route(pool.clone(), CompanyVerifier::hs256(SECRET), Arc::new(HalfOffPricer), Arc::new(LoggingSink));
+    let app = create_guarded_pos_priced_route(
+        pool.clone(),
+        CompanyVerifier::hs256(SECRET),
+        Arc::new(HalfOffPricer),
+        Arc::new(LoggingSink),
+        Arc::new(tax),
+    );
     let receipt = format!("RP-{}", &Uuid::new_v4().simple().to_string()[..8]);
     let body = json!({
         "posProfileId": profile,
@@ -190,11 +261,11 @@ async fn priced_route_rings_from_the_server_pricer_not_the_client_price() {
     .to_string();
 
     // Unauthenticated → 401 (auth applies to the priced route too).
-    let r = app.clone().oneshot(post("/pos-sales/priced", body.clone(), None)).await.unwrap();
+    let r = app.clone().oneshot(post("/sales/priced", body.clone(), None)).await.unwrap();
     assert_eq!(r.status(), StatusCode::UNAUTHORIZED, "priced route must require auth");
 
     // Authenticated → 201, and the ticket nets 50,000 (pricer-resolved), NOT the 100,000 listPrice.
-    let r = app.oneshot(post("/pos-sales/priced", body, Some(&token(Some(company_a))))).await.unwrap();
+    let r = app.oneshot(post("/sales/priced", body, Some(&token(Some(company_a))))).await.unwrap();
     assert_eq!(r.status(), StatusCode::CREATED, "priced ring must succeed");
 
     let net: rust_decimal::Decimal =

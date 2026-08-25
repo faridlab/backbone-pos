@@ -61,7 +61,10 @@ models:
       tax_rate:
         type: decimal
         attributes: ["@default(0)", "@precision(6,4)", "@non_negative"]
-        description: "PPN rate applied server-side (e.g. 0.1100 for 11%); 0 = non-PKP, no tax"
+        description: "Retired flat PPN rate (kept for historical receipts only — new tickets compute tax document-grade through the register's tax_template_ids)"
+      tax_template_ids:
+        type: json?
+        description: "Tax templates applied to every sale line at this register — [template id, ...]; logical refs to tax.TaxTemplate.id. NULL or empty refuses ringing: a register must be tax-configured (a zero-rated template represents a non-PKP register)"
       warehouse_id:
         type: uuid?
         attributes: ["@exclude_from_foreign_key_check"]
@@ -78,6 +81,14 @@ models:
         type: bool
         attributes: ["@default(true)"]
         description: "Whether line discounts are permitted"
+      cash_rounding_strategy:
+        type: PosCashRoundingStrategy
+        attributes: ["@default(none)"]
+        description: "How the charged total is rounded to cash at this register"
+      cash_rounding_unit:
+        type: decimal
+        attributes: ["@default(0)", "@precision(18,2)", "@non_negative"]
+        description: "Cash rounding multiple (e.g. 100 = nearest hundred); 0 with strategy none = exact totals"
       # replaces is_active (boolean flipped to lifecycle enum)
       status:
         type: PosProfileStatus
@@ -136,8 +147,22 @@ models:
     indexes:
       - type: index
         fields: [company_id, pos_profile_id, status]
+      # One non-closed session per register: opening a second session on a
+      # register that still has an open one must be refused, not forked.
+      - type: unique
+        fields: [pos_profile_id]
+        where: "status = 'open' AND deleted_at IS NULL"
 
 enums:
+  - name: PosCashRoundingStrategy
+    description: "Cash rounding mode applied to a ticket's charged total"
+    variants:
+      - name: none
+        description: "No rounding; the charged total is exact"
+        default: true
+      - name: half_up
+        description: "Round HALF-UP to the nearest multiple of the profile's cash_rounding_unit (a difference of at most unit/2 is absorbed into rounding_adjustment)"
+
   - name: PosProfileStatus
     description: "Lifecycle of a POS register profile"
     variants:

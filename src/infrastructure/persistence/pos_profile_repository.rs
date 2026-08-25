@@ -9,7 +9,7 @@
 
 use anyhow::Result;
 use rust_decimal::Decimal;
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 use backbone_orm::company_scope;
@@ -39,28 +39,51 @@ impl PosProfileRepository {
     }
 }
 
+/// A register's pricing-side configuration: the document-grade tax templates + the cash rounding
+/// setup + the discount permission. Everything the ticket compute core and the order-discount gate
+/// need from the profile.
+pub struct TaxConfigRow {
+    /// The register's tax template refs (`[template id, ...]`, logical refs to tax.TaxTemplate).
+    pub tax_template_ids: Option<serde_json::Value>,
+    /// Rounding strategy code: `none` or `half_up`.
+    pub rounding_strategy: String,
+    /// The rounding step (e.g. 100 for IDR); 0 = no rounding.
+    pub rounding_unit: Decimal,
+    /// Whether this register permits discounts. Gates the ORDER-LEVEL discount lane (a register
+    /// configured discount-off refuses a ring that names a discount master row).
+    pub allow_discount: bool,
+}
+
 /// Hand-written register-configuration SQL. Lives here (not in the write service) per the module's
 /// 4-layer rule: services orchestrate and own the unit of work, repositories hold the SQL.
 impl PosProfileRepository {
-    /// Read a register's configured PPN rate. `Ok(None)` = no such register in this tenant.
+    /// Read a register's pricing-side configuration (tax templates + cash rounding).
+    /// `Ok(None)` = no such register in this tenant.
     ///
-    /// PPN is server-owned: this rate — not any client-supplied total — is what the ticket is taxed at.
-    /// The explicit `company_id = $2` filter is defense-in-depth ON TOP of the RLS fence; the caller
-    /// wraps this in `with_company_scope(Some(company))`.
-    pub async fn fetch_tax_rate(
+    /// Tax is server-owned: these templates — not any client-supplied total — are what the ticket is
+    /// taxed through (`PosTaxComputePort`). The explicit `company_id = $2` filter is defense-in-depth
+    /// ON TOP of the RLS fence; the caller wraps this in `with_company_scope(Some(company))`.
+    pub async fn fetch_tax_config(
         &self,
         pool: &PgPool,
         pos_profile_id: Uuid,
         company_id: Uuid,
-    ) -> Result<Option<Decimal>, sqlx::Error> {
-        company_scope::fetch_optional_scalar_scoped(
+    ) -> Result<Option<TaxConfigRow>, sqlx::Error> {
+        let row = company_scope::fetch_optional_row_scoped(
             pool,
-            sqlx::query_scalar(
-                "SELECT tax_rate FROM pos.pos_profiles WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL",
+            sqlx::query(
+                r#"SELECT tax_template_ids, cash_rounding_strategy::text AS strategy, cash_rounding_unit, allow_discount
+                   FROM pos.pos_profiles WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL"#,
             )
             .bind(pos_profile_id).bind(company_id),
         )
-        .await
+        .await?;
+        Ok(row.map(|r| TaxConfigRow {
+            tax_template_ids: r.get("tax_template_ids"),
+            rounding_strategy: r.get("strategy"),
+            rounding_unit: r.get("cash_rounding_unit"),
+            allow_discount: r.get("allow_discount"),
+        }))
     }
 }
 

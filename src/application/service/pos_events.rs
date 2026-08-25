@@ -59,6 +59,21 @@ pub struct PosTenderCompleted {
     pub company_id: Uuid,
 }
 
+/// An open cashier session crossed the stale threshold (open past the configured age, 7 days by
+/// default). Emitted by the old-session alert scheduler — a LOGICAL LINK to the mail-activity
+/// choreography, with NO Cargo edge to the mail module: the host subscribes and schedules the
+/// "Session open too long" activity on the cashier (party ref). Once-only per session: the claim
+/// stamps a marker before this fires, so a scheduler rerun does not re-alert.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PosStaleSessionAlerted {
+    pub opening_entry_id: Uuid,
+    pub pos_profile_id: Uuid,
+    pub company_id: Uuid,
+    /// The cashier the alert is for — a party.Party logical ref the host resolves to its activity owner.
+    pub cashier_party_id: Uuid,
+    pub opened_at: chrono::NaiveDateTime,
+}
+
 /// The POS domain-event union.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
@@ -68,6 +83,7 @@ pub enum PosEvent {
     PosInvoicePaid(PosInvoicePaid),
     PosSessionClosed(PosSessionClosed),
     PosInvoiceReturned(PosInvoiceReturned),
+    PosStaleSessionAlerted(PosStaleSessionAlerted),
 }
 
 /// Sink for POS domain events. Fire-and-forget; a real adapter wires a bus, tests record.

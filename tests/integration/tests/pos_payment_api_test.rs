@@ -29,6 +29,7 @@ impl TestDataGenerator for PosPaymentTestData {
             "payment_method": "cash",
             "amount": 0,
             "reference_no": null,
+            "client_uuid": null,
             "payment_entry_id": null,
             "metadata": json!({}),
         })
@@ -43,6 +44,7 @@ impl TestDataGenerator for PosPaymentTestData {
             "payment_method": "cash",
             "amount": 0,
             "reference_no": null,
+            "client_uuid": null,
             "payment_entry_id": null,
             "metadata": json!({}),
         })

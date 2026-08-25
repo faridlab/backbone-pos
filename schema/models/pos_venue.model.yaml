@@ -1,0 +1,105 @@
+# =============================================================================
+# Domain: POS
+# Entities: PosFloorPlan + PosTable (restaurant venue layout)
+# Description: A PosFloorPlan groups a restaurant's dining tables; a PosTable
+# is one dining table. Geometry (position/shape) is UI-affordance data the
+# server stores verbatim — what the SERVER enforces is table identity: a
+# draft ticket names its table (PosInvoice.pos_table_id) and at most ONE
+# draft ticket may sit open on a table at a time (partial unique on
+# pos_invoices). Floor plans belong to a branch so an outlet manages only
+# its own rooms.
+#
+# FILE NAMING: this file is deliberately named `pos_venue` (sorting after
+# `pos_till_cash_movement`) so it lands after every existing model file —
+# the same append-only ordering convention `pos_till_cash_movement`'s header
+# documents. New table migrations must never take a position before the
+# shipped ones.
+# =============================================================================
+
+models:
+  - name: PosFloorPlan
+    collection: pos_floor_plans
+    description: "A restaurant floor plan (one room/level of dining tables)"
+
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique floor plan id"
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Books owner # logical FK to organization.Company.id"
+      branch_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "Outlet this floor belongs to # logical FK to organization.Branch.id (company-wide rooms when NULL)"
+      name:
+        type: string
+        attributes: ["@required", "@max(140)"]
+        description: "Floor plan name (e.g. 'Terrace')"
+      position:
+        type: int?
+        description: "Display order among the outlet's floor plans (UI affordance)"
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+
+    relations:
+      tables:
+        type: PosTable[]
+        attributes: ["@one_to_many"]
+        description: "The tables on this floor"
+        inverse: floor_plan
+
+    indexes:
+      - type: index
+        fields: [company_id, branch_id]
+
+  - name: PosTable
+    collection: pos_tables
+    description: "A dining table — server-side identity for one-draft-per-table exclusivity; geometry is UI affordance"
+
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique table id"
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Books owner # logical FK to organization.Company.id"
+      pos_floor_plan_id:
+        type: uuid
+        attributes: ["@required", "@foreign_key(PosFloorPlan.id)"]
+        description: "The floor plan this table sits on"
+      name:
+        type: string?
+        attributes: ["@max(140)"]
+        description: "Table label (e.g. 'T12'; UI affordance)"
+      seats:
+        type: int?
+        description: "Seat capacity (UI affordance)"
+      shape:
+        type: string?
+        attributes: ["@max(30)"]
+        description: "Table shape for the floor editor (square/round/...; UI affordance)"
+      position:
+        type: json?
+        description: "Floor-editor placement ({x, y, w, h}; UI affordance, stored verbatim)"
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+
+    relations:
+      floor_plan:
+        type: PosFloorPlan
+        attributes: ["@one", "@foreign_key(pos_floor_plan_id)"]
+        description: "The floor plan this table sits on"
+        inverse: tables
+
+    indexes:
+      - type: index
+        fields: [pos_floor_plan_id]

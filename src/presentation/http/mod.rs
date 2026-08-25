@@ -12,6 +12,10 @@ pub mod pos_payment_handler;
 pub mod pos_profile_handler;
 pub mod pos_opening_entry_handler;
 pub mod pos_cash_movement_handler;
+pub mod pos_discount_handler;
+pub mod pos_manager_pin_handler;
+pub mod pos_floor_plan_handler;
+pub mod pos_table_handler;
 
 // <<< CUSTOM
 pub mod guarded_routes;
@@ -24,6 +28,11 @@ pub use pos_invoice_item_handler::{create_pos_invoice_item_routes, create_pos_in
 pub use pos_payment_handler::{create_pos_payment_routes, create_pos_payment_read_routes, create_pos_payment_write_routes};
 pub use pos_profile_handler::{create_pos_profile_routes, create_pos_profile_read_routes, create_pos_profile_write_routes};
 pub use pos_opening_entry_handler::{create_pos_opening_entry_routes, create_pos_opening_entry_read_routes, create_pos_opening_entry_write_routes};
+pub use pos_cash_movement_handler::{create_pos_cash_movement_routes, create_pos_cash_movement_read_routes, create_pos_cash_movement_write_routes};
+pub use pos_discount_handler::{create_pos_discount_routes, create_pos_discount_read_routes, create_pos_discount_write_routes};
+pub use pos_manager_pin_handler::{create_pos_manager_pin_routes, create_pos_manager_pin_read_routes, create_pos_manager_pin_write_routes};
+pub use pos_floor_plan_handler::{create_pos_floor_plan_routes, create_pos_floor_plan_read_routes, create_pos_floor_plan_write_routes};
+pub use pos_table_handler::{create_pos_table_routes, create_pos_table_read_routes, create_pos_table_write_routes};
 // <<< CUSTOM
 pub use guarded_routes::{create_guarded_pos_priced_route, create_guarded_pos_priced_route_with_outbox, create_guarded_pos_routes, create_guarded_pos_routes_with_outbox};
 // The company guard now lives in the framework (`backbone_auth::company`, feature `axum`) — POS proved
@@ -35,7 +44,4 @@ pub use backbone_auth::company::{company_auth, CompanyClaims, CompanyContext, Co
 // Company* names (ADR-0005) and then drop these.
 #[allow(deprecated)]
 pub use backbone_auth::{TenantClaims, TenantContext, TenantVerifier, tenant_auth};
-// END CUSTOM
-pub use pos_cash_movement_handler::{create_pos_cash_movement_routes, create_pos_cash_movement_read_routes, create_pos_cash_movement_write_routes};
-// <<< CUSTOM
 // END CUSTOM

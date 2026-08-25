@@ -16,6 +16,10 @@ use super::{
     pos_profile_handler::create_pos_profile_routes,
     pos_opening_entry_handler::create_pos_opening_entry_routes,
     pos_cash_movement_handler::create_pos_cash_movement_routes,
+    pos_discount_handler::create_pos_discount_routes,
+    pos_manager_pin_handler::create_pos_manager_pin_routes,
+    pos_floor_plan_handler::create_pos_floor_plan_routes,
+    pos_table_handler::create_pos_table_routes,
 };
 
 use crate::application::service::{
@@ -26,6 +30,10 @@ use crate::application::service::{
     PosProfileService,
     PosOpeningEntryService,
     PosCashMovementService,
+    PosDiscountService,
+    PosManagerPinService,
+    PosFloorPlanService,
+    PosTableService,
 };
 
 /// Services collection for all CRUD endpoints
@@ -37,6 +45,10 @@ pub struct HttpServices {
     pub pos_profile: Arc<PosProfileService>,
     pub pos_opening_entry: Arc<PosOpeningEntryService>,
     pub pos_cash_movement: Arc<PosCashMovementService>,
+    pub pos_discount: Arc<PosDiscountService>,
+    pub pos_manager_pin: Arc<PosManagerPinService>,
+    pub pos_floor_plan: Arc<PosFloorPlanService>,
+    pub pos_table: Arc<PosTableService>,
 }
 
 /// Configure all HTTP routes for this module using Axum and BackboneCrudHandler.
@@ -70,6 +82,14 @@ pub fn configure_routes(services: HttpServices) -> Router {
         .merge(create_pos_opening_entry_routes(services.pos_opening_entry))
         // PosCashMovement routes (12 Backbone endpoints)
         .merge(create_pos_cash_movement_routes(services.pos_cash_movement))
+        // PosDiscount routes (12 Backbone endpoints)
+        .merge(create_pos_discount_routes(services.pos_discount))
+        // PosManagerPin routes (12 Backbone endpoints)
+        .merge(create_pos_manager_pin_routes(services.pos_manager_pin))
+        // PosFloorPlan routes (12 Backbone endpoints)
+        .merge(create_pos_floor_plan_routes(services.pos_floor_plan))
+        // PosTable routes (12 Backbone endpoints)
+        .merge(create_pos_table_routes(services.pos_table))
 }
 
 /// Create an individual entity's routes (for modular configuration)
@@ -102,6 +122,22 @@ pub mod individual {
 
     pub fn pos_cash_movement_routes(service: Arc<PosCashMovementService>) -> Router {
         create_pos_cash_movement_routes(service)
+    }
+
+    pub fn pos_discount_routes(service: Arc<PosDiscountService>) -> Router {
+        create_pos_discount_routes(service)
+    }
+
+    pub fn pos_manager_pin_routes(service: Arc<PosManagerPinService>) -> Router {
+        create_pos_manager_pin_routes(service)
+    }
+
+    pub fn pos_floor_plan_routes(service: Arc<PosFloorPlanService>) -> Router {
+        create_pos_floor_plan_routes(service)
+    }
+
+    pub fn pos_table_routes(service: Arc<PosTableService>) -> Router {
+        create_pos_table_routes(service)
     }
 
 }

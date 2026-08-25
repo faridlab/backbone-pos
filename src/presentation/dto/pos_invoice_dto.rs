@@ -47,10 +47,14 @@ pub struct CreatePosInvoiceDto {
     pub branch_id: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "customer_id")]
     pub customer_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "pos_table_id")]
+    pub pos_table_id: Option<Uuid>,
     #[cfg_attr(feature = "validation", validate(length(max = 40)))]
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(alias = "receipt_number")]
     pub receipt_number: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "client_uuid")]
+    pub client_uuid: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = "2024-01-01T00:00:00Z"))]
     #[serde(alias = "posting_at")]
     pub posting_at: DateTime<Utc>,
@@ -106,6 +110,8 @@ pub struct UpdatePosInvoiceDto {
     pub branch_id: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "customer_id")]
     pub customer_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "pos_table_id")]
+    pub pos_table_id: Option<Uuid>,
     #[cfg_attr(feature = "validation", validate(length(max = 40)))]
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(alias = "receipt_number")]
@@ -141,6 +147,8 @@ pub struct PatchPosInvoiceDto {
     pub branch_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "customer_id")]
     pub customer_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "pos_table_id")]
+    pub pos_table_id: Option<Uuid>,
     #[cfg_attr(feature = "validation", validate(length(max = 40)))]
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "receipt_number")]
@@ -153,7 +161,7 @@ pub struct PatchPosInvoiceDto {
 impl PatchPosInvoiceDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.pos_profile_id.is_some() || self.opening_entry_id.is_some() || self.branch_id.is_some() || self.customer_id.is_some() || self.receipt_number.is_some() || self.posting_at.is_some()
+        self.company_id.is_some() || self.pos_profile_id.is_some() || self.opening_entry_id.is_some() || self.branch_id.is_some() || self.customer_id.is_some() || self.pos_table_id.is_some() || self.receipt_number.is_some() || self.posting_at.is_some()
     }
 }
 
@@ -179,8 +187,10 @@ pub struct PosInvoiceResponseDto {
     pub opening_entry_id: Uuid,
     pub branch_id: Option<Uuid>,
     pub customer_id: Option<Uuid>,
+    pub pos_table_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     pub receipt_number: String,
+    pub client_uuid: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = "2024-01-01T00:00:00Z"))]
     pub posting_at: DateTime<Utc>,
     pub net_total: Decimal,
@@ -272,7 +282,9 @@ impl From<PosInvoice> for PosInvoiceResponseDto {
             opening_entry_id: entity.opening_entry_id,
             branch_id: entity.branch_id,
             customer_id: entity.customer_id,
+            pos_table_id: entity.pos_table_id,
             receipt_number: entity.receipt_number,
+            client_uuid: entity.client_uuid,
             posting_at: entity.posting_at,
             net_total: entity.net_total,
             tax_total: entity.tax_total,
@@ -313,7 +325,9 @@ impl From<CreatePosInvoiceDto> for PosInvoice {
             opening_entry_id: dto.opening_entry_id,
             branch_id: dto.branch_id,
             customer_id: dto.customer_id,
+            pos_table_id: dto.pos_table_id,
             receipt_number: dto.receipt_number,
+            client_uuid: dto.client_uuid,
             posting_at: dto.posting_at,
             net_total: dto.net_total,
             tax_total: dto.tax_total,
@@ -341,7 +355,9 @@ impl From<&PosInvoice> for PosInvoiceResponseDto {
             opening_entry_id: entity.opening_entry_id.clone(),
             branch_id: entity.branch_id.clone(),
             customer_id: entity.customer_id.clone(),
+            pos_table_id: entity.pos_table_id.clone(),
             receipt_number: entity.receipt_number.clone(),
+            client_uuid: entity.client_uuid.clone(),
             posting_at: entity.posting_at.clone(),
             net_total: entity.net_total.clone(),
             tax_total: entity.tax_total.clone(),
@@ -373,6 +389,7 @@ impl backbone_core::ApplyUpdateDto<UpdatePosInvoiceDto> for PosInvoice {
         self.opening_entry_id = dto.opening_entry_id;
         self.branch_id = dto.branch_id;
         self.customer_id = dto.customer_id;
+        self.pos_table_id = dto.pos_table_id;
         self.receipt_number = dto.receipt_number;
         self.posting_at = dto.posting_at;
         Ok(self)

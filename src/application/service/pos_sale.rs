@@ -1,7 +1,8 @@
 //! Ringing a counter ticket (hand-authored, user-owned).
 //!
 //! An `impl PosWriteService` chunk over the vocabulary in [`super::pos_write_service`]: validate the
-//! basket, compute the money (server-owned PPN + IDR receipt rounding), and write the ticket header +
+//! basket, derive the money through the shared compute core ([`super::pos_compute`] — document-grade
+//! tax via the register's templates + register-config cash rounding), and write the ticket header +
 //! its lines as ONE unit of work. `ring_sale_priced` is the promo cart seam (ADR-002) layered on top.
 //!
 //! Per the module's 4-layer rule this file holds no SQL — the statements live on
@@ -13,14 +14,18 @@ use backbone_orm::company_scope;
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
-use crate::infrastructure::persistence::{NewDraftInvoiceRow, NewInvoiceItemRow};
+use crate::infrastructure::persistence::NewDraftInvoiceRow;
 
-use super::pos_write_service::{
-    is_dup, money, round_to, NewCartSale, NewSale, NewSaleLine, PosError, PosWriteService,
-};
+use super::pos_compute::ComputeLineIn;
+use super::pos_ports::PosTaxComputePort;
+use super::pos_write_service::{map_invoice_dup, PosError, PosWriteService, NewCartSale, NewSale, NewSaleLine};
 
 impl PosWriteService {
-    pub async fn ring_sale(&self, sale: NewSale) -> Result<Uuid, PosError> {
+    /// Ring a ticket. The money is SERVER-DERIVED end to end: the caller supplies the basket
+    /// (items/qty/unit price/discount) and the register; the compute core resolves tax through the
+    /// register's configured templates (`tax: &dyn PosTaxComputePort`) and rounds per the register's
+    /// cash-rounding config. Nothing the caller might claim about totals is read.
+    pub async fn ring_sale(&self, sale: NewSale, tax: &dyn PosTaxComputePort) -> Result<Uuid, PosError> {
         // RLS scope (ADR-0008): the standalone lookups run through the scoped helpers (request
         // connection under HTTP), and the multi-row write runs in a transaction whose connection is
         // bound to this company via `bind_current_company` — so both the reads and the invoice/items
@@ -31,60 +36,104 @@ impl PosWriteService {
             // Session must be open AND belong to the caller's tenant.
             let st = self.openings.fetch_status(&self.db_pool, sale.opening_entry_id, sale.company_id).await?;
             if st.as_deref() != Some("open") { return Err(PosError::SessionNotOpen); }
+            // ...and the drawer must be this ticket's register's: pairing register A's config with
+            // register B's session would misattribute cash between tills.
+            let session_profile = self.openings
+                .fetch_profile_id(&self.db_pool, sale.opening_entry_id, sale.company_id).await?
+                .ok_or(PosError::SessionNotFound(sale.opening_entry_id))?;
+            if session_profile != sale.pos_profile_id { return Err(PosError::SessionRegisterMismatch); }
 
-            let mut net_total = Decimal::ZERO;
-            let mut priced: Vec<(NewSaleLine, Decimal)> = Vec::with_capacity(sale.lines.len());
-            for l in sale.lines {
-                if l.quantity < Decimal::ZERO || l.unit_price < Decimal::ZERO || l.discount_amount < Decimal::ZERO {
-                    return Err(PosError::NegativeAmount);
+            // Restaurant lane — seating. A named table must exist in this tenant, and (the one
+            // draft per table rule) no OTHER draft may already sit there: the pre-check gives the
+            // caller the occupying ticket's id in the 409 body; the DB partial unique on
+            // (pos_table_id) WHERE status='draft' is the race backstop (mapped below).
+            if let Some(table) = sale.pos_table_id {
+                if self.tables.fetch_table(&self.db_pool, table, sale.company_id).await?.is_none() {
+                    return Err(PosError::TableNotFound(table));
                 }
-                let net = money(l.quantity * l.unit_price) - money(l.discount_amount);
-                if net < Decimal::ZERO { return Err(PosError::NegativeAmount); }
-                net_total += net;
-                priced.push((l, net));
+                if let Some(occupant) = self
+                    .invoices
+                    .find_draft_on_table(&self.db_pool, table, sale.company_id, None)
+                    .await?
+                {
+                    return Err(PosError::TableOccupied { pos_table_id: table, draft_invoice_id: occupant });
+                }
             }
-            let net_total = money(net_total);
-            // PPN is server-owned: compute it from the register's configured rate (0 for a non-PKP till).
-            // The `sale.tax_total` input is ignored — a merchant can neither omit nor overstate the VAT.
-            let tax_rate: Decimal = self.profiles
-                .fetch_tax_rate(&self.db_pool, sale.pos_profile_id, sale.company_id).await?
-                .ok_or(PosError::ProfileNotFound(sale.pos_profile_id))?;
-            let tax_total = money(net_total * tax_rate);
-            let grand = net_total + tax_total;
-            let rounded = round_to(grand, sale.round_to.unwrap_or(Decimal::ZERO));
-            let rounding_adjustment = rounded - grand;
+
+            // Restaurant lane — order-level discount. Resolve the RATE from the tenant's master
+            // (never the client), then fold it pro-rata into the line discounts BEFORE the compute,
+            // so tax sees post-discount nets.
+            let order_discount = self
+                .resolve_order_discount(sale.company_id, sale.pos_profile_id, sale.discount_id)
+                .await?;
+
+            // The one place a ticket's money is derived: templates -> document-grade tax -> register
+            // cash rounding. A register with no configured templates refuses here (fail-closed).
+            let mut compute_lines: Vec<ComputeLineIn> = sale
+                .lines
+                .iter()
+                .map(|l| ComputeLineIn {
+                    item_id: l.item_id,
+                    revenue_account_id: l.revenue_account_id,
+                    description: l.description.clone(),
+                    course: l.course,
+                    quantity: l.quantity,
+                    unit_price: l.unit_price,
+                    discount_amount: l.discount_amount,
+                })
+                .collect();
+            if let Some(d) = &order_discount {
+                Self::fold_order_discount(&mut compute_lines, d.percentage)?;
+            }
+            let computed = self
+                .compute_ticket(
+                    sale.company_id,
+                    sale.pos_profile_id,
+                    sale.posting_at.date(),
+                    super::pos_ports::PosTaxDocumentType::Invoice,
+                    compute_lines,
+                    tax,
+                )
+                .await?;
             let id = Uuid::new_v4();
             let mut tx = self.db_pool.begin().await?;
             company_scope::bind_current_company(&mut tx).await?;
             let r = self.invoices.insert_draft(&mut tx, &NewDraftInvoiceRow {
                 id,
                 company_id: sale.company_id,
+                client_uuid: None,
                 pos_profile_id: sale.pos_profile_id,
                 opening_entry_id: sale.opening_entry_id,
                 branch_id: sale.branch_id,
                 customer_id: sale.customer_id,
+                pos_table_id: sale.pos_table_id,
                 receipt_number: &sale.receipt_number,
                 posting_at: sale.posting_at,
-                net_total,
-                tax_total,
-                grand_total: grand,
-                rounding_adjustment,
-                rounded_total: rounded,
+                net_total: computed.net_total,
+                tax_total: computed.tax_total,
+                grand_total: computed.grand_total,
+                rounding_adjustment: computed.rounding_adjustment,
+                rounded_total: computed.rounded_total,
             }).await;
             if let Err(e) = r {
-                return Err(if is_dup(&e) { PosError::DuplicateNumber(sale.receipt_number) } else { e.into() });
+                return Err(map_invoice_dup(
+                    e, &sale.receipt_number, None, sale.pos_table_id, sale.company_id,
+                    &self.invoices, &self.db_pool, None,
+                ).await);
             }
-            for (l, net) in &priced {
-                self.items.insert_line(&mut tx, &NewInvoiceItemRow {
+            for l in &computed.lines {
+                self.items.insert_line(&mut tx, &crate::infrastructure::persistence::NewInvoiceItemRow {
                     id: Uuid::new_v4(),
                     company_id: sale.company_id,
                     pos_invoice_id: id,
+                    client_uuid: None,
                     item_id: l.item_id,
                     description: l.description.as_deref(),
+                    course: l.course,
                     quantity: l.quantity,
                     unit_price: l.unit_price,
-                    discount_amount: money(l.discount_amount),
-                    net_amount: *net,
+                    discount_amount: l.discount_amount,
+                    net_amount: l.net_amount,
                     revenue_account_id: l.revenue_account_id,
                 }).await?;
             }
@@ -96,12 +145,13 @@ impl PosWriteService {
     /// Ring a ticket whose prices are resolved by promo's CART pricer (the cart seam, ADR-002). POS
     /// hands the whole basket (list prices + item dimensions + optional coupon) to the `CartPricingPort`;
     /// promo returns per-line nets folding in line rules, order-total discounts, and bundles. POS maps
-    /// each net back to a `unit_price`/`discount_amount` pair so `ring_sale`'s own math reproduces the
+    /// each net back to a `unit_price`/`discount_amount` pair so the compute core reproduces the
     /// conserved cart total. Zero normal Cargo edge to promo.
     pub async fn ring_sale_priced(
         &self,
         o: NewCartSale,
         pricing: &dyn crate::application::service::pos_cart_pricing::CartPricingPort,
+        tax: &dyn PosTaxComputePort,
     ) -> Result<Uuid, PosError> {
         use crate::application::service::pos_cart_pricing::{CartPriceLine, CartPriceRequest};
         if o.lines.is_empty() {
@@ -142,12 +192,13 @@ impl PosWriteService {
                     code: "pricing_line_missing".into(),
                     message: "pricer omitted a line".into(),
                 })?;
-            let gross = money(pl.unit_price * l.quantity);
+            let gross = super::pos_write_service::money(pl.unit_price * l.quantity);
             let discount_amount = (gross - pl.net_line_total).max(Decimal::ZERO);
             lines.push(NewSaleLine {
                 item_id: l.item_id,
                 revenue_account_id: l.revenue_account_id,
                 description: l.description.clone(),
+                course: l.course,
                 quantity: l.quantity,
                 unit_price: pl.unit_price,
                 discount_amount,
@@ -159,6 +210,7 @@ impl PosWriteService {
                 item_id: rl.item_id,
                 revenue_account_id: None,
                 description: Some("promo reward (free)".into()),
+                course: None,
                 quantity: rl.quantity,
                 unit_price: Decimal::ZERO,
                 discount_amount: Decimal::ZERO,
@@ -171,12 +223,12 @@ impl PosWriteService {
             opening_entry_id: o.opening_entry_id,
             branch_id: o.branch_id,
             customer_id: o.customer_id,
+            pos_table_id: o.pos_table_id,
+            discount_id: o.discount_id,
             receipt_number: o.receipt_number,
             posting_at: o.posting_at,
             lines,
-            tax_total: o.tax_total,
-            round_to: o.round_to,
-        })
+        }, tax)
         .await
     }
 }

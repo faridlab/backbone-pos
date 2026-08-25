@@ -19,6 +19,10 @@ use backbone_pos::seeders::SeedPosPaymentSeeder;
 use backbone_pos::seeders::SeedPosProfileSeeder;
 use backbone_pos::seeders::SeedPosOpeningEntrySeeder;
 use backbone_pos::seeders::SeedPosCashMovementSeeder;
+use backbone_pos::seeders::SeedPosDiscountSeeder;
+use backbone_pos::seeders::SeedPosManagerPinSeeder;
+use backbone_pos::seeders::SeedPosFloorPlanSeeder;
+use backbone_pos::seeders::SeedPosTableSeeder;
 use backbone_pos::seeders::Seeder;
 
 #[tokio::main]
@@ -54,6 +58,10 @@ async fn main() -> Result<()> {
     seeders.push(Box::new(SeedPosProfileSeeder::new()));
     seeders.push(Box::new(SeedPosOpeningEntrySeeder::new()));
     seeders.push(Box::new(SeedPosCashMovementSeeder::new()));
+    seeders.push(Box::new(SeedPosDiscountSeeder::new()));
+    seeders.push(Box::new(SeedPosManagerPinSeeder::new()));
+    seeders.push(Box::new(SeedPosFloorPlanSeeder::new()));
+    seeders.push(Box::new(SeedPosTableSeeder::new()));
 
     // Sort by order
     seeders.sort_by_key(|s| s.order());

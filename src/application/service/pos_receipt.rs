@@ -25,7 +25,7 @@ impl PosWriteService {
         let lines = line_rows.into_iter().map(|r| {
             let desc = r.description.unwrap_or_else(|| r.item_id.to_string());
             ReceiptLine {
-                description: desc, quantity: r.quantity, unit_price: r.unit_price,
+                description: desc, course: r.course, quantity: r.quantity, unit_price: r.unit_price,
                 discount_amount: r.discount_amount, net_amount: r.net_amount,
             }
         }).collect();
@@ -40,6 +40,7 @@ impl PosWriteService {
             posting_at: hdr.posting_at,
             currency: hdr.currency,
             status: hdr.status,
+            is_invoiced: hdr.is_invoiced,
             lines,
             net_total: hdr.net_total,
             tax_rate: hdr.tax_rate,

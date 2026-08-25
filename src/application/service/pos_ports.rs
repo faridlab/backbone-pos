@@ -1,11 +1,14 @@
-//! Outbound orchestration ports (hand-authored, user-owned) — how POS drives billing + payment.
+//! Outbound orchestration ports (hand-authored, user-owned) — how POS drives billing + payment +
+//! inventory, resolves document-grade tax, and books the session-close variance.
 //!
-//! POS owns NO GL path and does NOT import billing/payment. On `recognize_sale` it hands a serialized
-//! request to a `BillingPort` (raise + post the real Sales Invoice — revenue) and a `PaymentPort`
-//! (settle the tender). A composition layer implements both over the real `backbone-billing` /
-//! `backbone-payment` services; the shipped POS library has ZERO normal Cargo edge to either. The
-//! ports are the wire contract — the same envelope+ACL discipline every seam uses, here for two
-//! downstream emitters instead of one.
+//! POS owns NO GL path and does NOT import billing/payment/tax. On `recognize_sale` it hands a
+//! serialized request to a `BillingPort` (raise + post the real Sales Invoice — revenue) and a
+//! `PaymentPort` (settle the tender). A composition layer implements both over the real
+//! `backbone-billing` / `backbone-payment` services; the shipped POS library has ZERO normal Cargo
+//! edge to either. The ports are the wire contract — the same envelope+ACL discipline every seam
+//! uses, here for the downstream emitters instead of one. The same posture carries the newer seams:
+//! `PosTaxComputePort` (the register's templates resolved document-grade) and `PosCashVariancePort`
+//! (the one new GL surface a session close produces).
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -186,4 +189,124 @@ pub struct StockIssueAck {
 #[async_trait::async_trait]
 pub trait InventoryPort: Send + Sync {
     async fn issue(&self, req: &StockIssueRequest) -> Result<StockIssueAck, PosRejected>;
+}
+
+// ---------------------------------------------------------------------------
+// Document-grade tax compute
+// ---------------------------------------------------------------------------
+
+/// One taxed line handed to the tax compute: `line_ref` identifies the TICKET line (a POS-side
+/// correlation id, not a persisted id), `template_id` is the register-configured template applying to
+/// it, and `net_amount` is the line's tax-excluded net (quantity × unit_price − discount) in the
+/// currency's smallest accounted unit. When a register carries several templates, POS emits one
+/// `PosTaxLineIn` per (line, template) pair — the implementer expands them the same way the tax
+/// engine expands its own input lines.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PosTaxLineIn {
+    pub line_ref: Uuid,
+    pub template_id: Uuid,
+    pub net_amount: Decimal,
+}
+
+/// Whether the document being taxed is a sale or a refund of one — the repartition family (and the
+/// sign of withholding components) differs between them.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum PosTaxDocumentType {
+    Invoice,
+    Refund,
+}
+
+/// The request POS hands the document-grade tax compute: the register's templates applied to the
+/// ticket's line nets, on the ticket's date, for this company.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PosTaxComputeRequest {
+    pub company_id: Uuid,
+    pub document_type: PosTaxDocumentType,
+    pub on_date: chrono::NaiveDate,
+    pub lines: Vec<PosTaxLineIn>,
+}
+
+/// One routed tax split of one ticket line. `account_id` is the posting account (the cash-basis
+/// transition account when the template defers — `real_account_id` then carries the account the
+/// amount flips to as payments reconcile).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PosTaxComponent {
+    pub line_ref: Uuid,
+    pub template_id: Uuid,
+    pub account_id: Option<Uuid>,
+    pub real_account_id: Option<Uuid>,
+    pub rate: Decimal,
+    pub tax_amount: Decimal,
+    pub description: Option<String>,
+}
+
+/// The document-grade result. `net_amounts` is keyed per ticket line (`line_ref`) and OVERWRITES
+/// POS's own per-line rounding — a globally-rounding tax policy redistributes per-line cents so the
+/// journal balances, and callers MUST adopt these nets as the line nets. `excluded_total` is the
+/// Σ of those nets, `tax_total` the Σ of the signed components, `included_total` their sum.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PosTaxComputeResult {
+    pub net_amounts: Vec<(Uuid, Decimal)>,
+    pub components: Vec<PosTaxComponent>,
+    pub excluded_total: Decimal,
+    pub tax_total: Decimal,
+    pub included_total: Decimal,
+}
+
+/// Tax seam: a composing service implements this over the tax module's document engine
+/// (`calculate_document`). POS holds ZERO normal Cargo edge to the tax module — the template refs
+/// live on the register profile, and this port is the only thing that resolves them. A register with
+/// no configured templates never reaches this port: the ring path refuses first (fail-closed).
+#[async_trait::async_trait]
+pub trait PosTaxComputePort: Send + Sync {
+    async fn compute_document(&self, req: &PosTaxComputeRequest) -> Result<PosTaxComputeResult, PosRejected>;
+}
+
+// ---------------------------------------------------------------------------
+// Session-close cash variance
+// ---------------------------------------------------------------------------
+
+/// The direction of a booked drawer variance at session close.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CashVarianceDirection {
+    /// The drawer holds MORE than the journals say (`Dr Cash · Cr difference account`).
+    Over,
+    /// The drawer holds LESS than the journals say (`Dr difference account · Cr Cash`).
+    Short,
+}
+
+/// The request POS hands the variance seam when a session close counts a non-zero drawer
+/// difference: book it against the register's cash account and its difference/write-off account.
+/// POS posts no GL itself — this is the ONE new GL surface a close produces (per-ticket posting
+/// stays the posting path).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CashVarianceRequest {
+    pub company_id: Uuid,
+    /// The session being closed and its closing entry (source references for the journal).
+    pub opening_entry_id: Uuid,
+    pub closing_entry_id: Uuid,
+    pub posting_date: chrono::NaiveDate,
+    pub currency: String,
+    /// The register's cash account (the drawer side of the correction).
+    pub cash_account_id: Uuid,
+    /// The register's difference / write-off account (the absorption side).
+    pub difference_account_id: Uuid,
+    /// Absolute variance magnitude; `direction` carries the sign.
+    pub amount: Decimal,
+    pub direction: CashVarianceDirection,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CashVarianceAck {
+    pub journal_id: Uuid,
+}
+
+/// Cash-variance seam: a composing service implements this over its ledger. The booking must be
+/// idempotent on `opening_entry_id` — a session closes exactly once (the one-open-session unique plus
+/// the close's open-state guard), so one session can never legitimately book two variances; a retried
+/// close whose first attempt died between booking and commit must REUSE the journal, not double it.
+/// `closing_entry_id` is the source reference for the journal's traceability.
+#[async_trait::async_trait]
+pub trait PosCashVariancePort: Send + Sync {
+    async fn book_cash_variance(&self, req: &CashVarianceRequest) -> Result<CashVarianceAck, PosRejected>;
 }

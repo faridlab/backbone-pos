@@ -1,0 +1,68 @@
+# =============================================================================
+# Domain: POS
+# Entity: PosManagerPin (privileged-action credential)
+# Description: A per-manager PIN the SERVER verifies before any privileged
+# point-of-sale mutation (line/unit overrides, price changes, order voids,
+# refund authorisation, drawer payouts). The PIN is stored only as an
+# argon2id hash — never plaintext, never an unsalted digest — and
+# verification (hash, attempt counting, lockout, throttle window) happens
+# server-side on every privileged mutation; a client's "manager mode" is a
+# UI affordance, never an authorization fact. failed_attempts / locked_until
+# / last_attempt_at / last_attempt_ip carry the state a config-driven
+# throttle and lockout policy reads; the window and attempt-limit values
+# themselves live in service configuration so tests never wait on
+# production timeouts.
+#
+# FILE NAMING: this file is deliberately named `pos_till_manager_pin`
+# (sorting after `pos_till_cash_movement`) so it lands after every existing
+# model file — the same append-only ordering convention
+# `pos_till_cash_movement`'s header documents.
+# =============================================================================
+
+models:
+  - name: PosManagerPin
+    collection: pos_manager_pins
+    description: "A manager PIN credential, server-verified before privileged point-of-sale mutations"
+
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique credential id"
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Books owner # logical FK to organization.Company.id"
+      employee_party_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "The manager this PIN authenticates # logical FK to party.Party.id"
+      pin_hash:
+        type: string
+        attributes: ["@required", "@max(200)"]
+        description: "argon2id encoded hash of the PIN; the raw PIN is never stored or returned"
+      failed_attempts:
+        type: int
+        attributes: ["@default(0)", "@non_negative"]
+        description: "Consecutive failed verifications since the last success (lockout counter)"
+      locked_until:
+        type: datetime?
+        description: "Verification refused until this instant (set by the lockout policy; NULL = unlocked)"
+      last_attempt_at:
+        type: datetime?
+        description: "When the last verification attempt happened (throttle-window anchor)"
+      last_attempt_ip:
+        type: string?
+        attributes: ["@max(45)"]
+        description: "Origin IP of the last verification attempt (per-IP throttling record)"
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+
+    indexes:
+      # One live credential per manager per company; a manager carries one PIN
+      # across the company's registers.
+      - type: unique
+        fields: [company_id, employee_party_id]
+        where: "deleted_at IS NULL"

@@ -25,6 +25,14 @@ tags:
     description: PosOpeningEntry management endpoints
   - name: PosCashMovements
     description: PosCashMovement management endpoints
+  - name: PosDiscounts
+    description: PosDiscount management endpoints
+  - name: PosManagerPins
+    description: PosManagerPin management endpoints
+  - name: PosFloorPlans
+    description: PosFloorPlan management endpoints
+  - name: PosTables
+    description: PosTable management endpoints
 
 paths:
   /api/v1/pos_closing_entries:
@@ -2589,6 +2597,1470 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
+  /api/v1/pos_discounts:
+    get:
+      tags:
+        - PosDiscounts
+      summary: List PosDiscounts
+      description: Get a paginated list of PosDiscounts with optional filtering and sorting
+      operationId: listPosDiscounts
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - $ref: '#/components/parameters/SortByParam'
+        - $ref: '#/components/parameters/SortOrderParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosDiscountList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags:
+        - PosDiscounts
+      summary: Create PosDiscount
+      description: Create a new PosDiscount
+      operationId: createPosDiscount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePosDiscountRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosDiscount'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/pos_discounts/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+
+    get:
+      tags:
+        - PosDiscounts
+      summary: Get PosDiscount by ID
+      operationId: getPosDiscount
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosDiscount'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - PosDiscounts
+      summary: Update PosDiscount (full)
+      operationId: updatePosDiscount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePosDiscountRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosDiscount'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags:
+        - PosDiscounts
+      summary: Update PosDiscount (partial)
+      operationId: patchPosDiscount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchPosDiscountRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosDiscount'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - PosDiscounts
+      summary: Delete PosDiscount (soft)
+      operationId: deletePosDiscount
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/pos_discounts/bulk:
+    post:
+      tags:
+        - PosDiscounts
+      summary: Bulk create PosDiscounts
+      operationId: bulkCreatePosDiscounts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/CreatePosDiscountRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PosDiscount'
+    put:
+      tags:
+        - PosDiscounts
+      summary: Bulk update PosDiscounts (full, atomic)
+      operationId: bulkUpdatePosDiscounts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                allOf:
+                  - type: object
+                    required: [id]
+                    properties:
+                      id:
+                        type: string
+                  - $ref: '#/components/schemas/UpdatePosDiscountRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosDiscountBulkResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    patch:
+      tags:
+        - PosDiscounts
+      summary: Bulk partial-update PosDiscounts (atomic)
+      operationId: bulkPatchPosDiscounts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [ids, patch]
+                  properties:
+                    ids:
+                      type: array
+                      items: { type: string }
+                    patch:
+                      type: object
+                      additionalProperties: true
+                - type: object
+                  required: [items]
+                  properties:
+                    items:
+                      type: array
+                      items:
+                        type: object
+                        required: [id, patch]
+                        properties:
+                          id: { type: string }
+                          patch: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosDiscountBulkResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/pos_discounts/upsert:
+    post:
+      tags:
+        - PosDiscounts
+      summary: Upsert PosDiscount
+      operationId: upsertPosDiscount
+      parameters:
+        - name: key_field
+          in: query
+          schema:
+            type: string
+        - name: key_value
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePosDiscountRequest'
+      responses:
+        '200':
+          description: Upserted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosDiscount'
+
+  /api/v1/pos_discounts/trash:
+    get:
+      tags:
+        - PosDiscounts
+      summary: List deleted PosDiscounts
+      operationId: listDeletedPosDiscounts
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosDiscountList'
+
+  /api/v1/pos_discounts/{id}/restore:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+    post:
+      tags:
+        - PosDiscounts
+      summary: Restore deleted PosDiscount
+      operationId: restorePosDiscount
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosDiscount'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/pos_discounts/empty:
+    delete:
+      tags:
+        - PosDiscounts
+      summary: Empty trash for PosDiscounts
+      operationId: emptyTrashPosDiscounts
+      responses:
+        '200':
+          description: Trash emptied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted_count:
+                    type: integer
+
+  /api/v1/pos_discounts/delete/bulk:
+    post:
+      tags:
+        - PosDiscounts
+      summary: Bulk soft-delete PosDiscounts by ids (atomic)
+      operationId: bulkDeletePosDiscounts
+      requestBody:
+        $ref: '#/components/requestBodies/BatchIds'
+      responses:
+        '200':
+          description: Soft-deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  soft_deleted: { type: integer }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/pos_discounts/restore/bulk:
+    post:
+      tags:
+        - PosDiscounts
+      summary: Bulk restore PosDiscounts by ids (atomic)
+      operationId: bulkRestorePosDiscounts
+      requestBody:
+        $ref: '#/components/requestBodies/BatchIds'
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosDiscountBulkResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/pos_discounts/restore/all:
+    post:
+      tags:
+        - PosDiscounts
+      summary: Restore all soft-deleted PosDiscounts
+      operationId: restoreAllPosDiscounts
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  restored: { type: integer }
+
+  /api/v1/pos_discounts/trash/bulk:
+    delete:
+      tags:
+        - PosDiscounts
+      summary: Bulk permanently-delete PosDiscounts from trash by ids (atomic)
+      operationId: bulkPermanentDeletePosDiscounts
+      requestBody:
+        $ref: '#/components/requestBodies/BatchIds'
+      responses:
+        '200':
+          description: Permanently deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  permanently_deleted: { type: integer }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/pos_manager_pins:
+    get:
+      tags:
+        - PosManagerPins
+      summary: List PosManagerPins
+      description: Get a paginated list of PosManagerPins with optional filtering and sorting
+      operationId: listPosManagerPins
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - $ref: '#/components/parameters/SortByParam'
+        - $ref: '#/components/parameters/SortOrderParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosManagerPinList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags:
+        - PosManagerPins
+      summary: Create PosManagerPin
+      description: Create a new PosManagerPin
+      operationId: createPosManagerPin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePosManagerPinRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosManagerPin'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/pos_manager_pins/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+
+    get:
+      tags:
+        - PosManagerPins
+      summary: Get PosManagerPin by ID
+      operationId: getPosManagerPin
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosManagerPin'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - PosManagerPins
+      summary: Update PosManagerPin (full)
+      operationId: updatePosManagerPin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePosManagerPinRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosManagerPin'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags:
+        - PosManagerPins
+      summary: Update PosManagerPin (partial)
+      operationId: patchPosManagerPin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchPosManagerPinRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosManagerPin'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - PosManagerPins
+      summary: Delete PosManagerPin (soft)
+      operationId: deletePosManagerPin
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/pos_manager_pins/bulk:
+    post:
+      tags:
+        - PosManagerPins
+      summary: Bulk create PosManagerPins
+      operationId: bulkCreatePosManagerPins
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/CreatePosManagerPinRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PosManagerPin'
+    put:
+      tags:
+        - PosManagerPins
+      summary: Bulk update PosManagerPins (full, atomic)
+      operationId: bulkUpdatePosManagerPins
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                allOf:
+                  - type: object
+                    required: [id]
+                    properties:
+                      id:
+                        type: string
+                  - $ref: '#/components/schemas/UpdatePosManagerPinRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosManagerPinBulkResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    patch:
+      tags:
+        - PosManagerPins
+      summary: Bulk partial-update PosManagerPins (atomic)
+      operationId: bulkPatchPosManagerPins
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [ids, patch]
+                  properties:
+                    ids:
+                      type: array
+                      items: { type: string }
+                    patch:
+                      type: object
+                      additionalProperties: true
+                - type: object
+                  required: [items]
+                  properties:
+                    items:
+                      type: array
+                      items:
+                        type: object
+                        required: [id, patch]
+                        properties:
+                          id: { type: string }
+                          patch: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosManagerPinBulkResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/pos_manager_pins/upsert:
+    post:
+      tags:
+        - PosManagerPins
+      summary: Upsert PosManagerPin
+      operationId: upsertPosManagerPin
+      parameters:
+        - name: key_field
+          in: query
+          schema:
+            type: string
+        - name: key_value
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePosManagerPinRequest'
+      responses:
+        '200':
+          description: Upserted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosManagerPin'
+
+  /api/v1/pos_manager_pins/trash:
+    get:
+      tags:
+        - PosManagerPins
+      summary: List deleted PosManagerPins
+      operationId: listDeletedPosManagerPins
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosManagerPinList'
+
+  /api/v1/pos_manager_pins/{id}/restore:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+    post:
+      tags:
+        - PosManagerPins
+      summary: Restore deleted PosManagerPin
+      operationId: restorePosManagerPin
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosManagerPin'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/pos_manager_pins/empty:
+    delete:
+      tags:
+        - PosManagerPins
+      summary: Empty trash for PosManagerPins
+      operationId: emptyTrashPosManagerPins
+      responses:
+        '200':
+          description: Trash emptied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted_count:
+                    type: integer
+
+  /api/v1/pos_manager_pins/delete/bulk:
+    post:
+      tags:
+        - PosManagerPins
+      summary: Bulk soft-delete PosManagerPins by ids (atomic)
+      operationId: bulkDeletePosManagerPins
+      requestBody:
+        $ref: '#/components/requestBodies/BatchIds'
+      responses:
+        '200':
+          description: Soft-deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  soft_deleted: { type: integer }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/pos_manager_pins/restore/bulk:
+    post:
+      tags:
+        - PosManagerPins
+      summary: Bulk restore PosManagerPins by ids (atomic)
+      operationId: bulkRestorePosManagerPins
+      requestBody:
+        $ref: '#/components/requestBodies/BatchIds'
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosManagerPinBulkResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/pos_manager_pins/restore/all:
+    post:
+      tags:
+        - PosManagerPins
+      summary: Restore all soft-deleted PosManagerPins
+      operationId: restoreAllPosManagerPins
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  restored: { type: integer }
+
+  /api/v1/pos_manager_pins/trash/bulk:
+    delete:
+      tags:
+        - PosManagerPins
+      summary: Bulk permanently-delete PosManagerPins from trash by ids (atomic)
+      operationId: bulkPermanentDeletePosManagerPins
+      requestBody:
+        $ref: '#/components/requestBodies/BatchIds'
+      responses:
+        '200':
+          description: Permanently deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  permanently_deleted: { type: integer }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/pos_floor_plans:
+    get:
+      tags:
+        - PosFloorPlans
+      summary: List PosFloorPlans
+      description: Get a paginated list of PosFloorPlans with optional filtering and sorting
+      operationId: listPosFloorPlans
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - $ref: '#/components/parameters/SortByParam'
+        - $ref: '#/components/parameters/SortOrderParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosFloorPlanList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags:
+        - PosFloorPlans
+      summary: Create PosFloorPlan
+      description: Create a new PosFloorPlan
+      operationId: createPosFloorPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePosFloorPlanRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosFloorPlan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/pos_floor_plans/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+
+    get:
+      tags:
+        - PosFloorPlans
+      summary: Get PosFloorPlan by ID
+      operationId: getPosFloorPlan
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosFloorPlan'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - PosFloorPlans
+      summary: Update PosFloorPlan (full)
+      operationId: updatePosFloorPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePosFloorPlanRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosFloorPlan'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags:
+        - PosFloorPlans
+      summary: Update PosFloorPlan (partial)
+      operationId: patchPosFloorPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchPosFloorPlanRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosFloorPlan'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - PosFloorPlans
+      summary: Delete PosFloorPlan (soft)
+      operationId: deletePosFloorPlan
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/pos_floor_plans/bulk:
+    post:
+      tags:
+        - PosFloorPlans
+      summary: Bulk create PosFloorPlans
+      operationId: bulkCreatePosFloorPlans
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/CreatePosFloorPlanRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PosFloorPlan'
+    put:
+      tags:
+        - PosFloorPlans
+      summary: Bulk update PosFloorPlans (full, atomic)
+      operationId: bulkUpdatePosFloorPlans
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                allOf:
+                  - type: object
+                    required: [id]
+                    properties:
+                      id:
+                        type: string
+                  - $ref: '#/components/schemas/UpdatePosFloorPlanRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosFloorPlanBulkResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    patch:
+      tags:
+        - PosFloorPlans
+      summary: Bulk partial-update PosFloorPlans (atomic)
+      operationId: bulkPatchPosFloorPlans
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [ids, patch]
+                  properties:
+                    ids:
+                      type: array
+                      items: { type: string }
+                    patch:
+                      type: object
+                      additionalProperties: true
+                - type: object
+                  required: [items]
+                  properties:
+                    items:
+                      type: array
+                      items:
+                        type: object
+                        required: [id, patch]
+                        properties:
+                          id: { type: string }
+                          patch: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosFloorPlanBulkResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/pos_floor_plans/upsert:
+    post:
+      tags:
+        - PosFloorPlans
+      summary: Upsert PosFloorPlan
+      operationId: upsertPosFloorPlan
+      parameters:
+        - name: key_field
+          in: query
+          schema:
+            type: string
+        - name: key_value
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePosFloorPlanRequest'
+      responses:
+        '200':
+          description: Upserted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosFloorPlan'
+
+  /api/v1/pos_floor_plans/trash:
+    get:
+      tags:
+        - PosFloorPlans
+      summary: List deleted PosFloorPlans
+      operationId: listDeletedPosFloorPlans
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosFloorPlanList'
+
+  /api/v1/pos_floor_plans/{id}/restore:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+    post:
+      tags:
+        - PosFloorPlans
+      summary: Restore deleted PosFloorPlan
+      operationId: restorePosFloorPlan
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosFloorPlan'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/pos_floor_plans/empty:
+    delete:
+      tags:
+        - PosFloorPlans
+      summary: Empty trash for PosFloorPlans
+      operationId: emptyTrashPosFloorPlans
+      responses:
+        '200':
+          description: Trash emptied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted_count:
+                    type: integer
+
+  /api/v1/pos_floor_plans/delete/bulk:
+    post:
+      tags:
+        - PosFloorPlans
+      summary: Bulk soft-delete PosFloorPlans by ids (atomic)
+      operationId: bulkDeletePosFloorPlans
+      requestBody:
+        $ref: '#/components/requestBodies/BatchIds'
+      responses:
+        '200':
+          description: Soft-deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  soft_deleted: { type: integer }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/pos_floor_plans/restore/bulk:
+    post:
+      tags:
+        - PosFloorPlans
+      summary: Bulk restore PosFloorPlans by ids (atomic)
+      operationId: bulkRestorePosFloorPlans
+      requestBody:
+        $ref: '#/components/requestBodies/BatchIds'
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosFloorPlanBulkResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/pos_floor_plans/restore/all:
+    post:
+      tags:
+        - PosFloorPlans
+      summary: Restore all soft-deleted PosFloorPlans
+      operationId: restoreAllPosFloorPlans
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  restored: { type: integer }
+
+  /api/v1/pos_floor_plans/trash/bulk:
+    delete:
+      tags:
+        - PosFloorPlans
+      summary: Bulk permanently-delete PosFloorPlans from trash by ids (atomic)
+      operationId: bulkPermanentDeletePosFloorPlans
+      requestBody:
+        $ref: '#/components/requestBodies/BatchIds'
+      responses:
+        '200':
+          description: Permanently deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  permanently_deleted: { type: integer }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/pos_tables:
+    get:
+      tags:
+        - PosTables
+      summary: List PosTables
+      description: Get a paginated list of PosTables with optional filtering and sorting
+      operationId: listPosTables
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - $ref: '#/components/parameters/SortByParam'
+        - $ref: '#/components/parameters/SortOrderParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosTableList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags:
+        - PosTables
+      summary: Create PosTable
+      description: Create a new PosTable
+      operationId: createPosTable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePosTableRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosTable'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/pos_tables/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+
+    get:
+      tags:
+        - PosTables
+      summary: Get PosTable by ID
+      operationId: getPosTable
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosTable'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - PosTables
+      summary: Update PosTable (full)
+      operationId: updatePosTable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePosTableRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosTable'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags:
+        - PosTables
+      summary: Update PosTable (partial)
+      operationId: patchPosTable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchPosTableRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosTable'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - PosTables
+      summary: Delete PosTable (soft)
+      operationId: deletePosTable
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/pos_tables/bulk:
+    post:
+      tags:
+        - PosTables
+      summary: Bulk create PosTables
+      operationId: bulkCreatePosTables
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/CreatePosTableRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PosTable'
+    put:
+      tags:
+        - PosTables
+      summary: Bulk update PosTables (full, atomic)
+      operationId: bulkUpdatePosTables
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                allOf:
+                  - type: object
+                    required: [id]
+                    properties:
+                      id:
+                        type: string
+                  - $ref: '#/components/schemas/UpdatePosTableRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosTableBulkResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    patch:
+      tags:
+        - PosTables
+      summary: Bulk partial-update PosTables (atomic)
+      operationId: bulkPatchPosTables
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [ids, patch]
+                  properties:
+                    ids:
+                      type: array
+                      items: { type: string }
+                    patch:
+                      type: object
+                      additionalProperties: true
+                - type: object
+                  required: [items]
+                  properties:
+                    items:
+                      type: array
+                      items:
+                        type: object
+                        required: [id, patch]
+                        properties:
+                          id: { type: string }
+                          patch: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosTableBulkResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/pos_tables/upsert:
+    post:
+      tags:
+        - PosTables
+      summary: Upsert PosTable
+      operationId: upsertPosTable
+      parameters:
+        - name: key_field
+          in: query
+          schema:
+            type: string
+        - name: key_value
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePosTableRequest'
+      responses:
+        '200':
+          description: Upserted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosTable'
+
+  /api/v1/pos_tables/trash:
+    get:
+      tags:
+        - PosTables
+      summary: List deleted PosTables
+      operationId: listDeletedPosTables
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosTableList'
+
+  /api/v1/pos_tables/{id}/restore:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+    post:
+      tags:
+        - PosTables
+      summary: Restore deleted PosTable
+      operationId: restorePosTable
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosTable'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/pos_tables/empty:
+    delete:
+      tags:
+        - PosTables
+      summary: Empty trash for PosTables
+      operationId: emptyTrashPosTables
+      responses:
+        '200':
+          description: Trash emptied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted_count:
+                    type: integer
+
+  /api/v1/pos_tables/delete/bulk:
+    post:
+      tags:
+        - PosTables
+      summary: Bulk soft-delete PosTables by ids (atomic)
+      operationId: bulkDeletePosTables
+      requestBody:
+        $ref: '#/components/requestBodies/BatchIds'
+      responses:
+        '200':
+          description: Soft-deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  soft_deleted: { type: integer }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/pos_tables/restore/bulk:
+    post:
+      tags:
+        - PosTables
+      summary: Bulk restore PosTables by ids (atomic)
+      operationId: bulkRestorePosTables
+      requestBody:
+        $ref: '#/components/requestBodies/BatchIds'
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosTableBulkResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/pos_tables/restore/all:
+    post:
+      tags:
+        - PosTables
+      summary: Restore all soft-deleted PosTables
+      operationId: restoreAllPosTables
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  restored: { type: integer }
+
+  /api/v1/pos_tables/trash/bulk:
+    delete:
+      tags:
+        - PosTables
+      summary: Bulk permanently-delete PosTables from trash by ids (atomic)
+      operationId: bulkPermanentDeletePosTables
+      requestBody:
+        $ref: '#/components/requestBodies/BatchIds'
+      responses:
+        '200':
+          description: Permanently deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  permanently_deleted: { type: integer }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
 components:
   schemas:
     PosClosingEntry:
@@ -2823,9 +4295,17 @@ components:
           nullable: true
           type: string
           format: uuid
+        pos_table_id:
+          nullable: true
+          type: string
+          format: uuid
         receipt_number:
           type: string
           maxLength: 40
+        client_uuid:
+          nullable: true
+          type: string
+          format: uuid
         posting_at:
           type: string
           format: date-time
@@ -2911,9 +4391,17 @@ components:
           nullable: true
           type: string
           format: uuid
+        pos_table_id:
+          nullable: true
+          type: string
+          format: uuid
         receipt_number:
           type: string
           maxLength: 40
+        client_uuid:
+          nullable: true
+          type: string
+          format: uuid
         posting_at:
           type: string
           format: date-time
@@ -2986,9 +4474,17 @@ components:
           nullable: true
           type: string
           format: uuid
+        pos_table_id:
+          nullable: true
+          type: string
+          format: uuid
         receipt_number:
           type: string
           maxLength: 40
+        client_uuid:
+          nullable: true
+          type: string
+          format: uuid
         posting_at:
           type: string
           format: date-time
@@ -3045,9 +4541,17 @@ components:
           nullable: true
           type: string
           format: uuid
+        pos_table_id:
+          nullable: true
+          type: string
+          format: uuid
         receipt_number:
           type: string
           maxLength: 40
+        client_uuid:
+          nullable: true
+          type: string
+          format: uuid
         posting_at:
           type: string
           format: date-time
@@ -3123,6 +4627,14 @@ components:
           nullable: true
           type: string
           maxLength: 300
+        client_uuid:
+          nullable: true
+          type: string
+          format: uuid
+        course:
+          nullable: true
+          type: integer
+          format: int32
         quantity:
           type: string
         unit_price:
@@ -3176,6 +4688,14 @@ components:
           nullable: true
           type: string
           maxLength: 300
+        client_uuid:
+          nullable: true
+          type: string
+          format: uuid
+        course:
+          nullable: true
+          type: integer
+          format: int32
         quantity:
           type: string
         unit_price:
@@ -3216,6 +4736,14 @@ components:
           nullable: true
           type: string
           maxLength: 300
+        client_uuid:
+          nullable: true
+          type: string
+          format: uuid
+        course:
+          nullable: true
+          type: integer
+          format: int32
         quantity:
           type: string
         unit_price:
@@ -3247,6 +4775,14 @@ components:
           nullable: true
           type: string
           maxLength: 300
+        client_uuid:
+          nullable: true
+          type: string
+          format: uuid
+        course:
+          nullable: true
+          type: integer
+          format: int32
         quantity:
           type: string
         unit_price:
@@ -3299,6 +4835,10 @@ components:
           nullable: true
           type: string
           maxLength: 140
+        client_uuid:
+          nullable: true
+          type: string
+          format: uuid
         payment_entry_id:
           nullable: true
           type: string
@@ -3342,6 +4882,10 @@ components:
           nullable: true
           type: string
           maxLength: 140
+        client_uuid:
+          nullable: true
+          type: string
+          format: uuid
         payment_entry_id:
           nullable: true
           type: string
@@ -3372,6 +4916,10 @@ components:
           nullable: true
           type: string
           maxLength: 140
+        client_uuid:
+          nullable: true
+          type: string
+          format: uuid
         payment_entry_id:
           nullable: true
           type: string
@@ -3396,6 +4944,10 @@ components:
           nullable: true
           type: string
           maxLength: 140
+        client_uuid:
+          nullable: true
+          type: string
+          format: uuid
         payment_entry_id:
           nullable: true
           type: string
@@ -3422,6 +4974,8 @@ components:
         - currency
         - tax_rate
         - allow_discount
+        - cash_rounding_strategy
+        - cash_rounding_unit
         - status
         - metadata
       properties:
@@ -3467,6 +5021,9 @@ components:
           format: uuid
         tax_rate:
           type: string
+        tax_template_ids:
+          nullable: true
+          type: object
         warehouse_id:
           nullable: true
           type: string
@@ -3481,6 +5038,10 @@ components:
           format: uuid
         allow_discount:
           type: boolean
+        cash_rounding_strategy:
+          type: string
+        cash_rounding_unit:
+          type: string
         status:
           type: string
         metadata:
@@ -3507,6 +5068,8 @@ components:
         - currency
         - tax_rate
         - allow_discount
+        - cash_rounding_strategy
+        - cash_rounding_unit
         - status
         - metadata
       properties:
@@ -3549,6 +5112,9 @@ components:
           format: uuid
         tax_rate:
           type: string
+        tax_template_ids:
+          nullable: true
+          type: object
         warehouse_id:
           nullable: true
           type: string
@@ -3563,6 +5129,10 @@ components:
           format: uuid
         allow_discount:
           type: boolean
+        cash_rounding_strategy:
+          type: string
+        cash_rounding_unit:
+          type: string
         status:
           type: string
         metadata:
@@ -3576,6 +5146,8 @@ components:
         - currency
         - tax_rate
         - allow_discount
+        - cash_rounding_strategy
+        - cash_rounding_unit
         - status
         - metadata
       properties:
@@ -3618,6 +5190,9 @@ components:
           format: uuid
         tax_rate:
           type: string
+        tax_template_ids:
+          nullable: true
+          type: object
         warehouse_id:
           nullable: true
           type: string
@@ -3632,6 +5207,10 @@ components:
           format: uuid
         allow_discount:
           type: boolean
+        cash_rounding_strategy:
+          type: string
+        cash_rounding_unit:
+          type: string
         status:
           type: string
         metadata:
@@ -3679,6 +5258,9 @@ components:
           format: uuid
         tax_rate:
           type: string
+        tax_template_ids:
+          nullable: true
+          type: object
         warehouse_id:
           nullable: true
           type: string
@@ -3693,6 +5275,10 @@ components:
           format: uuid
         allow_discount:
           type: boolean
+        cash_rounding_strategy:
+          type: string
+        cash_rounding_unit:
+          type: string
         status:
           type: string
         metadata:
@@ -4031,6 +5617,551 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PosCashMovement'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    PosDiscount:
+      type: object
+      required:
+        - id
+        - company_id
+        - name
+        - percentage
+        - metadata
+      properties:
+        id:
+          type: string
+          format: uuid
+        company_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 140
+        percentage:
+          type: string
+        description:
+          nullable: true
+          type: string
+          maxLength: 300
+        metadata:
+          type: object
+
+    PosDiscountBulkResult:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PosDiscount'
+        total: { type: integer }
+        failed: { type: integer }
+        errors:
+          type: array
+          items: { type: string }
+
+    CreatePosDiscountRequest:
+      type: object
+      required:
+        - company_id
+        - name
+        - percentage
+        - metadata
+      properties:
+        company_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 140
+        percentage:
+          type: string
+        description:
+          nullable: true
+          type: string
+          maxLength: 300
+        metadata:
+          type: object
+
+    UpdatePosDiscountRequest:
+      type: object
+      required:
+        - company_id
+        - name
+        - percentage
+        - metadata
+      properties:
+        company_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 140
+        percentage:
+          type: string
+        description:
+          nullable: true
+          type: string
+          maxLength: 300
+        metadata:
+          type: object
+
+    PatchPosDiscountRequest:
+      type: object
+      properties:
+        company_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 140
+        percentage:
+          type: string
+        description:
+          nullable: true
+          type: string
+          maxLength: 300
+        metadata:
+          type: object
+
+    PosDiscountList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PosDiscount'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    PosManagerPin:
+      type: object
+      required:
+        - id
+        - company_id
+        - employee_party_id
+        - pin_hash
+        - failed_attempts
+        - metadata
+      properties:
+        id:
+          type: string
+          format: uuid
+        company_id:
+          type: string
+          format: uuid
+        employee_party_id:
+          type: string
+          format: uuid
+        pin_hash:
+          type: string
+          maxLength: 200
+        failed_attempts:
+          type: integer
+          format: int32
+        locked_until:
+          nullable: true
+          type: string
+          format: date-time
+        last_attempt_at:
+          nullable: true
+          type: string
+          format: date-time
+        last_attempt_ip:
+          nullable: true
+          type: string
+          maxLength: 45
+        metadata:
+          type: object
+
+    PosManagerPinBulkResult:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PosManagerPin'
+        total: { type: integer }
+        failed: { type: integer }
+        errors:
+          type: array
+          items: { type: string }
+
+    CreatePosManagerPinRequest:
+      type: object
+      required:
+        - company_id
+        - employee_party_id
+        - pin_hash
+        - failed_attempts
+        - metadata
+      properties:
+        company_id:
+          type: string
+          format: uuid
+        employee_party_id:
+          type: string
+          format: uuid
+        pin_hash:
+          type: string
+          maxLength: 200
+        failed_attempts:
+          type: integer
+          format: int32
+        locked_until:
+          nullable: true
+          type: string
+          format: date-time
+        last_attempt_at:
+          nullable: true
+          type: string
+          format: date-time
+        last_attempt_ip:
+          nullable: true
+          type: string
+          maxLength: 45
+        metadata:
+          type: object
+
+    UpdatePosManagerPinRequest:
+      type: object
+      required:
+        - company_id
+        - employee_party_id
+        - pin_hash
+        - failed_attempts
+        - metadata
+      properties:
+        company_id:
+          type: string
+          format: uuid
+        employee_party_id:
+          type: string
+          format: uuid
+        pin_hash:
+          type: string
+          maxLength: 200
+        failed_attempts:
+          type: integer
+          format: int32
+        locked_until:
+          nullable: true
+          type: string
+          format: date-time
+        last_attempt_at:
+          nullable: true
+          type: string
+          format: date-time
+        last_attempt_ip:
+          nullable: true
+          type: string
+          maxLength: 45
+        metadata:
+          type: object
+
+    PatchPosManagerPinRequest:
+      type: object
+      properties:
+        company_id:
+          type: string
+          format: uuid
+        employee_party_id:
+          type: string
+          format: uuid
+        pin_hash:
+          type: string
+          maxLength: 200
+        failed_attempts:
+          type: integer
+          format: int32
+        locked_until:
+          nullable: true
+          type: string
+          format: date-time
+        last_attempt_at:
+          nullable: true
+          type: string
+          format: date-time
+        last_attempt_ip:
+          nullable: true
+          type: string
+          maxLength: 45
+        metadata:
+          type: object
+
+    PosManagerPinList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PosManagerPin'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    PosFloorPlan:
+      type: object
+      required:
+        - id
+        - company_id
+        - name
+        - metadata
+      properties:
+        id:
+          type: string
+          format: uuid
+        company_id:
+          type: string
+          format: uuid
+        branch_id:
+          nullable: true
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 140
+        position:
+          nullable: true
+          type: integer
+          format: int32
+        metadata:
+          type: object
+
+    PosFloorPlanBulkResult:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PosFloorPlan'
+        total: { type: integer }
+        failed: { type: integer }
+        errors:
+          type: array
+          items: { type: string }
+
+    CreatePosFloorPlanRequest:
+      type: object
+      required:
+        - company_id
+        - name
+        - metadata
+      properties:
+        company_id:
+          type: string
+          format: uuid
+        branch_id:
+          nullable: true
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 140
+        position:
+          nullable: true
+          type: integer
+          format: int32
+        metadata:
+          type: object
+
+    UpdatePosFloorPlanRequest:
+      type: object
+      required:
+        - company_id
+        - name
+        - metadata
+      properties:
+        company_id:
+          type: string
+          format: uuid
+        branch_id:
+          nullable: true
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 140
+        position:
+          nullable: true
+          type: integer
+          format: int32
+        metadata:
+          type: object
+
+    PatchPosFloorPlanRequest:
+      type: object
+      properties:
+        company_id:
+          type: string
+          format: uuid
+        branch_id:
+          nullable: true
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 140
+        position:
+          nullable: true
+          type: integer
+          format: int32
+        metadata:
+          type: object
+
+    PosFloorPlanList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PosFloorPlan'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    PosTable:
+      type: object
+      required:
+        - id
+        - company_id
+        - pos_floor_plan_id
+        - metadata
+      properties:
+        id:
+          type: string
+          format: uuid
+        company_id:
+          type: string
+          format: uuid
+        pos_floor_plan_id:
+          type: string
+          format: uuid
+        name:
+          nullable: true
+          type: string
+          maxLength: 140
+        seats:
+          nullable: true
+          type: integer
+          format: int32
+        shape:
+          nullable: true
+          type: string
+          maxLength: 30
+        position:
+          nullable: true
+          type: object
+        metadata:
+          type: object
+
+    PosTableBulkResult:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PosTable'
+        total: { type: integer }
+        failed: { type: integer }
+        errors:
+          type: array
+          items: { type: string }
+
+    CreatePosTableRequest:
+      type: object
+      required:
+        - company_id
+        - pos_floor_plan_id
+        - metadata
+      properties:
+        company_id:
+          type: string
+          format: uuid
+        pos_floor_plan_id:
+          type: string
+          format: uuid
+        name:
+          nullable: true
+          type: string
+          maxLength: 140
+        seats:
+          nullable: true
+          type: integer
+          format: int32
+        shape:
+          nullable: true
+          type: string
+          maxLength: 30
+        position:
+          nullable: true
+          type: object
+        metadata:
+          type: object
+
+    UpdatePosTableRequest:
+      type: object
+      required:
+        - company_id
+        - pos_floor_plan_id
+        - metadata
+      properties:
+        company_id:
+          type: string
+          format: uuid
+        pos_floor_plan_id:
+          type: string
+          format: uuid
+        name:
+          nullable: true
+          type: string
+          maxLength: 140
+        seats:
+          nullable: true
+          type: integer
+          format: int32
+        shape:
+          nullable: true
+          type: string
+          maxLength: 30
+        position:
+          nullable: true
+          type: object
+        metadata:
+          type: object
+
+    PatchPosTableRequest:
+      type: object
+      properties:
+        company_id:
+          type: string
+          format: uuid
+        pos_floor_plan_id:
+          type: string
+          format: uuid
+        name:
+          nullable: true
+          type: string
+          maxLength: 140
+        seats:
+          nullable: true
+          type: integer
+          format: int32
+        shape:
+          nullable: true
+          type: string
+          maxLength: 30
+        position:
+          nullable: true
+          type: object
+        metadata:
+          type: object
+
+    PosTableList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PosTable'
         meta:
           $ref: '#/components/schemas/PaginationMeta'
 

@@ -43,6 +43,10 @@ pub use application::service::PosPaymentService;
 pub use application::service::PosProfileService;
 pub use application::service::PosOpeningEntryService;
 pub use application::service::PosCashMovementService;
+pub use application::service::PosDiscountService;
+pub use application::service::PosManagerPinService;
+pub use application::service::PosFloorPlanService;
+pub use application::service::PosTableService;
 
 use std::sync::Arc;
 use axum::Router;
@@ -68,6 +72,10 @@ pub struct PosModule {
     pub(crate) pos_profile_service: Arc<PosProfileService>,
     pub(crate) pos_opening_entry_service: Arc<PosOpeningEntryService>,
     pub(crate) pos_cash_movement_service: Arc<PosCashMovementService>,
+    pub(crate) pos_discount_service: Arc<PosDiscountService>,
+    pub(crate) pos_manager_pin_service: Arc<PosManagerPinService>,
+    pub(crate) pos_floor_plan_service: Arc<PosFloorPlanService>,
+    pub(crate) pos_table_service: Arc<PosTableService>,
     // <<< CUSTOM FIELDS
     // END CUSTOM
 }
@@ -92,6 +100,10 @@ impl PosModule {
             create_pos_profile_routes,
             create_pos_opening_entry_routes,
             create_pos_cash_movement_routes,
+            create_pos_discount_routes,
+            create_pos_manager_pin_routes,
+            create_pos_floor_plan_routes,
+            create_pos_table_routes,
         };
 
         Router::new()
@@ -102,6 +114,10 @@ impl PosModule {
             .merge(create_pos_profile_routes(self.pos_profile_service.clone()))
             .merge(create_pos_opening_entry_routes(self.pos_opening_entry_service.clone()))
             .merge(create_pos_cash_movement_routes(self.pos_cash_movement_service.clone()))
+            .merge(create_pos_discount_routes(self.pos_discount_service.clone()))
+            .merge(create_pos_manager_pin_routes(self.pos_manager_pin_service.clone()))
+            .merge(create_pos_floor_plan_routes(self.pos_floor_plan_service.clone()))
+            .merge(create_pos_table_routes(self.pos_table_service.clone()))
     }
 
     /// Deprecated alias for [`Self::all_crud_routes`]. `routes()` reads like
@@ -128,6 +144,10 @@ impl PosModule {
             create_pos_profile_read_routes,
             create_pos_opening_entry_read_routes,
             create_pos_cash_movement_read_routes,
+            create_pos_discount_read_routes,
+            create_pos_manager_pin_read_routes,
+            create_pos_floor_plan_read_routes,
+            create_pos_table_read_routes,
         };
 
         Router::new()
@@ -138,6 +158,10 @@ impl PosModule {
             .merge(create_pos_profile_read_routes(self.pos_profile_service.clone()))
             .merge(create_pos_opening_entry_read_routes(self.pos_opening_entry_service.clone()))
             .merge(create_pos_cash_movement_read_routes(self.pos_cash_movement_service.clone()))
+            .merge(create_pos_discount_read_routes(self.pos_discount_service.clone()))
+            .merge(create_pos_manager_pin_read_routes(self.pos_manager_pin_service.clone()))
+            .merge(create_pos_floor_plan_read_routes(self.pos_floor_plan_service.clone()))
+            .merge(create_pos_table_read_routes(self.pos_table_service.clone()))
     }
 
     // <<< CUSTOM METHODS
@@ -199,6 +223,22 @@ impl PosModuleBuilder {
         let pos_cash_movement_repository = Arc::new(PosCashMovementRepository::new(db_pool.clone()));
         let pos_cash_movement_service = Arc::new(PosCashMovementService::with_repository(pos_cash_movement_repository.clone()));
 
+        // PosDiscount service
+        let pos_discount_repository = Arc::new(PosDiscountRepository::new(db_pool.clone()));
+        let pos_discount_service = Arc::new(PosDiscountService::with_repository(pos_discount_repository.clone()));
+
+        // PosManagerPin service
+        let pos_manager_pin_repository = Arc::new(PosManagerPinRepository::new(db_pool.clone()));
+        let pos_manager_pin_service = Arc::new(PosManagerPinService::with_repository(pos_manager_pin_repository.clone()));
+
+        // PosFloorPlan service
+        let pos_floor_plan_repository = Arc::new(PosFloorPlanRepository::new(db_pool.clone()));
+        let pos_floor_plan_service = Arc::new(PosFloorPlanService::with_repository(pos_floor_plan_repository.clone()));
+
+        // PosTable service
+        let pos_table_repository = Arc::new(PosTableRepository::new(db_pool.clone()));
+        let pos_table_service = Arc::new(PosTableService::with_repository(pos_table_repository.clone()));
+
         // <<< CUSTOM
         // END CUSTOM
 
@@ -210,6 +250,10 @@ impl PosModuleBuilder {
             pos_profile_service,
             pos_opening_entry_service,
             pos_cash_movement_service,
+            pos_discount_service,
+            pos_manager_pin_service,
+            pos_floor_plan_service,
+            pos_table_service,
             // <<< CUSTOM
             // END CUSTOM
         })

@@ -20,14 +20,18 @@
 //! use backbone_pos::integration::*;
 //!
 //! let pos = PosModule::builder().with_database(pool.clone()).build()?;
-//! // implement the outbound ports over your real billing/payment/inventory
+//! // implement the outbound ports over your real tax/billing/payment/inventory
+//! let tax: Arc<dyn PosTaxComputePort> = /* your adapter over the tax module */;
 //! let billing: Arc<dyn BillingPort> = /* your adapter */;
 //! let payment: Arc<dyn PaymentPort> = /* your adapter */;
+//! let variance: Arc<dyn PosCashVariancePort> = /* your adapter over accounting */;
 //! let inventory: Option<Arc<dyn InventoryPort>> = /* your adapter */;
 //! // subscribe to tenders → drive recognition exactly once
 //! let sink = RecognitionSink::new(pool.clone(), billing, payment, inventory);
 //! // mount the guarded, tenant-fenced, outbox-durable surface
-//! let router = create_guarded_pos_routes_with_outbox(&pos, pool, tenant_verifier, sink, schema);
+//! let router = create_guarded_pos_routes_with_outbox(
+//!     &pos, pool, tenant_verifier, sink, tax, variance, billing, payment, schema,
+//! );
 //! ```
 
 // --- The module + builder -----------------------------------------------------
@@ -59,19 +63,37 @@ pub use crate::application::service::{
 };
 pub use crate::application::service::pos_ports::{InventoryPort, StockIssueRequest, StockIssueAck};
 
+// --- Document-grade tax + session-close variance ports -------------------------
+// `PosTaxComputePort` resolves per-line tax for EVERY ring (implement over the tax module's
+// `calculate_document`); `PosCashVariancePort` books the GL correction when a close counts a drawer
+// difference (idempotent on `opening_entry_id` — a session closes exactly once).
+pub use crate::application::service::{
+    PosTaxComputePort, PosTaxComputeRequest, PosTaxLineIn, PosTaxDocumentType,
+    PosTaxComputeResult, PosTaxComponent,
+    PosCashVariancePort, CashVarianceRequest, CashVarianceAck, CashVarianceDirection,
+};
+
 // --- Server-authoritative cart pricing (promo) port ---------------------------
 pub use crate::application::service::{
     CartPricingPort, CartPriceRequest, CartPriceLine, CartPricingError,
     PricedCart, PricedCartLine, PricedRewardLine,
 };
 
-// --- The write service: open / ring / tender / recognize / return / drawer -----
+// --- The write service: open / ring / sync / tender / recognize / return / drawer / pins
 pub use crate::application::service::PosWriteService;
 // Vocabulary a consumer passes in / receives (kept here so callers don't reach into the service tree).
 pub use crate::application::service::{
-    NewSession, NewSale, NewSaleLine, NewCartSale, CartSaleLine, NewClose,
+    NewSession, NewSale, NewSaleLine, NewCartSale, CartSaleLine, NewClose, ManagerAuth,
     TenderOutcome, RecognizeOutcome, ReturnOutcome, CloseOutcome, MethodRecon, PosError,
+    VarianceBooking, PinPolicy,
 };
+// Offline replay (`sync_from_ui`): identity by `client_uuid`, client totals discarded, server
+// recomputes; a refund replay is privileged (manager PIN verified server-side).
+pub use crate::application::service::{
+    NewSyncSale, SyncSaleLine, SyncTender, SyncAction, SyncOutcome, TicketTotals,
+};
+// Manager-PIN credentials: argon2-hashed server-side; the raw PIN never leaves the request.
+pub use crate::application::service::pos_manager_pin::SetPin;
 
 // --- Events + the sink a consumer subscribes to drive recognition -------------
 // `PosTenderCompleted` is the recognition trigger: a composing service subscribes and calls

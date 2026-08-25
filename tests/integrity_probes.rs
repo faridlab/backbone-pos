@@ -4,6 +4,8 @@
 
 use std::sync::{Arc, Mutex};
 
+mod support;
+
 use rust_decimal::Decimal;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -67,25 +69,29 @@ impl PaymentPort for FlakyPayment {
 struct Recorder { events: Arc<Mutex<Vec<PosEvent>>> }
 impl PosEventSink for Recorder { fn publish(&self, e: PosEvent) { self.events.lock().unwrap().push(e); } }
 
-async fn profile(pool: &PgPool, company: Uuid, with_accounts: bool, customer: Option<Uuid>) -> Uuid {
+async fn profile(pool: &PgPool, company: Uuid, with_accounts: bool, customer: Option<Uuid>) -> (Uuid, support::TestTax) {
     let id = Uuid::new_v4();
+    // One zero-rate template (the non-PKP expression) — every ring resolves tax through it.
+    let template = Uuid::new_v4();
+    let templates = serde_json::json!([template.to_string()]);
     if with_accounts {
-        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, receivable_account_id, income_account_id, cash_account_id, default_customer_id, allow_discount, status)
-            VALUES ($1,$2,'R','IDR',$3,$4,$5,$6,true,'active')"#)
-            .bind(id).bind(company).bind(Uuid::new_v4()).bind(Uuid::new_v4()).bind(Uuid::new_v4()).bind(customer).execute(pool).await.unwrap();
+        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, tax_template_ids, receivable_account_id, income_account_id, cash_account_id, default_customer_id, allow_discount, status)
+            VALUES ($1,$2,'R','IDR',$3,$4,$5,$6,$7,true,'active')"#)
+            .bind(id).bind(company).bind(&templates).bind(Uuid::new_v4()).bind(Uuid::new_v4()).bind(Uuid::new_v4()).bind(customer).execute(pool).await.unwrap();
     } else {
-        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, allow_discount, status) VALUES ($1,$2,'R','IDR',true,'active')"#)
-            .bind(id).bind(company).execute(pool).await.unwrap();
+        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, tax_template_ids, allow_discount, status) VALUES ($1,$2,'R','IDR',$3,true,'active')"#)
+            .bind(id).bind(company).bind(&templates).execute(pool).await.unwrap();
     }
-    id
+    (id, support::TestTax::with_rate(template, "0"))
 }
-async fn ring(w: &PosWriteService, company: Uuid, prof: Uuid, session: Uuid, price: &str) -> Uuid {
+/// The tax port matching the profiles above: one template at 0%.
+async fn ring(w: &PosWriteService, company: Uuid, prof: Uuid, session: Uuid, price: &str, tax: &dyn backbone_pos::application::service::pos_ports::PosTaxComputePort) -> Uuid {
     w.ring_sale(NewSale {
         company_id: company, pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
+        pos_table_id: None, discount_id: None,
         receipt_number: uq("R"), posting_at: at(),
-        lines: vec![NewSaleLine { item_id: Uuid::new_v4(), revenue_account_id: None, description: None, quantity: d("1"), unit_price: d(price), discount_amount: Decimal::ZERO }],
-        tax_total: Decimal::ZERO, round_to: None,
-    }).await.unwrap()
+        lines: vec![NewSaleLine { item_id: Uuid::new_v4(), revenue_account_id: None, description: None, quantity: d("1"), unit_price: d(price), course: None, discount_amount: Decimal::ZERO }],
+    }, tax).await.unwrap()
 }
 async fn session(w: &PosWriteService, company: Uuid, prof: Uuid) -> Uuid {
     w.open_session(NewSession { company_id: company, pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(), opened_at: at(), opening_balances: vec![] }).await.unwrap()
@@ -97,9 +103,9 @@ async fn recognize_requires_full_tender() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
     let company = Uuid::new_v4();
-    let prof = profile(&pool, company, true, Some(Uuid::new_v4())).await;
+    let (prof, tax) = profile(&pool, company, true, Some(Uuid::new_v4())).await;
     let s = session(&w, company, prof).await;
-    let sale = ring(&w, company, prof, s, "100000").await;
+    let sale = ring(&w, company, prof, s, "100000", &tax).await;
     w.add_tender(sale, "cash", d("60000"), None).await.unwrap(); // partial
     let billing = FakeBilling { calls: Arc::new(Mutex::new(0)), invoice: Uuid::new_v4() };
     let e = w.recognize_sale(sale, &billing, &FakePayment, None).await.unwrap_err();
@@ -113,9 +119,9 @@ async fn recognize_requires_register_accounts() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
     let company = Uuid::new_v4();
-    let prof = profile(&pool, company, false, None).await; // no accounts
+    let (prof, tax) = profile(&pool, company, false, None).await; // no accounts
     let s = session(&w, company, prof).await;
-    let sale = ring(&w, company, prof, s, "100000").await;
+    let sale = ring(&w, company, prof, s, "100000", &tax).await;
     w.add_tender(sale, "cash", d("100000"), None).await.unwrap();
     let e = w.recognize_sale(sale, &FakeBilling::default(), &FakePayment, None).await.unwrap_err();
     assert!(matches!(e, PosError::MissingAccount(_)));
@@ -130,9 +136,9 @@ async fn recognition_is_idempotent() {
     let w = PosWriteService::with_sink(pool.clone(), Arc::new(rec.clone()));
     let company = Uuid::new_v4();
     let customer = Uuid::new_v4();
-    let prof = profile(&pool, company, true, Some(customer)).await;
+    let (prof, tax) = profile(&pool, company, true, Some(customer)).await;
     let s = session(&w, company, prof).await;
-    let sale = ring(&w, company, prof, s, "100000").await;
+    let sale = ring(&w, company, prof, s, "100000", &tax).await;
     w.add_tender(sale, "cash", d("100000"), None).await.unwrap();
     let billing = FakeBilling { calls: Arc::new(Mutex::new(0)), invoice: Uuid::new_v4() };
 
@@ -154,9 +160,9 @@ async fn billing_raised_at_most_once_across_decline_then_retry() {
     let w = PosWriteService::new(pool.clone());
     let company = Uuid::new_v4();
     let customer = Uuid::new_v4();
-    let prof = profile(&pool, company, true, Some(customer)).await;
+    let (prof, tax) = profile(&pool, company, true, Some(customer)).await;
     let s = session(&w, company, prof).await;
-    let sale = ring(&w, company, prof, s, "100000").await;
+    let sale = ring(&w, company, prof, s, "100000", &tax).await;
     w.add_tender(sale, "cash", d("100000"), None).await.unwrap();
     let billing = FakeBilling { calls: Arc::new(Mutex::new(0)), invoice: Uuid::new_v4() };
     let payment = FlakyPayment { failed: Arc::new(Mutex::new(false)) };

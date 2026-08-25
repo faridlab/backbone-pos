@@ -69,6 +69,34 @@ entities:
     pagination:
       default_limit: 20
       max_limit: 100
+  pos_discount:
+    collection: pos_discounts
+    enabled: true
+    cache_ttl: 300
+    pagination:
+      default_limit: 20
+      max_limit: 100
+  pos_manager_pin:
+    collection: pos_manager_pins
+    enabled: true
+    cache_ttl: 300
+    pagination:
+      default_limit: 20
+      max_limit: 100
+  pos_floor_plan:
+    collection: pos_floor_plans
+    enabled: true
+    cache_ttl: 300
+    pagination:
+      default_limit: 20
+      max_limit: 100
+  pos_table:
+    collection: pos_tables
+    enabled: true
+    cache_ttl: 300
+    pagination:
+      default_limit: 20
+      max_limit: 100
 tracing:
   enabled: true
   exporter: otlp

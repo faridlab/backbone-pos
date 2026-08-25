@@ -56,6 +56,7 @@ pub struct PosPayment {
     pub payment_method: PosPaymentMethod,
     pub amount: Decimal,
     pub reference_no: Option<String>,
+    pub client_uuid: Option<Uuid>,
     pub payment_entry_id: Option<Uuid>,
     #[serde(default)]
     #[sqlx(json)]
@@ -77,6 +78,7 @@ impl PosPayment {
             payment_method,
             amount,
             reference_no: None,
+            client_uuid: None,
             payment_entry_id: None,
             metadata: AuditMetadata::default(),
         }
@@ -143,6 +145,12 @@ impl PosPayment {
         self
     }
 
+    /// Set the client_uuid field (chainable)
+    pub fn with_client_uuid(mut self, value: Uuid) -> Self {
+        self.client_uuid = Some(value);
+        self
+    }
+
     /// Set the payment_entry_id field (chainable)
     pub fn with_payment_entry_id(mut self, value: Uuid) -> Self {
         self.payment_entry_id = Some(value);
@@ -171,6 +179,9 @@ impl PosPayment {
                 }
                 "reference_no" => {
                     if let Ok(v) = serde_json::from_value(value) { self.reference_no = v; }
+                }
+                "client_uuid" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.client_uuid = v; }
                 }
                 "payment_entry_id" => {
                     if let Ok(v) = serde_json::from_value(value) { self.payment_entry_id = v; }
@@ -257,6 +268,7 @@ pub struct PosPaymentBuilder {
     payment_method: Option<PosPaymentMethod>,
     amount: Option<Decimal>,
     reference_no: Option<String>,
+    client_uuid: Option<Uuid>,
     payment_entry_id: Option<Uuid>,
 }
 
@@ -291,6 +303,12 @@ impl PosPaymentBuilder {
         self
     }
 
+    /// Set the client_uuid field (optional)
+    pub fn client_uuid(mut self, value: Uuid) -> Self {
+        self.client_uuid = Some(value);
+        self
+    }
+
     /// Set the payment_entry_id field (optional)
     pub fn payment_entry_id(mut self, value: Uuid) -> Self {
         self.payment_entry_id = Some(value);
@@ -313,6 +331,7 @@ impl PosPaymentBuilder {
             payment_method,
             amount,
             reference_no: self.reference_no,
+            client_uuid: self.client_uuid,
             payment_entry_id: self.payment_entry_id,
             metadata: AuditMetadata::default(),
         })

@@ -38,10 +38,18 @@ models:
         type: uuid?
         attributes: ["@exclude_from_foreign_key_check"]
         description: "Customer # logical FK to party.Party.id (walk-in if null)"
+      pos_table_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "The dining table this ticket is open on (restaurant) # logical FK to PosTable.id; counter sales leave it NULL"
       receipt_number:
         type: string
         attributes: ["@required", "@max(40)"]
         description: "Receipt number (unique)"
+      client_uuid:
+        type: uuid?
+        attributes: ["@immutable"]
+        description: "Identity minted by the offline client (UUID v4); the reconcile-by-uuid key for sync_from_ui — a re-synced ticket UPDATEs the row that carries its uuid. Server-minted tickets (counter sale with no client) leave it NULL. Distinct from id."
       posting_at:
         type: datetime
         attributes: ["@required"]
@@ -115,6 +123,14 @@ models:
       - type: unique
         fields: [receipt_number]
         where: "deleted_at IS NULL"
+      - type: unique
+        fields: [company_id, client_uuid]
+        where: "deleted_at IS NULL"
+      # One draft ticket per dining table: a second draft on a table that already
+      # holds one must resume/replace that draft, never fork it.
+      - type: unique
+        fields: [pos_table_id]
+        where: "status = 'draft' AND pos_table_id IS NOT NULL AND deleted_at IS NULL"
       - type: index
         fields: [company_id, opening_entry_id, status]
 
@@ -143,6 +159,13 @@ models:
         type: string?
         attributes: ["@max(300)"]
         description: "Line label"
+      client_uuid:
+        type: uuid?
+        attributes: ["@immutable"]
+        description: "Identity minted by the offline client for this line; the sync reconcile key, matched within the parent ticket. Distinct from id."
+      course:
+        type: int?
+        description: "Course grouping for kitchen routing (restaurant): lines sharing a course number fire together; NULL = not course-grouped (counter sale)"
       quantity:
         type: decimal
         attributes: ["@required", "@precision(18,4)", "@non_negative"]
@@ -176,6 +199,9 @@ models:
         inverse: items
 
     indexes:
+      - type: unique
+        fields: [company_id, client_uuid]
+        where: "deleted_at IS NULL"
       - type: index
         fields: [pos_invoice_id]
 
@@ -208,6 +234,10 @@ models:
         type: string?
         attributes: ["@max(140)"]
         description: "Card/QRIS/e-wallet reference"
+      client_uuid:
+        type: uuid?
+        attributes: ["@immutable"]
+        description: "Identity minted by the offline client for this tender; the sync reconcile key, matched within the parent ticket. Distinct from id."
       payment_entry_id:
         type: uuid?
         attributes: ["@exclude_from_foreign_key_check", "@immutable"]
@@ -225,6 +255,9 @@ models:
         inverse: payments
 
     indexes:
+      - type: unique
+        fields: [company_id, client_uuid]
+        where: "deleted_at IS NULL"
       - type: index
         fields: [pos_invoice_id]
 

@@ -41,14 +41,18 @@ impl PosInvoiceRepository {
 
 /// The exact row a rung ticket writes. Mirrors the raw column shape rather than the `PosInvoice`
 /// entity: the money fields are already computed by the service, and `paid_total`/`change_due`/
-/// `is_return`/`status` are fixed by the SQL (`0,0,false,'draft'`).
+/// `is_return`/`status` are fixed by the SQL (`0,0,false,'draft'`). `client_uuid` carries the offline
+/// sync identity when the ticket is being replayed from a client (server-originated rings pass None).
+/// `pos_table_id` seats the ticket at a dining table (restaurant lanes); counter sales pass None.
 pub struct NewDraftInvoiceRow<'a> {
     pub id: Uuid,
     pub company_id: Uuid,
+    pub client_uuid: Option<Uuid>,
     pub pos_profile_id: Uuid,
     pub opening_entry_id: Uuid,
     pub branch_id: Option<Uuid>,
     pub customer_id: Option<Uuid>,
+    pub pos_table_id: Option<Uuid>,
     pub receipt_number: &'a str,
     pub posting_at: chrono::NaiveDateTime,
     pub net_total: Decimal,
@@ -56,6 +60,30 @@ pub struct NewDraftInvoiceRow<'a> {
     pub grand_total: Decimal,
     pub rounding_adjustment: Decimal,
     pub rounded_total: Decimal,
+}
+
+/// A ticket looked up by its offline-sync identity — everything `sync_from_ui` needs to decide
+/// create-vs-update-vs-replay: identity anchors (session, partner), the refund lineage, and the
+/// persisted money (returned as the replay's totals when the ticket is already finalized).
+pub struct SyncLookupRow {
+    pub id: Uuid,
+    pub status: String,
+    pub pos_profile_id: Uuid,
+    pub opening_entry_id: Uuid,
+    pub branch_id: Option<Uuid>,
+    pub customer_id: Option<Uuid>,
+    /// The table the draft is currently seated at (for transfer validation on replay).
+    pub pos_table_id: Option<Uuid>,
+    pub is_return: bool,
+    /// For a refund ticket: the server id of the parent it was recorded against.
+    pub return_against: Option<Uuid>,
+    pub net_total: Decimal,
+    pub tax_total: Decimal,
+    pub grand_total: Decimal,
+    pub rounding_adjustment: Decimal,
+    pub rounded_total: Decimal,
+    pub paid_total: Decimal,
+    pub change_due: Decimal,
 }
 
 /// The exact row a return ticket writes. Mirrors the raw column shape: the SQL fixes
@@ -134,7 +162,10 @@ pub struct ReturnSourceRow {
     pub status: String,
 }
 
-/// A ticket header as the printed receipt reads it (register name/currency/rate joined in).
+/// A ticket header as the printed receipt reads it (register name/currency joined in). `tax_rate` is
+/// the EFFECTIVE rate derived from the ticket's own totals — the register's flat `tax_rate` column is
+/// retired from the compute path, so the slip reports what the document-grade compute actually
+/// produced. `is_invoiced` derives from the billing link (never a stored state column).
 pub struct ReceiptHeaderRow {
     pub receipt_number: String,
     pub posting_at: chrono::DateTime<chrono::Utc>,
@@ -148,6 +179,7 @@ pub struct ReceiptHeaderRow {
     pub register_name: String,
     pub currency: String,
     pub tax_rate: Decimal,
+    pub is_invoiced: bool,
 }
 
 /// Hand-written counter-ticket SQL. Lives here (not in the write service) per the module's 4-layer
@@ -159,7 +191,7 @@ impl PosInvoiceRepository {
     /// already bound the company on it (`bind_current_company`) — don't re-bind here.
     ///
     /// Returns the raw `sqlx::Error` deliberately: the caller inspects it for a unique violation to turn
-    /// a re-used receipt number into a domain error.
+    /// a re-used receipt number (or a re-used sync `client_uuid`) into a domain error.
     pub async fn insert_draft(
         &self,
         conn: &mut sqlx::PgConnection,
@@ -167,17 +199,170 @@ impl PosInvoiceRepository {
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO pos.pos_invoices
-                (id, company_id, pos_profile_id, opening_entry_id, branch_id, customer_id, receipt_number,
+                (id, company_id, client_uuid, pos_profile_id, opening_entry_id, branch_id, customer_id, pos_table_id, receipt_number,
                  posting_at, net_total, tax_total, grand_total, rounding_adjustment, rounded_total,
                  paid_total, change_due, is_return, status)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,0,0,false,'draft'::pos_invoice_status)"#,
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,0,0,false,'draft'::pos_invoice_status)"#,
         )
-        .bind(i.id).bind(i.company_id).bind(i.pos_profile_id).bind(i.opening_entry_id).bind(i.branch_id)
-        .bind(i.customer_id).bind(i.receipt_number).bind(i.posting_at).bind(i.net_total).bind(i.tax_total)
+        .bind(i.id).bind(i.company_id).bind(i.client_uuid).bind(i.pos_profile_id).bind(i.opening_entry_id).bind(i.branch_id)
+        .bind(i.customer_id).bind(i.pos_table_id).bind(i.receipt_number).bind(i.posting_at).bind(i.net_total).bind(i.tax_total)
         .bind(i.grand_total).bind(i.rounding_adjustment).bind(i.rounded_total)
         .execute(conn)
         .await?;
         Ok(())
+    }
+
+    /// Find the live ticket carrying an offline client uuid. The explicit `company_id = $2` filter is
+    /// defense-in-depth ON TOP of the RLS fence (same contract as
+    /// `PosOpeningEntryRepository::fetch_status`): a uuid only namespaces inside its tenant, so
+    /// another company's ticket carrying the same uuid is simply not found.
+    pub async fn find_by_client_uuid(
+        &self,
+        pool: &PgPool,
+        client_uuid: Uuid,
+        company_id: Uuid,
+    ) -> Result<Option<SyncLookupRow>, sqlx::Error> {
+        let row = company_scope::fetch_optional_row_scoped(
+            pool,
+            sqlx::query(
+                r#"SELECT id, status::text AS st, pos_profile_id, opening_entry_id, branch_id, customer_id,
+                          pos_table_id, is_return, return_against, net_total, tax_total, grand_total, rounding_adjustment,
+                          rounded_total, paid_total, change_due
+                   FROM pos.pos_invoices WHERE client_uuid=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL"#,
+            )
+            .bind(client_uuid)
+            .bind(company_id),
+        )
+        .await?;
+        Ok(row.map(|r| SyncLookupRow {
+            id: r.get("id"), status: r.get("st"), pos_profile_id: r.get("pos_profile_id"),
+            opening_entry_id: r.get("opening_entry_id"), branch_id: r.get("branch_id"),
+            customer_id: r.get("customer_id"), pos_table_id: r.get("pos_table_id"), is_return: r.get("is_return"),
+            return_against: r.get("return_against"), net_total: r.get("net_total"),
+            tax_total: r.get("tax_total"), grand_total: r.get("grand_total"),
+            rounding_adjustment: r.get("rounding_adjustment"), rounded_total: r.get("rounded_total"),
+            paid_total: r.get("paid_total"), change_due: r.get("change_due"),
+        }))
+    }
+
+    /// Rewrite a DRAFT ticket's header for an offline replay: re-point it at the (possibly rescued)
+    /// session, re-seat it at the replay's table (a changed `pos_table_id` is a table TRANSFER), and
+    /// replace its server-derived money + partner with the replay's re-derived values.
+    /// State-guarded on `draft` — a finalized ticket is never rewritten (the replay short-circuits
+    /// before this). Takes the CALLER'S connection; the caller has already bound the company.
+    /// Returns the raw `sqlx::Error` so the caller can map the one-draft-per-table partial unique.
+    pub async fn update_draft_from_sync(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        pos_invoice_id: Uuid,
+        opening_entry_id: Uuid,
+        branch_id: Option<Uuid>,
+        customer_id: Option<Uuid>,
+        pos_table_id: Option<Uuid>,
+        net_total: Decimal,
+        tax_total: Decimal,
+        grand_total: Decimal,
+        rounding_adjustment: Decimal,
+        rounded_total: Decimal,
+        paid_total: Decimal,
+        change_due: Decimal,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE pos.pos_invoices SET
+                 opening_entry_id=$2, branch_id=$3, customer_id=$4, pos_table_id=$5,
+                 net_total=$6, tax_total=$7, grand_total=$8, rounding_adjustment=$9,
+                 rounded_total=$10, paid_total=$11, change_due=$12
+               WHERE id=$1 AND status='draft'::pos_invoice_status"#,
+        )
+        .bind(pos_invoice_id).bind(opening_entry_id).bind(branch_id).bind(customer_id).bind(pos_table_id)
+        .bind(net_total).bind(tax_total).bind(grand_total).bind(rounding_adjustment)
+        .bind(rounded_total).bind(paid_total).bind(change_due)
+        .execute(conn)
+        .await?;
+        Ok(())
+    }
+
+    /// The draft ticket currently seated at a dining table — the friendly half of the
+    /// one-draft-per-table guard (the DB partial unique `idx_pos_invoices_pos_table_id` is the
+    /// backstop; this read turns the collision into a typed refusal naming the occupying ticket).
+    /// `exclude_invoice_id` skips the ticket being re-seated (a replay that keeps its own table is
+    /// not a collision). `Ok(None)` = the table is free. Explicit `company_id` filter is
+    /// defense-in-depth on top of the RLS fence.
+    pub async fn find_draft_on_table(
+        &self,
+        pool: &PgPool,
+        pos_table_id: Uuid,
+        company_id: Uuid,
+        exclude_invoice_id: Option<Uuid>,
+    ) -> Result<Option<Uuid>, sqlx::Error> {
+        let row = company_scope::fetch_optional_row_scoped(
+            pool,
+            sqlx::query(
+                r#"SELECT id FROM pos.pos_invoices
+                   WHERE pos_table_id=$1 AND company_id=$2 AND status='draft'::pos_invoice_status
+                     AND (metadata->>'deleted_at') IS NULL AND ($3::uuid IS NULL OR id <> $3)
+                   LIMIT 1"#,
+            )
+            .bind(pos_table_id)
+            .bind(company_id)
+            .bind(exclude_invoice_id),
+        )
+        .await?;
+        Ok(row.map(|r| r.get("id")))
+    }
+
+    /// Soft-delete a DRAFT ticket's lines so an offline replay can rewrite the basket (full-snapshot
+    /// semantics: the replay carries the complete ticket). Soft-delete keeps the audit trail and frees
+    /// the partial-unique on `client_uuid`. Takes the CALLER'S connection.
+    pub async fn soft_delete_lines_for_ticket(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        pos_invoice_id: Uuid,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE pos.pos_invoice_items SET metadata = jsonb_set(metadata, '{deleted_at}', to_jsonb($2::timestamptz))
+               WHERE pos_invoice_id=$1 AND (metadata->>'deleted_at') IS NULL"#,
+        )
+        .bind(pos_invoice_id).bind(now)
+        .execute(conn)
+        .await?;
+        Ok(())
+    }
+
+    /// Count a session's DRAFT tickets — the close guard. ID-only: the caller wraps it in
+    /// `with_company_scope(Some(company))`.
+    pub async fn count_draft_orders_for_session(
+        &self,
+        pool: &PgPool,
+        opening_entry_id: Uuid,
+    ) -> Result<i64, sqlx::Error> {
+        company_scope::fetch_one_scalar_scoped(
+            pool,
+            sqlx::query_scalar(
+                "SELECT COUNT(*) FROM pos.pos_invoices WHERE opening_entry_id=$1 AND status='draft'::pos_invoice_status AND is_return=false AND (metadata->>'deleted_at') IS NULL",
+            )
+            .bind(opening_entry_id),
+        )
+        .await
+    }
+
+    /// Count a session's half-recognised tickets — billing linked but the draft→paid flip never
+    /// landed (a settle failed after the invoice was raised). The close guard refuses on these: they
+    /// need recognition retried, not skipped. ID-only scope as above.
+    pub async fn count_linked_unposted_for_session(
+        &self,
+        pool: &PgPool,
+        opening_entry_id: Uuid,
+    ) -> Result<i64, sqlx::Error> {
+        company_scope::fetch_one_scalar_scoped(
+            pool,
+            sqlx::query_scalar(
+                "SELECT COUNT(*) FROM pos.pos_invoices WHERE opening_entry_id=$1 AND status='draft'::pos_invoice_status AND billing_invoice_id IS NOT NULL AND (metadata->>'deleted_at') IS NULL",
+            )
+            .bind(opening_entry_id),
+        )
+        .await
     }
 
     /// Read the header `add_tender` gates on.
@@ -260,7 +445,8 @@ impl PosInvoiceRepository {
             sqlx::query(
                 r#"SELECT i.company_id, i.customer_id, i.pos_profile_id, i.branch_id, i.posting_at, i.rounded_total, i.grand_total,
                           i.tax_total, i.paid_total, i.billing_invoice_id,
-                          p.receivable_account_id, p.income_account_id, p.cash_account_id, p.tax_account_id, p.tax_rate,
+                          p.receivable_account_id, p.income_account_id, p.cash_account_id, p.tax_account_id,
+                          ROUND(COALESCE(i.tax_total / NULLIF(i.net_total, 0), 0), 6) AS tax_rate,
                           p.warehouse_id, p.cogs_account_id, p.inventory_account_id,
                           p.currency, p.default_customer_id
                    FROM pos.pos_invoices i JOIN pos.pos_profiles p ON p.id = i.pos_profile_id
@@ -465,7 +651,9 @@ impl PosInvoiceRepository {
             sqlx::query(
                 r#"SELECT i.receipt_number, i.posting_at, i.net_total, i.tax_total, i.rounding_adjustment,
                           i.rounded_total, i.paid_total, i.change_due, i.status::text AS status,
-                          p.name AS register_name, p.currency, p.tax_rate
+                          p.name AS register_name, p.currency,
+                          ROUND(COALESCE(i.tax_total / NULLIF(i.net_total, 0), 0), 6) AS tax_rate,
+                          (i.billing_invoice_id IS NOT NULL) AS is_invoiced
                    FROM pos.pos_invoices i JOIN pos.pos_profiles p ON p.id = i.pos_profile_id
                    WHERE i.id=$1 AND i.company_id=$2 AND (i.metadata->>'deleted_at') IS NULL"#,
             )
@@ -478,6 +666,7 @@ impl PosInvoiceRepository {
             rounding_adjustment: r.get("rounding_adjustment"), rounded_total: r.get("rounded_total"),
             paid_total: r.get("paid_total"), change_due: r.get("change_due"), status: r.get("status"),
             register_name: r.get("register_name"), currency: r.get("currency"), tax_rate: r.get("tax_rate"),
+            is_invoiced: r.get("is_invoiced"),
         }))
     }
 }

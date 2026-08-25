@@ -16,6 +16,10 @@ mod pos_payment_seeder;
 mod pos_profile_seeder;
 mod pos_opening_entry_seeder;
 mod pos_cash_movement_seeder;
+mod pos_discount_seeder;
+mod pos_manager_pin_seeder;
+mod pos_floor_plan_seeder;
+mod pos_table_seeder;
 
 pub use pos_closing_entry_seeder::SeedPosClosingEntrySeeder;
 pub use pos_invoice_seeder::SeedPosInvoiceSeeder;
@@ -24,6 +28,10 @@ pub use pos_payment_seeder::SeedPosPaymentSeeder;
 pub use pos_profile_seeder::SeedPosProfileSeeder;
 pub use pos_opening_entry_seeder::SeedPosOpeningEntrySeeder;
 pub use pos_cash_movement_seeder::SeedPosCashMovementSeeder;
+pub use pos_discount_seeder::SeedPosDiscountSeeder;
+pub use pos_manager_pin_seeder::SeedPosManagerPinSeeder;
+pub use pos_floor_plan_seeder::SeedPosFloorPlanSeeder;
+pub use pos_table_seeder::SeedPosTableSeeder;
 
 // ============================================================================
 // SEEDER TRAIT

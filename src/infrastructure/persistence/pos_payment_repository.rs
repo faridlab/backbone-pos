@@ -48,6 +48,8 @@ pub struct NewTenderRow<'a> {
     pub id: Uuid,
     pub company_id: Uuid,
     pub pos_invoice_id: Uuid,
+    /// The tender's offline-sync identity (None for server-originated tenders).
+    pub client_uuid: Option<Uuid>,
     pub payment_method: &'a str,
     pub amount: Decimal,
     pub reference_no: Option<&'a str>,
@@ -78,13 +80,43 @@ impl PosPaymentRepository {
         t: &NewTenderRow<'_>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"INSERT INTO pos.pos_payments (id, company_id, pos_invoice_id, payment_method, amount, reference_no)
-               VALUES ($1,$2,$3,$4::pos_payment_method,$5,$6)"#,
+            r#"INSERT INTO pos.pos_payments (id, company_id, pos_invoice_id, client_uuid, payment_method, amount, reference_no)
+               VALUES ($1,$2,$3,$4,$5::pos_payment_method,$6,$7)"#,
         )
-        .bind(t.id).bind(t.company_id).bind(t.pos_invoice_id).bind(t.payment_method).bind(t.amount).bind(t.reference_no)
+        .bind(t.id).bind(t.company_id).bind(t.pos_invoice_id).bind(t.client_uuid).bind(t.payment_method).bind(t.amount).bind(t.reference_no)
         .execute(conn)
         .await?;
         Ok(())
+    }
+
+    /// Soft-delete a DRAFT ticket's tenders so an offline replay can rewrite them (full-snapshot
+    /// semantics: the replay carries the ticket's complete tender set). Soft-delete keeps the audit
+    /// trail and frees the partial-unique on `client_uuid`. Takes the CALLER'S connection.
+    pub async fn soft_delete_tenders_for_ticket(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        pos_invoice_id: Uuid,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE pos.pos_payments SET metadata = jsonb_set(metadata, '{deleted_at}', to_jsonb($2::timestamptz))
+               WHERE pos_invoice_id=$1 AND (metadata->>'deleted_at') IS NULL"#,
+        )
+        .bind(pos_invoice_id).bind(now)
+        .execute(conn)
+        .await?;
+        Ok(())
+    }
+
+    /// The payment-method enum's live variants, for tender-method validation (a replay naming an
+    /// unknown method is a typed 422, not a DB cast error). Runs under the caller's company scope.
+    pub async fn valid_methods(&self, pool: &PgPool) -> Result<Vec<String>, sqlx::Error> {
+        let rows = company_scope::fetch_all_rows_scoped(
+            pool,
+            sqlx::query("SELECT unnest(enum_range(NULL::pos_payment_method))::text AS m"),
+        )
+        .await?;
+        Ok(rows.iter().map(|r| r.get::<String, _>("m")).collect())
     }
 
     /// Re-sum a ticket's tenders. Takes the CALLER'S connection so it reads the tender just inserted in

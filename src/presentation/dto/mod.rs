@@ -12,6 +12,10 @@ pub mod pos_payment_dto;
 pub mod pos_profile_dto;
 pub mod pos_opening_entry_dto;
 pub mod pos_cash_movement_dto;
+pub mod pos_discount_dto;
+pub mod pos_manager_pin_dto;
+pub mod pos_floor_plan_dto;
+pub mod pos_table_dto;
 
 // Re-exports
 pub use pos_closing_entry_dto::{
@@ -69,6 +73,38 @@ pub use pos_cash_movement_dto::{
     PosCashMovementResponseDto,
     PosCashMovementListResponseDto,
     PosCashMovementSummaryDto,
+};
+pub use pos_discount_dto::{
+    CreatePosDiscountDto,
+    UpdatePosDiscountDto,
+    PatchPosDiscountDto,
+    PosDiscountResponseDto,
+    PosDiscountListResponseDto,
+    PosDiscountSummaryDto,
+};
+pub use pos_manager_pin_dto::{
+    CreatePosManagerPinDto,
+    UpdatePosManagerPinDto,
+    PatchPosManagerPinDto,
+    PosManagerPinResponseDto,
+    PosManagerPinListResponseDto,
+    PosManagerPinSummaryDto,
+};
+pub use pos_floor_plan_dto::{
+    CreatePosFloorPlanDto,
+    UpdatePosFloorPlanDto,
+    PatchPosFloorPlanDto,
+    PosFloorPlanResponseDto,
+    PosFloorPlanListResponseDto,
+    PosFloorPlanSummaryDto,
+};
+pub use pos_table_dto::{
+    CreatePosTableDto,
+    UpdatePosTableDto,
+    PatchPosTableDto,
+    PosTableResponseDto,
+    PosTableListResponseDto,
+    PosTableSummaryDto,
 };
 
 // Common pagination types

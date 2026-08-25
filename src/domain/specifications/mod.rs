@@ -13,6 +13,10 @@ pub mod pos_payment_specification;
 pub mod pos_profile_specification;
 pub mod pos_opening_entry_specification;
 pub mod pos_cash_movement_specification;
+pub mod pos_discount_specification;
+pub mod pos_manager_pin_specification;
+pub mod pos_floor_plan_specification;
+pub mod pos_table_specification;
 
 // <<< CUSTOM
 // END CUSTOM

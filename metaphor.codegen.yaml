@@ -27,6 +27,17 @@ user_owned:
   - "src/application/service/pos_recognition.rs"
   - "src/application/service/pos_drawer.rs"
   - "src/application/service/pos_receipt.rs"
+  # The server-owned ticket computation shared by ring + offline sync (document-grade tax
+  # through PosTaxComputePort, register-config cash rounding), the offline sync verb itself,
+  # and the manager-PIN credential path (argon2 hash + attempt counters + lockout).
+  - "src/application/service/pos_compute.rs"
+  - "src/application/service/pos_sync.rs"
+  - "src/application/service/pos_manager_pin.rs"
+  # Restaurant lane + scheduler: the order-level discount resolution/fold (rate always from the
+  # tenant's master, folded before the tax compute) and the old-session alert handler behind the
+  # module's one scheduled job (per-company claim under the pickup lock + once-only latch).
+  - "src/application/service/pos_discount.rs"
+  - "src/application/service/pos_session_alert.rs"
   # Own the hand-written POS SQL that the write service orchestrates (the ticket header + lines, the
   # tender re-sum, the recognition read + its at-most-once billing link and draft->paid flip, the
   # returns mirror, the drawer reads, the close). Declared here — not renamed with a `_custom` suffix —
@@ -38,6 +49,16 @@ user_owned:
   - "src/infrastructure/persistence/pos_opening_entry_repository.rs"
   - "src/infrastructure/persistence/pos_closing_entry_repository.rs"
   - "src/infrastructure/persistence/pos_cash_movement_repository.rs"
+  # The manager-PIN repository carries the credential SQL (upsert hash, attempt counters,
+  # lockout) — owned like the other hand-written repos above. The DTO is owned to keep the
+  # argon2 hash and the attempt-source IP out of every generated response surface.
+  - "src/infrastructure/persistence/pos_manager_pin_repository.rs"
+  # Sibling files adding hand-written methods to GENERATED repositories (the module's sanctioned
+  # custom-code convention): table/discount identity reads for the write path's validation.
+  # Their `mod` + re-export declarations sit in a CUSTOM block in persistence/mod.rs.
+  - "src/infrastructure/persistence/pos_table_repository_custom.rs"
+  - "src/infrastructure/persistence/pos_discount_repository_custom.rs"
+  - "src/presentation/dto/pos_manager_pin_dto.rs"
   - "src/presentation/http/guarded_routes.rs"
   - "tests/pos_golden_cases.rs"
   - "tests/integrity_probes.rs"
@@ -45,12 +66,43 @@ user_owned:
   - "tests/company_guard.rs"
   - "tests/pos_cash_movement.rs"
   - "tests/pos_receipt.rs"
+  # Offline-sync + manager-PIN + document-grade tax behavior tests, and the shared in-test port
+  # fakes + DB seeders they all use.
+  - "tests/pos_sync_ui.rs"
+  - "tests/pos_manager_pin.rs"
+  - "tests/pos_tax_compute.rs"
+  # Restaurant-lane behavior (seating, transfer, one draft per table, server-priced order
+  # discounts) and the old-session alert scheduler handler.
+  - "tests/pos_restaurant.rs"
+  - "tests/pos_session_alert.rs"
+  - "tests/support/**"
   # Hand-written migration the generator cannot re-derive from the schema: the
   # company-fence (ADR-0014) strict re-statement of the live RLS policies on all
   # seven pos tables. Unlisted, a `--force` regen can drop it — the same
   # protection payment's and promo's fence migrations carry in their manifests.
   - "migrations/20260823100000_company_fence_strict.up.sql"
   - "migrations/20260823100000_company_fence_strict.down.sql"
+  # Hand-written fence for the tables added later (manager PINs, floor plans,
+  # tables, discounts): the module-level RLS migration only covers the tables that
+  # existed when it shipped, so tables added after it get their strict fence here.
+  - "migrations/20260823100005_fence_manager_pins_floor_plans_tables_discounts_company_rls.up.sql"
+  - "migrations/20260823100005_fence_manager_pins_floor_plans_tables_discounts_company_rls.down.sql"
+  # Hand-written ALTER migrations for the tables that shipped with a create
+  # migration the generator treats as immutable history — offline-sync identity
+  # (client uuid on ticket/line/tender), restaurant seating (table ref + course
+  # grouping + one draft per table), the one-open-session-per-register partial
+  # unique, the profile's cash rounding configuration, and the register's
+  # document-grade tax template refs.
+  - "migrations/20260824100000_add_client_uuid_sync_identity.up.sql"
+  - "migrations/20260824100000_add_client_uuid_sync_identity.down.sql"
+  - "migrations/20260824100010_add_pos_table_ref_and_course_grouping.up.sql"
+  - "migrations/20260824100010_add_pos_table_ref_and_course_grouping.down.sql"
+  - "migrations/20260824100020_enforce_one_open_session_per_profile.up.sql"
+  - "migrations/20260824100020_enforce_one_open_session_per_profile.down.sql"
+  - "migrations/20260824100030_add_cash_rounding_to_pos_profiles.up.sql"
+  - "migrations/20260824100030_add_cash_rounding_to_pos_profiles.down.sql"
+  - "migrations/20260824100040_add_tax_template_refs_to_pos_profiles.up.sql"
+  - "migrations/20260824100040_add_tax_template_refs_to_pos_profiles.down.sql"
   - "scripts/**"
   # Hand-authored behavior (services + their HTTP surface). Examples:
   # - "src/application/service/onboarding_service.rs"

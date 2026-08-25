@@ -3,8 +3,10 @@
 # =============================================================================
 # Declarative spec of the validated write surface in src/application/service/
 # (pos_write_service.rs and its chunks: pos_sale, pos_tender, pos_recognition,
-# pos_drawer, pos_receipt), proven by tests/ (pos_golden_cases, integrity_probes,
-# pos_cash_movement, pos_receipt, company_guard, retail_sale_seam).
+# pos_drawer, pos_receipt, pos_sync, pos_compute, pos_discount, pos_session_alert),
+# proven by tests/ (pos_golden_cases, integrity_probes, pos_cash_movement,
+# pos_receipt, company_guard, retail_sale_seam, pos_sync_ui, pos_tax_compute,
+# pos_restaurant, pos_session_alert).
 #
 # ADR-0015 enforcement vocabulary: db = a DB object (CHECK / unique index / enum /
 # trigger) enforces it on every write path incl. raw SQL; service = write-path only;
@@ -71,9 +73,9 @@ rules:
     name: one_open_session_per_config
     when: opening_session
     assert: "no other session with status='open' exists for the same (company_id, pos_profile_id)"
-    error_code: none
-    enforcement: none
-    note: "DECLARED GAP, stated not silently dropped: no guard exists in either layer today — open_session inserts unconditionally and the (company_id, pos_profile_id, status) index is not unique. Proposed backstop is a partial unique index ... WHERE status='open' plus an open_session pre-check returning a friendly 422 (enforcement: both); parked as follow-up because this pass touches no migrations beyond the ADR-0014 re-statement"
+    error_code: session_already_open
+    enforcement: both
+    note: "DB arm: partial unique index idx_pos_opening_entries_pos_profile_id WHERE status='open' AND deleted_at IS NULL; service arm maps the insert's unique violation to a friendly 422 (constraint-name discrimination on pos_profile_id)"
 
   - id: R3
     name: non_empty_basket
@@ -194,6 +196,46 @@ rules:
     enforcement: service
     note: "the outbox record carries company_id as its top-level fence field (ADR-0011); double-delivery is a no-op because recognition is replay-safe"
 
+  - id: R18
+    name: one_draft_per_table
+    when: ringing/seating/transferring
+    assert: "a dining table holds at most one ticket with status='draft'; the reference merges client-side — this port refuses the second draft instead"
+    error_code: table_occupied
+    enforcement: both
+    note: "DB arm: partial unique index idx_pos_invoices_pos_table_id WHERE status='draft' AND pos_table_id IS NOT NULL AND deleted_at IS NULL (relaxes the moment the draft leaves draft); service arm pre-checks occupancy (excluding the ticket itself on transfer, so a transfer onto its own table is a no-op seat) and maps the raced unique violation to the same typed 409 carrying the occupying ticket id"
+
+  - id: R19
+    name: named_table_must_exist
+    when: ringing/seating/transferring
+    assert: "a ticket naming a pos_table_id seats at a table that exists in the caller's tenant"
+    error_code: table_not_found
+    enforcement: service
+    note: "a soft-deleted or cross-tenant table id is simply not found (the lookup is company-scoped with an explicit company_id filter); the seating is a UI affordance, not money — but a silent unseated ring would hide the mistake from the floor plan"
+
+  - id: R20
+    name: order_discount_server_priced
+    when: ringing/syncing
+    assert: "the order-level discount RATE is read from the tenant's pos_discounts master row; a client-supplied rate has no field to land in, the register must have allow_discount, and the fold lands on line discount_amounts BEFORE the tax compute (tax sees post-discount nets)"
+    error_code: discount_not_found | discount_not_allowed | discount_invalid
+    enforcement: both
+    note: "DB arm: pos_discounts.percentage CHECK (percentage >= 0) bounds the master at storage; service arm resolves the master tenant-scoped, gates on the register, re-fences the rate to [0,1] at read time, folds pro-rata by line gross (per-line money-rounded, refusing a combined discount that exceeds a line's gross), and the partial-unique/constraint rules above keep the ticket itself consistent"
+
+  - id: R21
+    name: loyalty_point_deltas_not_accepted
+    when: always
+    assert: "no POS input surface, DTO field, or table column accepts a client-authored loyalty point delta; points are out of scope for this module"
+    error_code: none
+    enforcement: service
+    note: "trust posture by construction (the reference lets clients author point deltas — that is the seam this port closes): the earn/redeem decisions belong to the promo seam (coupon_code in, reward_lines out) or a future loyalty consumer of PosInvoicePaid; nothing in pos mutates a points balance"
+
+  - id: R22
+    name: stale_session_alert_once
+    when: alert_old_sessions (scheduled)
+    assert: "an open session older than the threshold (7 days default) is alerted at most once — the claim stamps metadata->'stale_session_alerted_at' in the same transaction (single_transaction commit policy) under FOR UPDATE SKIP LOCKED"
+    error_code: none
+    enforcement: service
+    note: "the latch is the durable record; events are emitted after the latch commits, so a crash between commit and emit loses one alert run (re-derivable) rather than re-alerting forever; the handler is per-company — the composing host enumerates companies and rides its own daily schedule (ADR-0020 host_riding)"
+
 # -----------------------------------------------------------------------------
 # Domain events (emission is the service's responsibility; sink or outbox).
 # -----------------------------------------------------------------------------
@@ -213,3 +255,6 @@ events:
   PosSessionClosed:
     when: "close_session commits"
     payload: [closing_entry_id, opening_entry_id, company_id, difference_total]
+  PosStaleSessionAlerted:
+    when: "the old-session alert job latches a stale open session (R22)"
+    payload: [opening_entry_id, pos_profile_id, company_id, cashier_party_id, opened_at]

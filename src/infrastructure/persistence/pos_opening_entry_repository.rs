@@ -53,6 +53,16 @@ pub struct NewOpeningEntryRow {
     pub opening_balances: serde_json::Value,
 }
 
+/// An open session claimed by the old-session alert scheduler: everything the alert consumer (the
+/// host wiring a mail activity onto the cashier) needs to act, plus the anchors the emitted
+/// `PosStaleSessionAlerted` event carries.
+pub struct StaleSessionRow {
+    pub opening_entry_id: Uuid,
+    pub pos_profile_id: Uuid,
+    pub cashier_party_id: Uuid,
+    pub opened_at: chrono::NaiveDateTime,
+}
+
 /// Hand-written cashier-session SQL. Lives here (not in the write service) per the module's 4-layer
 /// rule: services orchestrate and own the unit of work, repositories hold the SQL.
 impl PosOpeningEntryRepository {
@@ -124,6 +134,25 @@ impl PosOpeningEntryRepository {
         .await
     }
 
+    /// Read the session's register (pool variant, for lookups outside a unit of work). Explicit
+    /// `company_id = $2` filter as defense-in-depth ON TOP of the RLS fence; `Ok(None)` = no such
+    /// session in this tenant.
+    pub async fn fetch_profile_id(
+        &self,
+        pool: &PgPool,
+        opening_entry_id: Uuid,
+        company_id: Uuid,
+    ) -> Result<Option<Uuid>, sqlx::Error> {
+        company_scope::fetch_optional_scalar_scoped(
+            pool,
+            sqlx::query_scalar(
+                "SELECT pos_profile_id FROM pos.pos_opening_entries WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL",
+            )
+            .bind(opening_entry_id).bind(company_id),
+        )
+        .await
+    }
+
     /// Read the session's register, on the CALLER'S connection so it reads the same snapshot the
     /// closing-entry insert writes. The caller has already bound the company on it
     /// (`bind_current_company`) — don't re-bind here.
@@ -138,6 +167,26 @@ impl PosOpeningEntryRepository {
             .await
     }
 
+    /// The variance-booking accounts of a session's register: the cash account (the drawer side) and
+    /// the difference/write-off account (the absorption side), plus the currency the correction
+    /// posts in. Read on the CALLER'S connection so the close sees the same snapshot it writes.
+    /// `Ok(None)` on either account means the register is not configured for variance booking — the
+    /// caller decides whether that refuses the close (non-zero variance) or skips it (balanced).
+    pub async fn fetch_variance_accounts_on(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        opening_entry_id: Uuid,
+    ) -> Result<(Option<Uuid>, Option<Uuid>, String), sqlx::Error> {
+        sqlx::query_as(
+            r#"SELECT p.cash_account_id, p.write_off_account_id, p.currency
+               FROM pos.pos_opening_entries o JOIN pos.pos_profiles p ON p.id = o.pos_profile_id
+               WHERE o.id=$1"#,
+        )
+        .bind(opening_entry_id)
+        .fetch_one(conn)
+        .await
+    }
+
     /// Flip the session to `closed`. Takes the CALLER'S connection so this and the closing-entry insert
     /// commit as one unit; the caller has already bound the company on it.
     pub async fn mark_closed(
@@ -149,6 +198,72 @@ impl PosOpeningEntryRepository {
             .bind(opening_entry_id)
             .execute(conn)
             .await?;
+        Ok(())
+    }
+
+    /// Claim the company's stale open sessions — the intake half of the old-session alert scheduler.
+    ///
+    /// `FOR UPDATE SKIP LOCKED` is the pickup lock (ADR-0020 §4): two concurrent runs of the drainer
+    /// never claim the same session. A session is stale when it is still `open`, opened before
+    /// `cutoff`, and has not been alerted yet (the `stale_session_alerted_at` marker in `metadata` is
+    /// the once-only latch — it is what keeps a daily scheduler from re-nagging the same session
+    /// every run). Takes the CALLER'S connection so the claim and its marker stamp commit as one
+    /// unit; the explicit `company_id` filter is defense-in-depth on top of the fence the caller
+    /// bound. `opened_at` is cast to a wall-clock `timestamp` in the session zone — the exact
+    /// inverse of the cast the open insert applies — so the Rust-side `NaiveDateTime` round-trips
+    /// whatever the server's zone is.
+    pub async fn claim_stale_sessions(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        company_id: Uuid,
+        cutoff: chrono::NaiveDateTime,
+        limit: i64,
+    ) -> Result<Vec<StaleSessionRow>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, (Uuid, Uuid, Uuid, chrono::NaiveDateTime)>(
+            r#"SELECT id, pos_profile_id, cashier_party_id, opened_at::timestamp
+               FROM pos.pos_opening_entries
+               WHERE company_id=$1 AND status='open'::pos_session_status
+                 AND opened_at < $2
+                 AND (metadata->>'stale_session_alerted_at') IS NULL
+                 AND (metadata->>'deleted_at') IS NULL
+               ORDER BY opened_at
+               LIMIT $3
+               FOR UPDATE SKIP LOCKED"#,
+        )
+        .bind(company_id)
+        .bind(cutoff)
+        .bind(limit)
+        .fetch_all(conn)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(opening_entry_id, pos_profile_id, cashier_party_id, opened_at)| StaleSessionRow {
+                opening_entry_id,
+                pos_profile_id,
+                cashier_party_id,
+                opened_at,
+            })
+            .collect())
+    }
+
+    /// Stamp the once-only alert marker onto the claimed sessions (same transaction as the claim —
+    /// `commit_policy: single_transaction` per the scheduler declaration). Takes the CALLER'S
+    /// connection.
+    pub async fn mark_stale_alerted(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        opening_entry_ids: &[Uuid],
+        at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE pos.pos_opening_entries
+               SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{stale_session_alerted_at}', to_jsonb($2::timestamptz))
+               WHERE id = ANY($1)"#,
+        )
+        .bind(opening_entry_ids)
+        .bind(at)
+        .execute(conn)
+        .await?;
         Ok(())
     }
 }

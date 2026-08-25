@@ -1,0 +1,50 @@
+# =============================================================================
+# Domain: POS
+# Entity: PosDiscount (order-level percentage discount master)
+# Description: A small master of cashier-selectable, order-level percentage
+# discounts. The cashier picks one at the till; the server applies the
+# percentage to the ticket total and stores the result in the ticket's own
+# totals — this table only names and bounds the choice, it never computes.
+# `percentage` is a fraction of the order total (0.0500 = 5%), mirroring
+# PosProfile.tax_rate's convention. Retiring a discount is a soft delete.
+#
+# FILE NAMING: this file is deliberately named `pos_till_discount` (sorting
+# after `pos_till_cash_movement`) so it lands after every existing model
+# file — the same append-only ordering convention
+# `pos_till_cash_movement`'s header documents.
+# =============================================================================
+
+models:
+  - name: PosDiscount
+    collection: pos_discounts
+    description: "A cashier-selectable order-level percentage discount"
+
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique discount id"
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Books owner # logical FK to organization.Company.id"
+      name:
+        type: string
+        attributes: ["@required", "@max(140)"]
+        description: "Discount label shown at the till (e.g. 'Staff 10%')"
+      percentage:
+        type: decimal
+        attributes: ["@required", "@precision(6,4)", "@non_negative"]
+        description: "Fraction of the order total (0.1000 = 10%); the service rejects values above 1.0"
+      description:
+        type: string?
+        attributes: ["@max(300)"]
+        description: "When this discount applies (policy note, not printed)"
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+
+    indexes:
+      - type: index
+        fields: [company_id]

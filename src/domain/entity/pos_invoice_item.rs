@@ -53,6 +53,8 @@ pub struct PosInvoiceItem {
     pub pos_invoice_id: Uuid,
     pub item_id: Uuid,
     pub description: Option<String>,
+    pub client_uuid: Option<Uuid>,
+    pub course: Option<i32>,
     pub quantity: Decimal,
     pub unit_price: Decimal,
     pub discount_amount: Decimal,
@@ -77,6 +79,8 @@ impl PosInvoiceItem {
             pos_invoice_id,
             item_id,
             description: None,
+            client_uuid: None,
+            course: None,
             quantity,
             unit_price,
             discount_amount,
@@ -147,6 +151,18 @@ impl PosInvoiceItem {
         self
     }
 
+    /// Set the client_uuid field (chainable)
+    pub fn with_client_uuid(mut self, value: Uuid) -> Self {
+        self.client_uuid = Some(value);
+        self
+    }
+
+    /// Set the course field (chainable)
+    pub fn with_course(mut self, value: i32) -> Self {
+        self.course = Some(value);
+        self
+    }
+
     /// Set the revenue_account_id field (chainable)
     pub fn with_revenue_account_id(mut self, value: Uuid) -> Self {
         self.revenue_account_id = Some(value);
@@ -172,6 +188,12 @@ impl PosInvoiceItem {
                 }
                 "description" => {
                     if let Ok(v) = serde_json::from_value(value) { self.description = v; }
+                }
+                "client_uuid" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.client_uuid = v; }
+                }
+                "course" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.course = v; }
                 }
                 "quantity" => {
                     if let Ok(v) = serde_json::from_value(value) { self.quantity = v; }
@@ -269,6 +291,8 @@ pub struct PosInvoiceItemBuilder {
     pos_invoice_id: Option<Uuid>,
     item_id: Option<Uuid>,
     description: Option<String>,
+    client_uuid: Option<Uuid>,
+    course: Option<i32>,
     quantity: Option<Decimal>,
     unit_price: Option<Decimal>,
     discount_amount: Option<Decimal>,
@@ -298,6 +322,18 @@ impl PosInvoiceItemBuilder {
     /// Set the description field (optional)
     pub fn description(mut self, value: String) -> Self {
         self.description = Some(value);
+        self
+    }
+
+    /// Set the client_uuid field (optional)
+    pub fn client_uuid(mut self, value: Uuid) -> Self {
+        self.client_uuid = Some(value);
+        self
+    }
+
+    /// Set the course field (optional)
+    pub fn course(mut self, value: i32) -> Self {
+        self.course = Some(value);
         self
     }
 
@@ -347,6 +383,8 @@ impl PosInvoiceItemBuilder {
             pos_invoice_id,
             item_id,
             description: self.description,
+            client_uuid: self.client_uuid,
+            course: self.course,
             quantity,
             unit_price,
             discount_amount: self.discount_amount.unwrap_or(Decimal::from(0)),

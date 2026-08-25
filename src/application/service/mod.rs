@@ -14,6 +14,10 @@ pub mod pos_payment_service;
 pub mod pos_profile_service;
 pub mod pos_opening_entry_service;
 pub mod pos_cash_movement_service;
+pub mod pos_discount_service;
+pub mod pos_manager_pin_service;
+pub mod pos_floor_plan_service;
+pub mod pos_table_service;
 
 // <<< CUSTOM
 pub mod pos_events;
@@ -27,6 +31,13 @@ pub mod pos_tender;
 pub mod pos_recognition;
 pub mod pos_drawer;
 pub mod pos_receipt;
+// The server-owned ticket computation (document-grade tax + register cash rounding), the offline
+// replay verb, and the manager-PIN credential path.
+pub mod pos_compute;
+pub mod pos_sync;
+pub mod pos_manager_pin;
+pub mod pos_discount;
+pub mod pos_session_alert;
 // END CUSTOM
 
 pub use pos_closing_entry_service::PosClosingEntryService;
@@ -35,24 +46,29 @@ pub use pos_invoice_item_service::PosInvoiceItemService;
 pub use pos_payment_service::PosPaymentService;
 pub use pos_profile_service::PosProfileService;
 pub use pos_opening_entry_service::PosOpeningEntryService;
+pub use pos_cash_movement_service::PosCashMovementService;
+pub use pos_discount_service::PosDiscountService;
+pub use pos_manager_pin_service::PosManagerPinService;
+pub use pos_floor_plan_service::PosFloorPlanService;
+pub use pos_table_service::PosTableService;
 // <<< CUSTOM
 pub use pos_events::{
     LoggingSink, PosEvent, PosEventSink, PosInvoicePaid, PosInvoiceReturned, PosSessionClosed,
     PosSessionOpened,
 };
 pub use pos_ports::{
-    BillingPort, CreditNoteRequest, InvoiceAck, PaymentPort, PosRejected, RefundRequest, ReversalAck,
-    SaleInvoiceRequest, SaleLine, SettlementAck, SettlementRequest,
+    BillingPort, CashVarianceAck, CashVarianceDirection, CashVarianceRequest, CreditNoteRequest,
+    InvoiceAck, PaymentPort, PosCashVariancePort, PosRejected, PosTaxComponent, PosTaxComputePort,
+    PosTaxComputeRequest, PosTaxComputeResult, PosTaxDocumentType, PosTaxLineIn, RefundRequest,
+    ReversalAck, SaleInvoiceRequest, SaleLine, SettlementAck, SettlementRequest,
 };
 pub use pos_cart_pricing::{
     CartPriceLine, CartPriceRequest, CartPricingError, CartPricingPort, PricedCart, PricedCartLine,
     PricedRewardLine,
 };
 pub use pos_write_service::{
-    CartSaleLine, CloseOutcome, MethodRecon, NewCartSale, NewClose, NewSale, NewSaleLine, NewSession,
-    PosError, PosWriteService, RecognizeOutcome, ReturnOutcome, TenderOutcome,
+    CartSaleLine, CloseOutcome, ManagerAuth, MethodRecon, NewCartSale, NewClose, NewSale, NewSaleLine,
+    NewSession, NewSyncSale, PinPolicy, PosError, PosWriteService, RecognizeOutcome, ReturnOutcome,
+    SyncAction, SyncOutcome, SyncSaleLine, SyncTender, TenderOutcome, TicketTotals, VarianceBooking,
 };
-// END CUSTOM
-pub use pos_cash_movement_service::PosCashMovementService;
-// <<< CUSTOM
 // END CUSTOM

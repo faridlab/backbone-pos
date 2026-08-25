@@ -16,6 +16,14 @@ pub mod pos_opening_entry_events;
 pub mod pos_opening_entry_event_handlers;
 pub mod pos_cash_movement_events;
 pub mod pos_cash_movement_event_handlers;
+pub mod pos_discount_events;
+pub mod pos_discount_event_handlers;
+pub mod pos_manager_pin_events;
+pub mod pos_manager_pin_event_handlers;
+pub mod pos_floor_plan_events;
+pub mod pos_floor_plan_event_handlers;
+pub mod pos_table_events;
+pub mod pos_table_event_handlers;
 
 pub use pos_closing_entry_events::{PosClosingEntryEvent, PosClosingEntryEventPublisher, NoopPosClosingEntryEventPublisher};
 pub use pos_closing_entry_event_handlers::PosClosingEntryEventHandler;
@@ -31,6 +39,14 @@ pub use pos_opening_entry_events::{PosOpeningEntryEvent, PosOpeningEntryEventPub
 pub use pos_opening_entry_event_handlers::PosOpeningEntryEventHandler;
 pub use pos_cash_movement_events::{PosCashMovementEvent, PosCashMovementEventPublisher, NoopPosCashMovementEventPublisher};
 pub use pos_cash_movement_event_handlers::PosCashMovementEventHandler;
+pub use pos_discount_events::{PosDiscountEvent, PosDiscountEventPublisher, NoopPosDiscountEventPublisher};
+pub use pos_discount_event_handlers::PosDiscountEventHandler;
+pub use pos_manager_pin_events::{PosManagerPinEvent, PosManagerPinEventPublisher, NoopPosManagerPinEventPublisher};
+pub use pos_manager_pin_event_handlers::PosManagerPinEventHandler;
+pub use pos_floor_plan_events::{PosFloorPlanEvent, PosFloorPlanEventPublisher, NoopPosFloorPlanEventPublisher};
+pub use pos_floor_plan_event_handlers::PosFloorPlanEventHandler;
+pub use pos_table_events::{PosTableEvent, PosTableEventPublisher, NoopPosTableEventPublisher};
+pub use pos_table_event_handlers::PosTableEventHandler;
 
 // <<< CUSTOM
 // END CUSTOM

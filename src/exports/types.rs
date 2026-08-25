@@ -118,7 +118,9 @@ pub struct PosInvoiceDto {
     pub opening_entry_id: Uuid,
     pub branch_id: Option<Uuid>,
     pub customer_id: Option<Uuid>,
+    pub pos_table_id: Option<Uuid>,
     pub receipt_number: String,
+    pub client_uuid: Option<Uuid>,
     pub posting_at: DateTime<Utc>,
     pub net_total: Decimal,
     pub tax_total: Decimal,
@@ -190,6 +192,8 @@ pub struct PosInvoiceItemDto {
     pub pos_invoice_id: Uuid,
     pub item_id: Uuid,
     pub description: Option<String>,
+    pub client_uuid: Option<Uuid>,
+    pub course: Option<i32>,
     pub quantity: Decimal,
     pub unit_price: Decimal,
     pub discount_amount: Decimal,
@@ -253,6 +257,7 @@ pub struct PosPaymentDto {
     pub payment_method: PosPaymentMethod,
     pub amount: Decimal,
     pub reference_no: Option<String>,
+    pub client_uuid: Option<Uuid>,
     pub payment_entry_id: Option<Uuid>,
     pub metadata: serde_json::Value,
 }
@@ -318,10 +323,13 @@ pub struct PosProfileDto {
     pub write_off_account_id: Option<Uuid>,
     pub tax_account_id: Option<Uuid>,
     pub tax_rate: Decimal,
+    pub tax_template_ids: Option<serde_json::Value>,
     pub warehouse_id: Option<Uuid>,
     pub cogs_account_id: Option<Uuid>,
     pub inventory_account_id: Option<Uuid>,
     pub allow_discount: bool,
+    pub cash_rounding_strategy: PosCashRoundingStrategy,
+    pub cash_rounding_unit: Decimal,
     pub status: PosProfileStatus,
     pub metadata: serde_json::Value,
 }
@@ -460,6 +468,242 @@ pub struct PosCashMovementSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PosCashMovementRef {
     pub id: PosCashMovementId,
+}
+
+// ============================================================================
+// POSDISCOUNT TYPES
+// ============================================================================
+
+/// Type-safe ID for PosDiscount
+///
+/// Use this instead of raw Uuid for type safety across modules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PosDiscountId(pub Uuid);
+
+impl PosDiscountId {
+    pub fn new(id: Uuid) -> Self {
+        Self(id)
+    }
+
+    pub fn into_inner(self) -> Uuid {
+        self.0
+    }
+}
+
+impl From<Uuid> for PosDiscountId {
+    fn from(id: Uuid) -> Self {
+        Self(id)
+    }
+}
+
+impl From<PosDiscountId> for Uuid {
+    fn from(id: PosDiscountId) -> Self {
+        id.0
+    }
+}
+
+/// Data transfer object for PosDiscount
+///
+/// This is the public representation of PosDiscount for other modules.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosDiscountDto {
+    pub id: PosDiscountId,
+    pub company_id: Uuid,
+    pub name: String,
+    pub percentage: Decimal,
+    pub description: Option<String>,
+    pub metadata: serde_json::Value,
+}
+
+/// Summary view of PosDiscount for list displays
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosDiscountSummary {
+    pub id: PosDiscountId,
+    pub name: String,
+}
+
+/// Reference to PosDiscount for foreign key relationships
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosDiscountRef {
+    pub id: PosDiscountId,
+}
+
+// ============================================================================
+// POSMANAGERPIN TYPES
+// ============================================================================
+
+/// Type-safe ID for PosManagerPin
+///
+/// Use this instead of raw Uuid for type safety across modules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PosManagerPinId(pub Uuid);
+
+impl PosManagerPinId {
+    pub fn new(id: Uuid) -> Self {
+        Self(id)
+    }
+
+    pub fn into_inner(self) -> Uuid {
+        self.0
+    }
+}
+
+impl From<Uuid> for PosManagerPinId {
+    fn from(id: Uuid) -> Self {
+        Self(id)
+    }
+}
+
+impl From<PosManagerPinId> for Uuid {
+    fn from(id: PosManagerPinId) -> Self {
+        id.0
+    }
+}
+
+/// Data transfer object for PosManagerPin
+///
+/// This is the public representation of PosManagerPin for other modules.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosManagerPinDto {
+    pub id: PosManagerPinId,
+    pub company_id: Uuid,
+    pub employee_party_id: Uuid,
+    pub pin_hash: String,
+    pub failed_attempts: i32,
+    pub locked_until: Option<DateTime<Utc>>,
+    pub last_attempt_at: Option<DateTime<Utc>>,
+    pub last_attempt_ip: Option<String>,
+    pub metadata: serde_json::Value,
+}
+
+/// Summary view of PosManagerPin for list displays
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosManagerPinSummary {
+    pub id: PosManagerPinId,
+}
+
+/// Reference to PosManagerPin for foreign key relationships
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosManagerPinRef {
+    pub id: PosManagerPinId,
+}
+
+// ============================================================================
+// POSFLOORPLAN TYPES
+// ============================================================================
+
+/// Type-safe ID for PosFloorPlan
+///
+/// Use this instead of raw Uuid for type safety across modules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PosFloorPlanId(pub Uuid);
+
+impl PosFloorPlanId {
+    pub fn new(id: Uuid) -> Self {
+        Self(id)
+    }
+
+    pub fn into_inner(self) -> Uuid {
+        self.0
+    }
+}
+
+impl From<Uuid> for PosFloorPlanId {
+    fn from(id: Uuid) -> Self {
+        Self(id)
+    }
+}
+
+impl From<PosFloorPlanId> for Uuid {
+    fn from(id: PosFloorPlanId) -> Self {
+        id.0
+    }
+}
+
+/// Data transfer object for PosFloorPlan
+///
+/// This is the public representation of PosFloorPlan for other modules.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosFloorPlanDto {
+    pub id: PosFloorPlanId,
+    pub company_id: Uuid,
+    pub branch_id: Option<Uuid>,
+    pub name: String,
+    pub position: Option<i32>,
+    pub metadata: serde_json::Value,
+}
+
+/// Summary view of PosFloorPlan for list displays
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosFloorPlanSummary {
+    pub id: PosFloorPlanId,
+    pub name: String,
+}
+
+/// Reference to PosFloorPlan for foreign key relationships
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosFloorPlanRef {
+    pub id: PosFloorPlanId,
+}
+
+// ============================================================================
+// POSTABLE TYPES
+// ============================================================================
+
+/// Type-safe ID for PosTable
+///
+/// Use this instead of raw Uuid for type safety across modules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PosTableId(pub Uuid);
+
+impl PosTableId {
+    pub fn new(id: Uuid) -> Self {
+        Self(id)
+    }
+
+    pub fn into_inner(self) -> Uuid {
+        self.0
+    }
+}
+
+impl From<Uuid> for PosTableId {
+    fn from(id: Uuid) -> Self {
+        Self(id)
+    }
+}
+
+impl From<PosTableId> for Uuid {
+    fn from(id: PosTableId) -> Self {
+        id.0
+    }
+}
+
+/// Data transfer object for PosTable
+///
+/// This is the public representation of PosTable for other modules.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosTableDto {
+    pub id: PosTableId,
+    pub company_id: Uuid,
+    pub pos_floor_plan_id: Uuid,
+    pub name: Option<String>,
+    pub seats: Option<i32>,
+    pub shape: Option<String>,
+    pub position: Option<serde_json::Value>,
+    pub metadata: serde_json::Value,
+}
+
+/// Summary view of PosTable for list displays
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosTableSummary {
+    pub id: PosTableId,
+    pub name: Option<String>,
+}
+
+/// Reference to PosTable for foreign key relationships
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosTableRef {
+    pub id: PosTableId,
 }
 
 // ============================================================================

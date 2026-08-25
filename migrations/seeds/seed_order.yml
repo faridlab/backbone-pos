@@ -16,3 +16,9 @@
 
 # Newly added seeds (preserve manual order above):
 - pos_cash_movement_seed
+
+# Newly added seeds (preserve manual order above):
+- pos_discount_seed
+- pos_manager_pin_seed
+- pos_floor_plan_seed
+- pos_table_seed

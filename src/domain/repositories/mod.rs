@@ -13,6 +13,10 @@ pub mod pos_payment_repository;
 pub mod pos_profile_repository;
 pub mod pos_opening_entry_repository;
 pub mod pos_cash_movement_repository;
+pub mod pos_discount_repository;
+pub mod pos_manager_pin_repository;
+pub mod pos_floor_plan_repository;
+pub mod pos_table_repository;
 
 // Re-exports
 pub use pos_closing_entry_repository::{
@@ -56,4 +60,28 @@ pub use pos_cash_movement_repository::{
     PosCashMovementPaginationParams,
     PosCashMovementPaginatedResult,
     PosCashMovementFilter,
+};
+pub use pos_discount_repository::{
+    PosDiscountRepository,
+    PosDiscountPaginationParams,
+    PosDiscountPaginatedResult,
+    PosDiscountFilter,
+};
+pub use pos_manager_pin_repository::{
+    PosManagerPinRepository,
+    PosManagerPinPaginationParams,
+    PosManagerPinPaginatedResult,
+    PosManagerPinFilter,
+};
+pub use pos_floor_plan_repository::{
+    PosFloorPlanRepository,
+    PosFloorPlanPaginationParams,
+    PosFloorPlanPaginatedResult,
+    PosFloorPlanFilter,
+};
+pub use pos_table_repository::{
+    PosTableRepository,
+    PosTablePaginationParams,
+    PosTablePaginatedResult,
+    PosTableFilter,
 };

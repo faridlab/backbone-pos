@@ -124,14 +124,62 @@ impl PosWriteService {
 
     // ---- close (drawer reconciliation) -------------------------------------
 
-    /// Close a session: for each tender method, `expected = opening_float + Σ recognised tenders`
-    /// (cash also `− Σ change_due`); `difference = counted − expected`. Persist the per-method
-    /// breakdown + the session's grand total, mark the session closed, emit `PosSessionClosed`.
-    pub async fn close_session(&self, c: NewClose) -> Result<CloseOutcome, PosError> {
+    /// Close a session — the Z-report. A PRIVILEGED mutation: the manager PIN on
+    /// [`NewClose::manager`] is verified server-side before anything is read or written, because a
+    /// close is the one POS verb that books a GL correction on its own account.
+    ///
+    /// Order of operations (every guard runs before any write — a failed close leaves NOTHING):
+    ///
+    /// 1. **Guards.** The session must exist and be open; it must hold no DRAFT sale tickets
+    ///    ([`PosError::SessionHasDraftOrders`] — post or void them first); and no half-recognised
+    ///    tickets (billing linked but the draft→paid flip never landed —
+    ///    [`PosError::SessionHasUnpostedInvoices`]; retry recognition first). The manager PIN is
+    ///    verified. A second open session on the register is impossible by the one-open-session
+    ///    unique, and opening a new one while this close is in flight collides there and surfaces as
+    ///    [`PosError::SessionAlreadyOpen`].
+    /// 2. **Count.** For each tender method `expected = opening_float + Σ recognised tenders` (cash
+    ///    also `− Σ change_due + Σ cash-movement net`) — the statement legs (what the journals say)
+    ///    against the counted legs (what the drawer holds). `difference = counted − expected`.
+    /// 3. **Variance.** A non-zero net difference books through the `PosCashVariancePort` to the
+    ///    register's cash account against its difference/write-off account — the ONE new GL surface a
+    ///    close produces (per-ticket posting stays THE posting path). Booking happens BEFORE the
+    ///    closing-entry transaction: if the seam refuses, the close rolls back entirely (nothing has
+    ///    been written); the seam's idempotency key is the session, so a crash between booking and
+    ///    commit re-books nothing on retry.
+    /// 4. **Persist.** The closing entry (per-method breakdown + grand total + difference) and the
+    ///    session's flip to `closed` commit as ONE unit, then `PosSessionClosed` is emitted.
+    pub async fn close_session(
+        &self,
+        c: NewClose,
+        variance: &dyn super::pos_ports::PosCashVariancePort,
+    ) -> Result<CloseOutcome, PosError> {
         // RLS scope (ADR-0008): company on the DTO — bind it for the whole close, so the drawer reads
         // and the closing-entry transaction are all fenced.
         let company = c.company_id;
         company_scope::with_company_scope(Some(company), async move {
+        // Guard: the session must exist and be open (this is also what makes close effectively-once —
+        // a retried close of an already-closed session refuses here).
+        let st = self.openings.fetch_status(&self.db_pool, c.opening_entry_id, c.company_id).await?;
+        match st.as_deref() {
+            None => return Err(PosError::SessionNotFound(c.opening_entry_id)),
+            Some("open") => {}
+            Some(_) => return Err(PosError::SessionNotOpen),
+        }
+        // Guard: no DRAFT sale tickets may remain — a draft has no GL and would orphan the drawer.
+        let drafts = self.invoices.count_draft_orders_for_session(&self.db_pool, c.opening_entry_id).await?;
+        if drafts > 0 {
+            return Err(PosError::SessionHasDraftOrders(drafts));
+        }
+        // Guard: no half-recognised tickets — billing raised but the settle never landed. Closing
+        // over them would strand a posted invoice against an unclosed drawer.
+        let unposted = self.invoices.count_linked_unposted_for_session(&self.db_pool, c.opening_entry_id).await?;
+        if unposted > 0 {
+            return Err(PosError::SessionHasUnpostedInvoices(unposted));
+        }
+        // Guard: privileged — verify the manager's PIN (server-side, against the stored hash, with the
+        // caller's source address feeding the per-address throttle ring).
+        self.verify_manager_internal(c.company_id, &c.manager, c.source_ip.as_deref()).await?;
+
         let (expected, grand_total, invoice_count) = self.compute_drawer(c.company_id, c.opening_entry_id).await?;
 
         let counted: BTreeMap<String, Decimal> = c.counted.iter().map(|(m, a)| (m.clone(), money(*a))).collect();
@@ -146,16 +194,80 @@ impl PosWriteService {
             difference_total += diff;
             by_method.push(MethodRecon { method: m, expected: exp, counted: cnt, difference: diff });
         }
+        let difference_total = money(difference_total);
         let totals_json = serde_json::Value::Array(by_method.iter().map(|r| serde_json::json!({
             "method": r.method, "expected": r.expected.to_string(), "counted": r.counted.to_string(), "difference": r.difference.to_string(),
         })).collect());
 
+        // Variance booking (the one new GL surface at close): only a NON-ZERO difference books — a
+        // balanced drawer raises no journal. Both the register's cash account and its write-off
+        // account must be configured when the drawer did not balance.
+        let mut booked: Option<super::pos_write_service::VarianceBooking> = None;
+        if difference_total != Decimal::ZERO {
+            let mut tx = self.db_pool.begin().await?;
+            company_scope::bind_current_company(&mut tx).await?;
+            let (cash_account, write_off_account, currency) = self
+                .openings
+                .fetch_variance_accounts_on(&mut tx, c.opening_entry_id)
+                .await?;
+            let closing_id = Uuid::new_v4();
+            let cash_account = cash_account
+                .ok_or(PosError::MissingAccount("cash_account_id (register settles a cash drawer)"))?;
+            let write_off_account = write_off_account
+                .ok_or(PosError::MissingAccount("write_off_account_id (register books drawer variance)"))?;
+            let direction = if difference_total > Decimal::ZERO {
+                super::pos_ports::CashVarianceDirection::Over
+            } else {
+                super::pos_ports::CashVarianceDirection::Short
+            };
+            let ack = variance
+                .book_cash_variance(&super::pos_ports::CashVarianceRequest {
+                    company_id: c.company_id,
+                    opening_entry_id: c.opening_entry_id,
+                    closing_entry_id: closing_id,
+                    posting_date: c.closed_at.date(),
+                    currency,
+                    cash_account_id: cash_account,
+                    difference_account_id: write_off_account,
+                    amount: difference_total.abs(),
+                    direction,
+                })
+                .await
+                .map_err(|e| PosError::VarianceRejected { code: e.code, message: e.message })?;
+            booked = Some(super::pos_write_service::VarianceBooking {
+                journal_id: ack.journal_id,
+                amount: difference_total.abs(),
+                direction,
+            });
+            tx.commit().await?;
+            // The closing entry below reuses this id so the booked journal traces to it.
+            return self.finish_close(c, closing_id, totals_json, grand_total, invoice_count, difference_total, by_method, booked).await;
+        }
+
         let id = Uuid::new_v4();
+        self.finish_close(c, id, totals_json, grand_total, invoice_count, difference_total, by_method, booked).await
+        }).await
+    }
+
+    /// The persist + emit tail of a close: closing entry + session flip in ONE transaction, then the
+    /// `PosSessionClosed` event. Split out only so the variance-booked path can pass its pre-chosen
+    /// closing id.
+    async fn finish_close(
+        &self,
+        c: NewClose,
+        closing_id: Uuid,
+        totals_json: serde_json::Value,
+        grand_total: Decimal,
+        invoice_count: i64,
+        difference_total: Decimal,
+        by_method: Vec<MethodRecon>,
+        booked: Option<super::pos_write_service::VarianceBooking>,
+    ) -> Result<CloseOutcome, PosError> {
         let mut tx = self.db_pool.begin().await?;
         company_scope::bind_current_company(&mut tx).await?;
         let profile_id = self.openings.fetch_profile_id_on(&mut tx, c.opening_entry_id).await?;
         self.closings.insert_closing_entry(&mut tx, &NewClosingEntryRow {
-            id,
+            id: closing_id,
             company_id: c.company_id,
             pos_profile_id: profile_id,
             opening_entry_id: c.opening_entry_id,
@@ -170,10 +282,9 @@ impl PosWriteService {
         tx.commit().await?;
 
         self.sink.publish(PosEvent::PosSessionClosed(PosSessionClosed {
-            closing_entry_id: id, opening_entry_id: c.opening_entry_id, company_id: c.company_id,
+            closing_entry_id: closing_id, opening_entry_id: c.opening_entry_id, company_id: c.company_id,
             difference_total: money(difference_total),
         }));
-        Ok(CloseOutcome { closing_id: id, difference_total: money(difference_total), by_method })
-        }).await
+        Ok(CloseOutcome { closing_id, difference_total: money(difference_total), by_method, variance: booked })
     }
 }

@@ -28,22 +28,34 @@ config:
 # =============================================================================
 # Shared domain events
 # =============================================================================
-events: {}
+events:
+  stale_session_alerted:
+    description: >-
+      An open cashier session crossed the stale threshold (7 days by default). Emitted by the
+      old-session alert job after its once-only latch committed. A LOGICAL LINK for the mail
+      activity choreography — this module has NO Cargo edge to any mail crate; the composing
+      service subscribes and schedules the "Session open too long" activity on the cashier
+      (a party ref the event carries).
 
 # =============================================================================
 # Scheduled jobs
 # =============================================================================
-# This module owns NO cron today, and no `posture:` is declared — an owner ruling
-# is pending for the ported old-session alert. The reference behavior
-# (pos.session._alert_old_session) schedules a "Session open over 7 days" activity
-# on the session's user for every non-closed session older than 7 days that has no
-# such activity yet; in the reference tree it owns no cron row and piggy-backs the
-# stock scheduler. Candidate postures under ADR-0020:
-#   - host_riding on the future inventory scheduler (faithful to the source shape;
-#     backbone-inventory declares no scheduler yet, so the host does not exist)
-#   - deferred (declare nothing now; revisit when an inventory scheduler lands)
-#   - read_time_lazy (surface stale-session warnings from the existing x_report /
-#     close reads instead of any scheduler)
-# Do not add a `pull` cron here without the ruling — it would diverge from the
-# ported shape (no native scheduled job) by design.
-scheduled_jobs: {}
+# The ported old-session alert (reference: pos.session._alert_old_session — for every
+# non-closed session older than 7 days with no such activity yet, schedule a "Session open
+# over 7 days" activity on the session's user; in the reference tree it owns no cron row and
+# piggy-backs the stock scheduler).
+#
+# Posture ruling (ADR-0020): host_riding. The reference shape rides the stock scheduler
+# (no native cron), and no backbone module declares that scheduler yet — so the COMPOSING
+# SERVICE is the host: it runs a daily schedule and calls the module's per-company handler
+# (`PosWriteService::alert_old_sessions`) once per company. The module itself never does a
+# cross-tenant read. The once-only latch (metadata->'stale_session_alerted_at', stamped in
+# the same transaction as the SKIP LOCKED claim) keeps a daily run from re-alerting a session.
+scheduled_jobs:
+  alert_old_sessions:
+    schedule: "daily 03:00"
+    handler: "pos::alert_old_sessions"
+    posture: host_riding
+    triggers: []
+    commit_policy: single_transaction
+    pickup_lock: true

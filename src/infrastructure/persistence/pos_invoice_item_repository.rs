@@ -47,8 +47,13 @@ pub struct NewInvoiceItemRow<'a> {
     pub id: Uuid,
     pub company_id: Uuid,
     pub pos_invoice_id: Uuid,
+    /// The line's offline-sync identity (None for server-originated rings).
+    pub client_uuid: Option<Uuid>,
     pub item_id: Uuid,
     pub description: Option<&'a str>,
+    /// Course grouping for kitchen routing (restaurant): lines sharing a course number fire
+    /// together; NULL = not course-grouped (counter sale).
+    pub course: Option<i32>,
     pub quantity: Decimal,
     pub unit_price: Decimal,
     pub discount_amount: Decimal,
@@ -73,6 +78,8 @@ pub struct QuantityLineRow {
 pub struct ReceiptLineRow {
     pub description: Option<String>,
     pub item_id: Uuid,
+    /// Course grouping (restaurant) — surfaced so kitchen-display / receipt consumers can group.
+    pub course: Option<i32>,
     pub quantity: Decimal,
     pub unit_price: Decimal,
     pub discount_amount: Decimal,
@@ -94,10 +101,10 @@ impl PosInvoiceItemRepository {
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO pos.pos_invoice_items
-                (id, company_id, pos_invoice_id, item_id, description, quantity, unit_price, discount_amount, net_amount, revenue_account_id)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)"#,
+                (id, company_id, pos_invoice_id, client_uuid, item_id, description, course, quantity, unit_price, discount_amount, net_amount, revenue_account_id)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)"#,
         )
-        .bind(l.id).bind(l.company_id).bind(l.pos_invoice_id).bind(l.item_id).bind(l.description).bind(l.quantity)
+        .bind(l.id).bind(l.company_id).bind(l.pos_invoice_id).bind(l.client_uuid).bind(l.item_id).bind(l.description).bind(l.course).bind(l.quantity)
         .bind(l.unit_price).bind(l.discount_amount).bind(l.net_amount).bind(l.revenue_account_id)
         .execute(conn)
         .await?;
@@ -149,6 +156,29 @@ impl PosInvoiceItemRepository {
         }).collect())
     }
 
+    /// Retire every live line of a ticket (soft delete — the audit trail stays, the offline-sync
+    /// uniqueness on `client_uuid` is freed for the replay's replacement lines).
+    ///
+    /// Takes the CALLER'S connection so the retire and its replacements commit as one unit. The
+    /// caller has already bound the company on it.
+    pub async fn soft_delete_lines_for_ticket(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        pos_invoice_id: Uuid,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE pos.pos_invoice_items
+               SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{deleted_at}', to_jsonb($2::timestamptz))
+               WHERE pos_invoice_id=$1 AND (metadata->>'deleted_at') IS NULL"#,
+        )
+        .bind(pos_invoice_id)
+        .bind(now)
+        .execute(conn)
+        .await?;
+        Ok(())
+    }
+
     /// Read the lines for the printed receipt, in ring order. Same ID-only scope contract as
     /// [`Self::fetch_revenue_lines`]; the caller supplies the company scope on the parameter.
     pub async fn fetch_receipt_lines(
@@ -159,7 +189,7 @@ impl PosInvoiceItemRepository {
         let rows = company_scope::fetch_all_rows_scoped(
             pool,
             sqlx::query(
-                "SELECT description, item_id, quantity, unit_price, discount_amount, net_amount
+                "SELECT description, item_id, course, quantity, unit_price, discount_amount, net_amount
                  FROM pos.pos_invoice_items WHERE pos_invoice_id=$1 AND (metadata->>'deleted_at') IS NULL
                  ORDER BY (metadata->>'created_at')",
             )
@@ -167,7 +197,8 @@ impl PosInvoiceItemRepository {
         )
         .await?;
         Ok(rows.iter().map(|r| ReceiptLineRow {
-            description: r.get("description"), item_id: r.get("item_id"), quantity: r.get("quantity"),
+            description: r.get("description"), item_id: r.get("item_id"), course: r.get("course"),
+            quantity: r.get("quantity"),
             unit_price: r.get("unit_price"), discount_amount: r.get("discount_amount"),
             net_amount: r.get("net_amount"),
         }).collect())

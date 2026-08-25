@@ -12,6 +12,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+mod support;
+
 use rust_decimal::Decimal;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -261,11 +263,16 @@ async fn retail_cash_sale_across_four_modules() {
     let customer = Uuid::new_v4();
     let item = Uuid::new_v4();
 
-    // POS profile wired to the register's GL accounts + a default walk-in customer.
-    let prof = Uuid::new_v4();
-    sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, receivable_account_id, income_account_id, cash_account_id, default_customer_id, allow_discount, status)
-        VALUES ($1,$2,'Register 1','IDR',$3,$4,$5,$6,true,'active')"#)
-        .bind(prof).bind(company).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(customer).execute(&pool).await.unwrap();
+    // POS profile wired to the register's GL accounts + a default walk-in customer + one zero-rate
+    // tax template (non-PKP register: the template IS configured, its rate is zero).
+    let (prof, tax) = {
+        let template = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, tax_template_ids, receivable_account_id, income_account_id, cash_account_id, default_customer_id, allow_discount, status)
+            VALUES ($1,$2,'Register 1','IDR',$3,$4,$5,$6,$7,true,'active')"#)
+            .bind(id).bind(company).bind(serde_json::json!([template.to_string()])).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(customer).execute(&pool).await.unwrap();
+        (id, support::TestTax::with_rate(template, "0"))
+    };
 
     let rec = RecordingPosSink::default();
     let pos = PosWriteService::with_sink(pool.clone(), Arc::new(rec.clone()));
@@ -281,10 +288,10 @@ async fn retail_cash_sale_across_four_modules() {
     }).await.unwrap();
     let sale = pos.ring_sale(NewSale {
         company_id: company, pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
+        pos_table_id: None, discount_id: None,
         receipt_number: uq("R"), posting_at: at(),
-        lines: vec![NewSaleLine { item_id: item, revenue_account_id: None, description: None, quantity: d("1"), unit_price: d("100000"), discount_amount: Decimal::ZERO }],
-        tax_total: Decimal::ZERO, round_to: None,
-    }).await.unwrap();
+        lines: vec![NewSaleLine { item_id: item, revenue_account_id: None, description: None, quantity: d("1"), unit_price: d("100000"), course: None, discount_amount: Decimal::ZERO }],
+    }, &tax).await.unwrap();
     let t = pos.add_tender(sale, "cash", d("100000"), None).await.unwrap();
     assert!(t.fully_tendered);
 
@@ -304,10 +311,15 @@ async fn retail_cash_sale_across_four_modules() {
     assert!(rec.events.lock().unwrap().iter().any(|e| matches!(e, PosEvent::PosInvoicePaid(p) if p.pos_invoice_id == sale)));
 
     // 4) close the till — expected cash = opening 500,000 + tender 100,000 = 600,000; counted balances.
+    // The close is privileged: the manager's PIN is verified server-side (set via the bootstrap
+    // path — this company holds no credential yet), and a balanced drawer books no variance journal.
+    let manager = support::manager_with_pin(&pos, company, "4321").await;
+    let variance = support::RecordingVariance::default();
     let close = pos.close_session(NewClose {
         company_id: company, opening_entry_id: session, cashier_party_id: Uuid::new_v4(), closed_at: at(),
         counted: vec![("cash".into(), d("600000"))],
-    }).await.unwrap();
+        manager, source_ip: None,
+    }, &variance).await.unwrap();
     assert_eq!(close.difference_total, d("0.00"));
     let cash = close.by_method.iter().find(|r| r.method == "cash").unwrap();
     assert_eq!(cash.expected, d("600000.00"), "opening float + recognised cash tender");
@@ -328,19 +340,23 @@ async fn retail_return_reverses_both_legs_and_is_idempotent() {
     let billing_port = BillingAdapter { billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
     let reconcile = Arc::new(reconcile_sink(&pool));
     let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone(), reconcile };
-    let prof = Uuid::new_v4();
-    sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, receivable_account_id, income_account_id, cash_account_id, default_customer_id, allow_discount, status)
-        VALUES ($1,$2,'R','IDR',$3,$4,$5,$6,true,'active')"#)
-        .bind(prof).bind(company).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(customer).execute(&pool).await.unwrap();
+    let (prof, tax) = {
+        let template = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, tax_template_ids, receivable_account_id, income_account_id, cash_account_id, default_customer_id, allow_discount, status)
+            VALUES ($1,$2,'R','IDR',$3,$4,$5,$6,$7,true,'active')"#)
+            .bind(id).bind(company).bind(serde_json::json!([template.to_string()])).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(customer).execute(&pool).await.unwrap();
+        (id, support::TestTax::with_rate(template, "0"))
+    };
 
     // A recognised 100,000 cash sale (A/R 0, Revenue -100k, Cash +100k).
     let session = pos.open_session(NewSession { company_id: company, pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(), opened_at: at(), opening_balances: vec![] }).await.unwrap();
     let sale = pos.ring_sale(NewSale {
         company_id: company, pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
+        pos_table_id: None, discount_id: None,
         receipt_number: uq("R"), posting_at: at(),
-        lines: vec![NewSaleLine { item_id: item, revenue_account_id: None, description: None, quantity: d("1"), unit_price: d("100000"), discount_amount: Decimal::ZERO }],
-        tax_total: Decimal::ZERO, round_to: None,
-    }).await.unwrap();
+        lines: vec![NewSaleLine { item_id: item, revenue_account_id: None, description: None, quantity: d("1"), unit_price: d("100000"), course: None, discount_amount: Decimal::ZERO }],
+    }, &tax).await.unwrap();
     pos.add_tender(sale, "cash", d("100000"), None).await.unwrap();
     pos.recognize_sale(sale, &billing_port, &payment_port, None).await.unwrap();
     assert_eq!(balance(&pool, coa["4000"]).await, d("-100000.00"));
@@ -382,11 +398,16 @@ async fn retail_ppn_sale_books_output_tax() {
         VALUES ($1,$2,'2130','2130','Utang PPN Keluaran','liability'::account_type,'tax'::account_subtype,'credit'::normal_balance,false,true,'active'::account_status)"#)
         .bind(ppn).bind(company).execute(&pool).await.unwrap();
 
-    // PKP register: 11% PPN wired to the output-tax account.
-    let prof = Uuid::new_v4();
-    sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, receivable_account_id, income_account_id, cash_account_id, tax_account_id, tax_rate, default_customer_id, allow_discount, status)
-        VALUES ($1,$2,'PKP Register','IDR',$3,$4,$5,$6,0.1100,$7,true,'active')"#)
-        .bind(prof).bind(company).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(ppn).bind(customer).execute(&pool).await.unwrap();
+    // PKP register: one 11% tax template (document-grade, resolved through the port) + the
+    // output-tax liability account for the recognition leg.
+    let (prof, tax) = {
+        let template = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, tax_template_ids, receivable_account_id, income_account_id, cash_account_id, tax_account_id, default_customer_id, allow_discount, status)
+            VALUES ($1,$2,'PKP Register','IDR',$3,$4,$5,$6,$7,$8,true,'active')"#)
+            .bind(id).bind(company).bind(serde_json::json!([template.to_string()])).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(ppn).bind(customer).execute(&pool).await.unwrap();
+        (id, support::TestTax::with_rate(template, "0.11"))
+    };
 
     let pos = PosWriteService::new(pool.clone());
     let gl = Arc::new(GlAdapter { svc: PostingService::new(Arc::new(SqlxPostingRepository::new(pool.clone()))) });
@@ -397,10 +418,11 @@ async fn retail_ppn_sale_books_output_tax() {
     let session = pos.open_session(NewSession { company_id: company, pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(), opened_at: at(), opening_balances: vec![] }).await.unwrap();
     let sale = pos.ring_sale(NewSale {
         company_id: company, pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
+        pos_table_id: None, discount_id: None,
         receipt_number: uq("R"), posting_at: at(),
-        lines: vec![NewSaleLine { item_id: item, revenue_account_id: None, description: None, quantity: d("1"), unit_price: d("100000"), discount_amount: Decimal::ZERO }],
-        tax_total: Decimal::ZERO, round_to: None, // ignored — server computes PPN from the profile
-    }).await.unwrap();
+        lines: vec![NewSaleLine { item_id: item, revenue_account_id: None, description: None, quantity: d("1"), unit_price: d("100000"), course: None, discount_amount: Decimal::ZERO }],
+        // no total fields — the server computes PPN from the register's templates via the port
+    }, &tax).await.unwrap();
 
     // The ticket carries server-computed PPN: net 100,000, tax 11,000, grand 111,000.
     let (net, tax, grand): (Decimal, Decimal, Decimal) = sqlx::query_as("SELECT net_total, tax_total, rounded_total FROM pos.pos_invoices WHERE id=$1").bind(sale).fetch_one(&pool).await.unwrap();
@@ -455,11 +477,15 @@ async fn retail_sale_decrements_stock_and_books_cogs() {
     inv.submit_purchase_receipt(receipt, &*gl).await.unwrap();
     assert_eq!(on_hand(&pool, item, wh).await, d("10.0000"), "seeded on-hand");
 
-    // POS profile: stock-tracking register.
-    let prof = Uuid::new_v4();
-    sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, receivable_account_id, income_account_id, cash_account_id, warehouse_id, cogs_account_id, inventory_account_id, default_customer_id, allow_discount, status)
-        VALUES ($1,$2,'Register 1','IDR',$3,$4,$5,$6,$7,$8,$9,true,'active')"#)
-        .bind(prof).bind(company).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(wh).bind(cogs_acct).bind(inv_acct).bind(customer).execute(&pool).await.unwrap();
+    // POS profile: stock-tracking register (zero-rate tax template — non-PKP).
+    let (prof, tax) = {
+        let template = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, tax_template_ids, receivable_account_id, income_account_id, cash_account_id, warehouse_id, cogs_account_id, inventory_account_id, default_customer_id, allow_discount, status)
+            VALUES ($1,$2,'Register 1','IDR',$3,$4,$5,$6,$7,$8,$9,$10,true,'active')"#)
+            .bind(id).bind(company).bind(serde_json::json!([template.to_string()])).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(wh).bind(cogs_acct).bind(inv_acct).bind(customer).execute(&pool).await.unwrap();
+        (id, support::TestTax::with_rate(template, "0"))
+    };
 
     let pos = PosWriteService::new(pool.clone());
     let billing_port = BillingAdapter { billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
@@ -470,10 +496,10 @@ async fn retail_sale_decrements_stock_and_books_cogs() {
     let session = pos.open_session(NewSession { company_id: company, pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(), opened_at: at(), opening_balances: vec![] }).await.unwrap();
     let sale = pos.ring_sale(NewSale {
         company_id: company, pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
+        pos_table_id: None, discount_id: None,
         receipt_number: uq("R"), posting_at: at(),
-        lines: vec![NewSaleLine { item_id: item, revenue_account_id: None, description: None, quantity: d("2"), unit_price: d("100000"), discount_amount: Decimal::ZERO }],
-        tax_total: Decimal::ZERO, round_to: None,
-    }).await.unwrap();
+        lines: vec![NewSaleLine { item_id: item, revenue_account_id: None, description: None, quantity: d("2"), unit_price: d("100000"), course: None, discount_amount: Decimal::ZERO }],
+    }, &tax).await.unwrap();
     pos.add_tender(sale, "cash", d("200000"), None).await.unwrap();
     pos.recognize_sale(sale, &billing_port, &payment_port, Some(&inventory_port)).await.unwrap();
 
