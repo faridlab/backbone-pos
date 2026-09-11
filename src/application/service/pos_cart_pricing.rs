@@ -22,10 +22,11 @@ pub struct CartPriceLine {
     pub quantity: Decimal,
 }
 
-/// The whole basket to price. Customer, group and coupon are ticket-wide.
+/// The whole basket to price. Customer, group and coupon are ticket-wide. Tenancy is
+/// composition-installed (ADR-0029): no company field — the composing adapter binds the ambient org
+/// scope around promo's `resolve_cart`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CartPriceRequest {
-    pub company_id: Uuid,
     pub customer_id: Option<Uuid>,
     pub customer_group_id: Option<Uuid>,
     pub coupon_code: Option<String>,

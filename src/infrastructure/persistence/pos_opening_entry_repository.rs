@@ -6,12 +6,22 @@
 //!
 //! Thin newtype over `backbone_orm::GenericCrudRepository<PosOpeningEntry, backbone_orm::SoftDelete>`.
 //! All standard CRUD methods are available via `Deref`.
+//!
+//! Tenancy is composition-installed (ADR-0029): pool reads ride the ambient org scope's
+//! request-dedicated connection (a session another unit owns reads as plain absence); the
+//! connection-taking methods run on the CALLER'S open, scope-relayed transaction so a session's
+//! guards and the writes they gate see the same world.
 
 use anyhow::Result;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use backbone_orm::company_scope;
+use backbone_orm::org_scope;
+// The scalar read twin lives only in the legacy `company_scope` module; what this repository needs
+// from it is the connection discipline — request-dedicated connection when the composing service
+// bound one, plain pool otherwise. Its legacy task-local branch never fires: this module sets no
+// legacy scope of its own (ADR-0029).
+use backbone_orm::company_scope::fetch_optional_scalar_scoped;
 
 use crate::domain::entity::PosOpeningEntry;
 
@@ -42,10 +52,10 @@ impl PosOpeningEntryRepository {
 ///
 /// Mirrors the raw column shape rather than the `PosOpeningEntry` entity: `opening_balances` is the
 /// already-serialised per-method float array, and `status` is fixed to `'open'` by the SQL (cast
-/// DB-side as `pos_session_status`).
+/// DB-side as `pos_session_status`). No tenancy column — the composing decorator's fill trigger
+/// stamps the acting unit (ADR-0029).
 pub struct NewOpeningEntryRow {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub pos_profile_id: Uuid,
     pub branch_id: Option<Uuid>,
     pub cashier_party_id: Uuid,
@@ -68,50 +78,62 @@ pub struct StaleSessionRow {
 impl PosOpeningEntryRepository {
     /// Open a cashier session.
     ///
-    /// A write outside any transaction: takes the pool and runs `execute_scoped` so the RLS fence
-    /// (ADR-0008) applies. The caller wraps this in `with_company_scope(Some(company))` — the company is
-    /// on the DTO, and that scope is what satisfies the INSERT's WITH CHECK fence.
+    /// Takes the CALLER'S connection so the register/one-open-session guards and the insert commit
+    /// as one unit; the caller has already relayed the ambient org scope onto it, which is what
+    /// satisfies the fence's WITH CHECK under a composed host (and leaves the insert plain on a
+    /// standalone deployment).
     pub async fn insert_opening_entry(
         &self,
-        pool: &PgPool,
+        conn: &mut sqlx::PgConnection,
         s: &NewOpeningEntryRow,
     ) -> Result<(), sqlx::Error> {
-        company_scope::execute_scoped(
-            pool,
-            sqlx::query(
-                r#"INSERT INTO pos.pos_opening_entries
-                    (id, company_id, pos_profile_id, branch_id, cashier_party_id, opened_at, opening_balances, status)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,'open'::pos_session_status)"#,
-            )
-            .bind(s.id).bind(s.company_id).bind(s.pos_profile_id).bind(s.branch_id).bind(s.cashier_party_id)
-            .bind(s.opened_at).bind(sqlx::types::Json(&s.opening_balances)),
+        sqlx::query(
+            r#"INSERT INTO pos.pos_opening_entries
+                (id, pos_profile_id, branch_id, cashier_party_id, opened_at, opening_balances, status)
+               VALUES ($1,$2,$3,$4,$5,$6,'open'::pos_session_status)"#,
         )
+        .bind(s.id).bind(s.pos_profile_id).bind(s.branch_id).bind(s.cashier_party_id)
+        .bind(s.opened_at).bind(sqlx::types::Json(&s.opening_balances))
+        .execute(conn)
         .await?;
         Ok(())
     }
 
-    /// Read a session's status. `Ok(None)` = no such session in this tenant.
-    ///
-    /// The explicit `company_id = $2` filter is defense-in-depth ON TOP of the RLS fence — the caller
-    /// wraps this in `with_company_scope(Some(company))`.
+    /// Read a session's status (pool variant, for guards outside a unit of work). ID-only: rides the
+    /// ambient org scope — `Ok(None)` covers "no such session" and "another unit's session" alike,
+    /// and deliberately cannot tell them apart.
     pub async fn fetch_status(
         &self,
         pool: &PgPool,
         opening_entry_id: Uuid,
-        company_id: Uuid,
     ) -> Result<Option<String>, sqlx::Error> {
-        company_scope::fetch_optional_scalar_scoped(
+        fetch_optional_scalar_scoped(
             pool,
             sqlx::query_scalar(
-                "SELECT status::text FROM pos.pos_opening_entries WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL",
+                "SELECT status::text FROM pos.pos_opening_entries WHERE id=$1 AND (metadata->>'deleted_at') IS NULL",
             )
-            .bind(opening_entry_id).bind(company_id),
+            .bind(opening_entry_id),
         )
         .await
     }
 
-    /// Read a session's opening float array (the per-method drawer starting balance). Same
-    /// scope + defense-in-depth contract as [`Self::fetch_status`].
+    /// Read a session's status on the CALLER'S scope-relayed transaction — the guard inside a unit
+    /// of work (ring/movement/sync), so the read sees exactly the fence the paired write writes under.
+    pub async fn fetch_status_on(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        opening_entry_id: Uuid,
+    ) -> Result<Option<String>, sqlx::Error> {
+        sqlx::query_scalar(
+            "SELECT status::text FROM pos.pos_opening_entries WHERE id=$1 AND (metadata->>'deleted_at') IS NULL",
+        )
+        .bind(opening_entry_id)
+        .fetch_optional(conn)
+        .await
+    }
+
+    /// Read a session's opening float array (the per-method drawer starting balance). Same ID-only
+    /// scope contract as [`Self::fetch_status`].
     ///
     /// The `Option` nests deliberately, and the caller distinguishes the two levels: the OUTER `None`
     /// means no such session (the caller raises `SessionNotFound`), while an inner `None` means the
@@ -122,48 +144,65 @@ impl PosOpeningEntryRepository {
         &self,
         pool: &PgPool,
         opening_entry_id: Uuid,
-        company_id: Uuid,
     ) -> Result<Option<Option<sqlx::types::Json<serde_json::Value>>>, sqlx::Error> {
-        company_scope::fetch_optional_scalar_scoped(
+        fetch_optional_scalar_scoped(
             pool,
             sqlx::query_scalar(
-                "SELECT opening_balances FROM pos.pos_opening_entries WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL",
+                "SELECT opening_balances FROM pos.pos_opening_entries WHERE id=$1 AND (metadata->>'deleted_at') IS NULL",
             )
-            .bind(opening_entry_id).bind(company_id),
+            .bind(opening_entry_id),
         )
         .await
     }
 
-    /// Read the session's register (pool variant, for lookups outside a unit of work). Explicit
-    /// `company_id = $2` filter as defense-in-depth ON TOP of the RLS fence; `Ok(None)` = no such
-    /// session in this tenant.
+    /// Whether the register already holds an OPEN session — the service-side arm of the
+    /// one-open-session rule. Runs on the CALLER'S scope-relayed transaction so the check and the
+    /// open insert it guards see the same world (the composition-installed per-(unit, register)
+    /// partial unique is the race backstop).
+    pub async fn has_open_session(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        pos_profile_id: Uuid,
+    ) -> Result<bool, sqlx::Error> {
+        let found: Option<i32> = sqlx::query_scalar(
+            r#"SELECT 1 FROM pos.pos_opening_entries
+               WHERE pos_profile_id=$1 AND status='open'::pos_session_status
+                 AND (metadata->>'deleted_at') IS NULL"#,
+        )
+        .bind(pos_profile_id)
+        .fetch_optional(conn)
+        .await?;
+        Ok(found.is_some())
+    }
+
+    /// Read the session's register (pool variant, for lookups outside a unit of work). ID-only:
+    /// rides the ambient org scope; `Ok(None)` = no such session in the caller's scope.
     pub async fn fetch_profile_id(
         &self,
         pool: &PgPool,
         opening_entry_id: Uuid,
-        company_id: Uuid,
     ) -> Result<Option<Uuid>, sqlx::Error> {
-        company_scope::fetch_optional_scalar_scoped(
+        fetch_optional_scalar_scoped(
             pool,
             sqlx::query_scalar(
-                "SELECT pos_profile_id FROM pos.pos_opening_entries WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL",
+                "SELECT pos_profile_id FROM pos.pos_opening_entries WHERE id=$1 AND (metadata->>'deleted_at') IS NULL",
             )
-            .bind(opening_entry_id).bind(company_id),
+            .bind(opening_entry_id),
         )
         .await
     }
 
     /// Read the session's register, on the CALLER'S connection so it reads the same snapshot the
-    /// closing-entry insert writes. The caller has already bound the company on it
-    /// (`bind_current_company`) — don't re-bind here.
+    /// closing-entry insert writes. `Ok(None)` = no such session — the caller maps that refusal.
+    /// The caller has already relayed the ambient org scope onto it — don't re-bind here.
     pub async fn fetch_profile_id_on(
         &self,
         conn: &mut sqlx::PgConnection,
         opening_entry_id: Uuid,
-    ) -> Result<Uuid, sqlx::Error> {
+    ) -> Result<Option<Uuid>, sqlx::Error> {
         sqlx::query_scalar("SELECT pos_profile_id FROM pos.pos_opening_entries WHERE id=$1")
             .bind(opening_entry_id)
-            .fetch_one(conn)
+            .fetch_optional(conn)
             .await
     }
 
@@ -188,7 +227,7 @@ impl PosOpeningEntryRepository {
     }
 
     /// Flip the session to `closed`. Takes the CALLER'S connection so this and the closing-entry insert
-    /// commit as one unit; the caller has already bound the company on it.
+    /// commit as one unit; the caller has already relayed the ambient scope onto it.
     pub async fn mark_closed(
         &self,
         conn: &mut sqlx::PgConnection,
@@ -201,36 +240,34 @@ impl PosOpeningEntryRepository {
         Ok(())
     }
 
-    /// Claim the company's stale open sessions — the intake half of the old-session alert scheduler.
+    /// Claim the caller's scope's stale open sessions — the intake half of the old-session alert
+    /// scheduler. Runs on the CALLER'S scope-relayed transaction: the fence the caller bound is what
+    /// bounds the claim to the acting unit (ADR-0029 per-unit handler).
     ///
     /// `FOR UPDATE SKIP LOCKED` is the pickup lock (ADR-0020 §4): two concurrent runs of the drainer
     /// never claim the same session. A session is stale when it is still `open`, opened before
     /// `cutoff`, and has not been alerted yet (the `stale_session_alerted_at` marker in `metadata` is
     /// the once-only latch — it is what keeps a daily scheduler from re-nagging the same session
-    /// every run). Takes the CALLER'S connection so the claim and its marker stamp commit as one
-    /// unit; the explicit `company_id` filter is defense-in-depth on top of the fence the caller
-    /// bound. `opened_at` is cast to a wall-clock `timestamp` in the session zone — the exact
+    /// every run). `opened_at` is cast to a wall-clock `timestamp` in the session zone — the exact
     /// inverse of the cast the open insert applies — so the Rust-side `NaiveDateTime` round-trips
     /// whatever the server's zone is.
     pub async fn claim_stale_sessions(
         &self,
         conn: &mut sqlx::PgConnection,
-        company_id: Uuid,
         cutoff: chrono::NaiveDateTime,
         limit: i64,
     ) -> Result<Vec<StaleSessionRow>, sqlx::Error> {
         let rows = sqlx::query_as::<_, (Uuid, Uuid, Uuid, chrono::NaiveDateTime)>(
             r#"SELECT id, pos_profile_id, cashier_party_id, opened_at::timestamp
                FROM pos.pos_opening_entries
-               WHERE company_id=$1 AND status='open'::pos_session_status
-                 AND opened_at < $2
+               WHERE status='open'::pos_session_status
+                 AND opened_at < $1
                  AND (metadata->>'stale_session_alerted_at') IS NULL
                  AND (metadata->>'deleted_at') IS NULL
                ORDER BY opened_at
-               LIMIT $3
+               LIMIT $2
                FOR UPDATE SKIP LOCKED"#,
         )
-        .bind(company_id)
         .bind(cutoff)
         .bind(limit)
         .fetch_all(conn)

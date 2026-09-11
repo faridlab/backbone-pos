@@ -6,9 +6,9 @@
 //!
 //! Shape decisions (the scheduler declaration in `schema/hooks/index.hook.yaml` records the same):
 //!
-//! - **Per-company handler.** The host enumerates its companies and calls this once per company, so
-//!   the module itself never does a cross-tenant read (ADR-0008) — the fence stays meaningful even
-//!   inside a job.
+//! - **Per-unit handler (ADR-0029).** The host enumerates its org units and calls this once per
+//!   unit with that unit's scope bound, so the module itself never does a cross-tenant read — the
+//!   fence stays meaningful even inside a job.
 //! - **Once-only latch.** The claim stamps `stale_session_alerted_at` into the session's `metadata`
 //!   in the SAME transaction that claims it (`commit_policy: single_transaction`), so a daily
 //!   scheduler never re-nags the same session; events are emitted only after that commit.
@@ -23,63 +23,57 @@
 
 use uuid::Uuid;
 
-use backbone_orm::company_scope;
-
 use crate::infrastructure::persistence::StaleSessionRow;
 
 use super::pos_events::{PosEvent, PosStaleSessionAlerted};
-use super::pos_write_service::{PosError, PosWriteService};
+use super::pos_write_service::{legacy_company_echo, relay_ambient_scope, PosError, PosWriteService};
 
 /// A session older than this is stale. 7 days is the default; the host may pass its own threshold.
 pub const DEFAULT_STALE_SESSION_AGE_DAYS: i64 = 7;
 
-/// Upper bound on sessions alerted in one run — the job stays bounded on a tenant that somehow
+/// Upper bound on sessions alerted in one run — the job stays bounded on a unit that somehow
 /// accumulated years of open drawers. The next run picks up what this one skipped (the latch is only
 /// stamped on alerted sessions, never on skipped ones).
 pub const STALE_SESSION_BATCH_LIMIT: i64 = 500;
 
 impl PosWriteService {
-    /// Alert this company's stale open sessions. Returns the alerts that fired (empty = nothing
-    /// stale or everything already latched). Idempotent per session: a rerun re-alerts nothing.
+    /// Alert the caller's scope's stale open sessions. Returns the alerts that fired (empty =
+    /// nothing stale or everything already latched). Idempotent per session: a rerun re-alerts
+    /// nothing.
     pub async fn alert_old_sessions(
         &self,
-        company_id: Uuid,
         older_than: chrono::Duration,
     ) -> Result<Vec<PosStaleSessionAlerted>, PosError> {
         let cutoff = chrono::Utc::now().naive_utc() - older_than;
-        // RLS scope (ADR-0008): the whole claim + latch runs inside the company scope, on one
-        // connection, as one transaction — exactly the pattern the write verbs follow.
-        let claimed = company_scope::with_company_scope(Some(company_id), async move {
-            let mut tx = self.db_pool.begin().await?;
-            // Bind the company on the transaction's connection (the write-verb pattern): under a
-            // non-bypassing role the RLS fence is what makes the claim read anything at all; the
-            // explicit `company_id = $1` filter below stays as defense-in-depth.
-            company_scope::bind_current_company(&mut tx).await?;
-            let claimed = self
-                .openings
-                .claim_stale_sessions(&mut tx, company_id, cutoff, STALE_SESSION_BATCH_LIMIT)
-                .await?;
-            if claimed.is_empty() {
-                tx.rollback().await?;
-                return Ok::<Vec<StaleSessionRow>, PosError>(Vec::new());
-            }
-            let at = chrono::Utc::now();
-            let ids: Vec<Uuid> = claimed.iter().map(|s| s.opening_entry_id).collect();
-            self.openings.mark_stale_alerted(&mut tx, &ids, at).await?;
-            tx.commit().await?;
-            Ok(claimed)
-        })
-        .await?;
+        // Tenancy (ADR-0029): the whole claim + latch runs inside the caller's ambient org scope, on
+        // one connection, as one transaction — exactly the pattern the write verbs follow. Under a
+        // non-bypassing role the re-bound fence is what makes the claim read anything at all.
+        let mut tx = self.db_pool.begin().await?;
+        relay_ambient_scope(&mut tx).await?;
+        let claimed = self
+            .openings
+            .claim_stale_sessions(&mut tx, cutoff, STALE_SESSION_BATCH_LIMIT)
+            .await?;
+        if claimed.is_empty() {
+            tx.rollback().await?;
+            return Ok(Vec::new());
+        }
+        let at = chrono::Utc::now();
+        let ids: Vec<Uuid> = claimed.iter().map(|s| s.opening_entry_id).collect();
+        self.openings.mark_stale_alerted(&mut tx, &ids, at).await?;
+        tx.commit().await?;
+        let claimed: Vec<StaleSessionRow> = claimed;
 
         // Emit only after the latch committed — a crash between commit and emit loses one alert run
         // for that session (acceptable: the latch is the durable record; the host can re-derive), but
-        // the reverse order would re-alert forever.
+        // the reverse order would re-alert forever. The `company_id` field is the documented legacy
+        // twin (ADR-0029) — the acting unit id from the ambient scope's echo.
         let alerts = claimed
             .into_iter()
             .map(|s| PosStaleSessionAlerted {
                 opening_entry_id: s.opening_entry_id,
                 pos_profile_id: s.pos_profile_id,
-                company_id,
+                company_id: legacy_company_echo(),
                 cashier_party_id: s.cashier_party_id,
                 opened_at: s.opened_at,
             })

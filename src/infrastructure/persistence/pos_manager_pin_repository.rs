@@ -7,11 +7,16 @@
 //! The stored value is an ARGON2 HASH, never the PIN. These statements never SELECT the raw secret
 //! into anything but the verify path's one read, and the DTO layer strips the hash from every
 //! generated response surface (see `pos_manager_pin_dto.rs`).
+//!
+//! Tenancy is composition-installed (ADR-0029): pool reads/writes ride the ambient org scope's
+//! request-dedicated connection (the fence is the whole guard — a credential another unit owns is
+//! simply absent); the upsert takes the CALLER'S open, scope-relayed transaction so the
+//! first-PIN-exists proof and the write it gates commit together.
 
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-use backbone_orm::company_scope;
+use backbone_orm::org_scope;
 
 use crate::domain::entity::PosManagerPin;
 
@@ -39,7 +44,7 @@ impl PosManagerPinRepository {
 }
 
 /// A live credential as the verify path reads it: the hash to check against plus the lockout state.
-/// Read by (company, manager) — one live PIN per manager per company (partial-unique).
+/// Read by manager — one live PIN per manager per unit (partial-unique re-declared by the composer).
 pub struct PinCredentialRow {
     pub id: Uuid,
     pub pin_hash: String,
@@ -48,53 +53,70 @@ pub struct PinCredentialRow {
 }
 
 /// Hand-written credential SQL. Lives here (not in the write service) per the module's 4-layer rule.
-/// The explicit `company_id = $n` filters are defense-in-depth ON TOP of the RLS fence; callers also
-/// wrap these in `with_company_scope(Some(company))`.
+/// The ambient org scope's fence is the whole tenancy guard: every statement below is ID-only.
 impl PosManagerPinRepository {
     /// Write (or replace) a manager's PIN hash, clearing any lockout and failure history — setting a
-    /// new PIN is the administrative unlock. Idempotent on (company, manager).
-    pub async fn upsert_hash(
+    /// new PIN is the administrative unlock. Idempotent per manager within the caller's scope.
+    ///
+    /// The upsert ARBITRATES IN-TRANSACTION rather than via ON CONFLICT: the composer re-declares the
+    /// per-unit live-credential unique with an org-leading arbiter, and a company-led legacy arbiter
+    /// no longer exists to target. Taking `SELECT ... FOR UPDATE` on the live row serializes two
+    /// concurrent `set_pin` calls on the actual credential; the INSERT arm then cannot race. Takes
+    /// the CALLER'S connection so the first-PIN bootstrap proof and this write commit as one unit;
+    /// the caller has already relayed the ambient scope onto it.
+    pub async fn upsert_hash_on(
         &self,
-        pool: &PgPool,
-        company_id: Uuid,
+        conn: &mut sqlx::PgConnection,
         employee_party_id: Uuid,
         pin_hash: &str,
         now: chrono::DateTime<chrono::Utc>,
         source_ip: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        company_scope::execute_scoped(
-            pool,
-            sqlx::query(
-                r#"INSERT INTO pos.pos_manager_pins (id, company_id, employee_party_id, pin_hash, failed_attempts, locked_until, last_attempt_at, last_attempt_ip)
-                   VALUES ($1,$2,$3,$4,0,NULL,$5,$6)
-                   ON CONFLICT (company_id, employee_party_id) WHERE (metadata->>'deleted_at') IS NULL
-                   DO UPDATE SET pin_hash = EXCLUDED.pin_hash,
-                                 failed_attempts = 0,
-                                 locked_until = NULL,
-                                 last_attempt_at = EXCLUDED.last_attempt_at,
-                                 last_attempt_ip = EXCLUDED.last_attempt_ip"#,
-            )
-            .bind(Uuid::new_v4()).bind(company_id).bind(employee_party_id).bind(pin_hash)
-            .bind(now).bind(source_ip),
+        let existing = sqlx::query(
+            r#"SELECT id FROM pos.pos_manager_pins
+               WHERE employee_party_id=$1 AND (metadata->>'deleted_at') IS NULL
+               FOR UPDATE"#,
         )
+        .bind(employee_party_id)
+        .fetch_optional(&mut *conn)
         .await?;
+        if let Some(row) = existing {
+            sqlx::query(
+                r#"UPDATE pos.pos_manager_pins SET
+                     pin_hash=$2, failed_attempts=0, locked_until=NULL,
+                     last_attempt_at=$3, last_attempt_ip=$4
+                   WHERE id=$1"#,
+            )
+            .bind(row.get::<Uuid, _>("id")).bind(pin_hash).bind(now).bind(source_ip)
+            .execute(conn)
+            .await?;
+        } else {
+            sqlx::query(
+                r#"INSERT INTO pos.pos_manager_pins
+                    (id, employee_party_id, pin_hash, failed_attempts, locked_until, last_attempt_at, last_attempt_ip)
+                   VALUES ($1,$2,$3,0,NULL,$4,$5)"#,
+            )
+            .bind(Uuid::new_v4()).bind(employee_party_id).bind(pin_hash).bind(now).bind(source_ip)
+            .execute(conn)
+            .await?;
+        }
         Ok(())
     }
 
-    /// Read a manager's live credential for verification. `Ok(None)` = no PIN set at this company.
+    /// Read a manager's live credential for verification. `Ok(None)` = no PIN set (or the credential
+    /// lives outside the caller's scope). ID-only: rides the ambient org scope.
     pub async fn fetch_credential(
         &self,
         pool: &PgPool,
-        company_id: Uuid,
         employee_party_id: Uuid,
     ) -> Result<Option<PinCredentialRow>, sqlx::Error> {
-        let row = company_scope::fetch_optional_row_scoped(
+        let row = org_scope::fetch_optional_row_scoped(
             pool,
             sqlx::query(
                 r#"SELECT id, pin_hash, failed_attempts, locked_until FROM pos.pos_manager_pins
-                   WHERE company_id=$1 AND employee_party_id=$2 AND (metadata->>'deleted_at') IS NULL"#,
+                   WHERE employee_party_id=$1 AND (metadata->>'deleted_at') IS NULL"#,
             )
-            .bind(company_id).bind(employee_party_id),
+            .bind(employee_party_id),
         )
         .await?;
         Ok(row.map(|r| PinCredentialRow {
@@ -105,28 +127,26 @@ impl PosManagerPinRepository {
         }))
     }
 
-    /// Whether ANY live PIN exists at the company — the bootstrap gate for the first `set_pin`
-    /// (before any credential exists, the first set is allowed without other proof; after that,
-    /// changing a PIN requires the current one or another verified manager).
-    pub async fn any_live_pin_exists(
+    /// Whether ANY live PIN exists in the caller's scope — the bootstrap gate for the first
+    /// `set_pin` (before any credential exists, the first set is allowed without other proof; after
+    /// that, changing a PIN requires the current one or another verified manager). Runs on the
+    /// caller's scope-relayed transaction so the proof and the write it gates see the same world.
+    pub async fn any_live_pin_exists_on(
         &self,
-        pool: &PgPool,
-        company_id: Uuid,
+        conn: &mut sqlx::PgConnection,
     ) -> Result<bool, sqlx::Error> {
-        let n: i64 = company_scope::fetch_one_scalar_scoped(
-            pool,
-            sqlx::query_scalar(
-                "SELECT COUNT(*) FROM pos.pos_manager_pins WHERE company_id=$1 AND (metadata->>'deleted_at') IS NULL",
-            )
-            .bind(company_id),
+        let n: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pos.pos_manager_pins WHERE (metadata->>'deleted_at') IS NULL",
         )
+        .fetch_one(conn)
         .await?;
         Ok(n > 0)
     }
 
     /// Record a FAILED verification: bump the consecutive-failure counter and lock when it crosses
     /// `max_attempts` (the service passes the computed unlock instant). Self-contained increment —
-    /// concurrent failures each land, the counter never goes backwards.
+    /// concurrent failures each land, the counter never goes backwards. ID-only: rides the ambient
+    /// org scope.
     pub async fn record_failure(
         &self,
         pool: &PgPool,
@@ -136,7 +156,7 @@ impl PosManagerPinRepository {
         now: chrono::DateTime<chrono::Utc>,
         source_ip: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        company_scope::execute_scoped(
+        org_scope::execute_scoped(
             pool,
             sqlx::query(
                 r#"UPDATE pos.pos_manager_pins SET
@@ -152,7 +172,8 @@ impl PosManagerPinRepository {
         Ok(())
     }
 
-    /// Record a SUCCESSFUL verification: clear the failure counter and any lockout.
+    /// Record a SUCCESSFUL verification: clear the failure counter and any lockout. ID-only: rides
+    /// the ambient org scope.
     pub async fn record_success(
         &self,
         pool: &PgPool,
@@ -160,7 +181,7 @@ impl PosManagerPinRepository {
         now: chrono::DateTime<chrono::Utc>,
         source_ip: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        company_scope::execute_scoped(
+        org_scope::execute_scoped(
             pool,
             sqlx::query(
                 "UPDATE pos.pos_manager_pins SET failed_attempts=0, locked_until=NULL, last_attempt_at=$2, last_attempt_ip=$3 WHERE id=$1",

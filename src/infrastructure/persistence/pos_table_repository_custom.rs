@@ -4,12 +4,10 @@
 //!
 //! The dining table is a UI-affordance record (geometry, seats); the write path cares about its
 //! IDENTITY only — that a ticket seating itself at a table names a table that exists in the
-//! caller's tenant. Geometry is deliberately not read here.
+//! caller's scope. Geometry is deliberately not read here.
 
-use sqlx::{PgPool, Row};
+use sqlx::Row;
 use uuid::Uuid;
-
-use backbone_orm::company_scope;
 
 use crate::infrastructure::persistence::PosTableRepository;
 
@@ -22,25 +20,21 @@ pub struct TableRow {
 }
 
 impl PosTableRepository {
-    /// Read one dining table by id. `Ok(None)` = no such table in this tenant (the explicit
-    /// `company_id = $2` filter is defense-in-depth ON TOP of the RLS fence; the caller wraps this
-    /// in `with_company_scope(Some(company))`).
+    /// Read one dining table by id, on the CALLER'S scope-relayed transaction (the seating guard
+    /// runs inside the ring/sync unit of work). `Ok(None)` = no such table visible to the caller's
+    /// scope — the fence is the whole guard (ADR-0029).
     pub async fn fetch_table(
         &self,
-        pool: &PgPool,
+        conn: &mut sqlx::PgConnection,
         pos_table_id: Uuid,
-        company_id: Uuid,
     ) -> Result<Option<TableRow>, sqlx::Error> {
-        let row = company_scope::fetch_optional_row_scoped(
-            pool,
-            sqlx::query(
-                r#"SELECT id, pos_floor_plan_id, name
-                   FROM pos.pos_tables
-                   WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL"#,
-            )
-            .bind(pos_table_id)
-            .bind(company_id),
+        let row = sqlx::query(
+            r#"SELECT id, pos_floor_plan_id, name
+               FROM pos.pos_tables
+               WHERE id=$1 AND (metadata->>'deleted_at') IS NULL"#,
         )
+        .bind(pos_table_id)
+        .fetch_optional(conn)
         .await?;
         Ok(row.map(|r| TableRow {
             id: r.get("id"),

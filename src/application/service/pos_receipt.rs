@@ -13,12 +13,13 @@ use super::pos_write_service::{PosError, PosWriteService, Receipt, ReceiptLine, 
 
 impl PosWriteService {
     /// Assemble the receipt for a ticket: register + money breakdown (incl. server-computed PPN) +
-    /// lines + tenders + change. Tenant-scoped read — any ticket in the caller's company can be
-    /// (re)printed. The GL is billing's; this is the customer-facing slip.
-    pub async fn receipt(&self, company_id: Uuid, pos_invoice_id: Uuid) -> Result<Receipt, PosError> {
-        // RLS scope (ADR-0008): read-only, company on the parameter.
+    /// lines + tenders + change. Ambient-scope read (ADR-0029) — any ticket in the caller's scope can
+    /// be (re)printed; another unit's reads as plain absence. The GL is billing's; this is the
+    /// customer-facing slip.
+    pub async fn receipt(&self, pos_invoice_id: Uuid) -> Result<Receipt, PosError> {
+        // Read-only, ambient scope: every read rides the request-dedicated connection.
         let hdr = self.invoices
-            .fetch_receipt_header(&self.db_pool, pos_invoice_id, company_id).await?
+            .fetch_receipt_header(&self.db_pool, pos_invoice_id).await?
             .ok_or(PosError::InvoiceNotFound(pos_invoice_id))?;
 
         let line_rows = self.items.fetch_receipt_lines(&self.db_pool, pos_invoice_id).await?;

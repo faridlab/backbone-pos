@@ -9,8 +9,12 @@
 //! `PosCashMovementRepository` / `PosClosingEntryRepository`. The closing-entry insert and the
 //! session's flip to `closed` take THIS service's transaction, so a drawer is never counted without
 //! the session closing.
+//!
+//! Tenancy is composition-installed (ADR-0029): every read rides the ambient org scope (under HTTP
+//! the request-dedicated connection carries it), every write opens its own transaction and re-binds
+//! that scope onto it. The variance request's `company_id` — the GL-post envelope's legacy twin — is
+//! sourced from the ambient scope's legacy company echo.
 
-use backbone_orm::company_scope;
 use rust_decimal::Decimal;
 use std::collections::BTreeMap;
 use uuid::Uuid;
@@ -19,15 +23,15 @@ use crate::infrastructure::persistence::{NewCashMovementRow, NewClosingEntryRow}
 
 use super::pos_events::{PosEvent, PosSessionClosed};
 use super::pos_write_service::{
-    money, CloseOutcome, MethodExpected, MethodRecon, NewCashMovement, NewClose, PosError,
-    PosWriteService, XReport,
+    legacy_company_echo, money, relay_ambient_scope, CloseOutcome, MethodExpected, MethodRecon,
+    NewCashMovement, NewClose, PosError, PosWriteService, XReport,
 };
 
 impl PosWriteService {
     // ---- cash movements (non-sale drawer in/out) ---------------------------
 
     /// Record a non-sale cash drawer movement (`pay_in` / `pay_out` / `drop` / `no_sale`) against an
-    /// OPEN session in the caller's tenant. `close_session` folds pay-ins into and pay-outs/drops out of
+    /// OPEN session in the caller's scope. `close_session` folds pay-ins into and pay-outs/drops out of
     /// the expected cash drawer, so a mid-shift movement no longer surfaces as an unexplained variance.
     pub async fn record_cash_movement(&self, m: NewCashMovement) -> Result<Uuid, PosError> {
         // Validate the kind + amount rule: no_sale carries no cash; the others are strictly positive.
@@ -38,41 +42,40 @@ impl PosWriteService {
             "no_sale" | "pay_in" | "pay_out" | "drop" => {}
             _ => return Err(PosError::InvalidCashMovement("unknown movement_type")),
         }
-        // RLS scope (ADR-0008): this method carries its company on the DTO, so bind it for the body —
-        // the same pattern as `ring_sale`.
-        let company = m.company_id;
-        company_scope::with_company_scope(Some(company), async move {
-            // Session must be OPEN and belong to the caller's tenant (same scope as ring_sale / close).
-            let st = self.openings.fetch_status(&self.db_pool, m.opening_entry_id, m.company_id).await?;
-            if st.as_deref() != Some("open") { return Err(PosError::SessionNotOpen); }
+        // Tenancy (ADR-0029): own transaction + ambient scope relay — the session-status read and the
+        // movement insert ride the same connection, so the open-guard sees exactly the fence the
+        // insert writes under. Another unit's session reads as plain absence (fail-closed).
+        let mut tx = self.db_pool.begin().await?;
+        relay_ambient_scope(&mut tx).await?;
+        let st = self.openings.fetch_status_on(&mut *tx, m.opening_entry_id).await?;
+        if st.as_deref() != Some("open") { return Err(PosError::SessionNotOpen); }
 
-            let id = Uuid::new_v4();
-            self.movements.insert_movement(&self.db_pool, &NewCashMovementRow {
-                id,
-                company_id: m.company_id,
-                pos_profile_id: m.pos_profile_id,
-                opening_entry_id: m.opening_entry_id,
-                cashier_party_id: m.cashier_party_id,
-                movement_type: &m.movement_type,
-                amount,
-                reason: m.reason.as_deref(),
-                moved_at: m.moved_at,
-            }).await?;
-            Ok(id)
-        }).await
+        let id = Uuid::new_v4();
+        self.movements.insert_movement(&mut tx, &NewCashMovementRow {
+            id,
+            pos_profile_id: m.pos_profile_id,
+            opening_entry_id: m.opening_entry_id,
+            cashier_party_id: m.cashier_party_id,
+            movement_type: &m.movement_type,
+            amount,
+            reason: m.reason.as_deref(),
+            moved_at: m.moved_at,
+        }).await?;
+        tx.commit().await?;
+        Ok(id)
     }
 
     // ---- drawer read (shared by close + X-report) --------------------------
 
     /// Compute the expected drawer for a session: per-method `expected = opening_float + Σ recognised
     /// tenders` (cash also `− Σ change_due + Σ cash-movement net`), plus the recognised grand total and
-    /// paid-ticket count. Tenant-scoped, read-only — shared by `close_session` (Z-report) and
+    /// paid-ticket count. Read-only, ambient-scope — shared by `close_session` (Z-report) and
     /// `x_report` (mid-shift read) so the two can never drift.
-    pub(super) async fn compute_drawer(&self, company_id: Uuid, opening_entry_id: Uuid) -> Result<(BTreeMap<String, Decimal>, Decimal, i64), PosError> {
-        // RLS scope (ADR-0008): read-only, company on the parameter — bind it so every read below is
-        // fenced (the caller may already be scoped; re-binding the same company is a no-op).
+    pub(super) async fn compute_drawer(&self, opening_entry_id: Uuid) -> Result<(BTreeMap<String, Decimal>, Decimal, i64), PosError> {
+        // Read-only: every read below rides the ambient org scope on the request-dedicated
+        // connection (ADR-0029) — a session another unit owns reads as plain absence.
         let opening_json = self.openings
-            .fetch_opening_balances(&self.db_pool, opening_entry_id, company_id).await?
+            .fetch_opening_balances(&self.db_pool, opening_entry_id).await?
             .ok_or(PosError::SessionNotFound(opening_entry_id))?;
         let mut expected: BTreeMap<String, Decimal> = BTreeMap::new();
         // A session with a NULL `opening_balances` (opened with no float) leaves `expected` empty —
@@ -106,20 +109,18 @@ impl PosWriteService {
 
     /// Mid-shift drawer read (X-report): the SAME expected drawer + running totals as the Z-report, but
     /// without counting, closing the session, or writing anything. Read-only + idempotent — a cashier
-    /// can pull it any number of times during the shift. Requires an OPEN session in the caller's tenant.
-    pub async fn x_report(&self, company_id: Uuid, opening_entry_id: Uuid) -> Result<XReport, PosError> {
-        // RLS scope (ADR-0008): read-only, company on the parameter.
-        company_scope::with_company_scope(Some(company_id), async move {
-            let st = self.openings.fetch_status(&self.db_pool, opening_entry_id, company_id).await?;
-            match st.as_deref() {
-                None => return Err(PosError::SessionNotFound(opening_entry_id)),
-                Some("open") => {}
-                Some(_) => return Err(PosError::SessionNotOpen),
-            }
-            let (expected, grand_total, invoice_count) = self.compute_drawer(company_id, opening_entry_id).await?;
-            let by_method = expected.into_iter().map(|(method, exp)| MethodExpected { method, expected: money(exp) }).collect();
-            Ok(XReport { opening_entry_id, by_method, grand_total: money(grand_total), invoice_count })
-        }).await
+    /// can pull it any number of times during the shift. Requires an OPEN session in the caller's scope.
+    pub async fn x_report(&self, opening_entry_id: Uuid) -> Result<XReport, PosError> {
+        // Read-only, ambient scope (ADR-0029).
+        let st = self.openings.fetch_status(&self.db_pool, opening_entry_id).await?;
+        match st.as_deref() {
+            None => return Err(PosError::SessionNotFound(opening_entry_id)),
+            Some("open") => {}
+            Some(_) => return Err(PosError::SessionNotOpen),
+        }
+        let (expected, grand_total, invoice_count) = self.compute_drawer(opening_entry_id).await?;
+        let by_method = expected.into_iter().map(|(method, exp)| MethodExpected { method, expected: money(exp) }).collect();
+        Ok(XReport { opening_entry_id, by_method, grand_total: money(grand_total), invoice_count })
     }
 
     // ---- close (drawer reconciliation) -------------------------------------
@@ -135,8 +136,8 @@ impl PosWriteService {
     ///    tickets (billing linked but the draft→paid flip never landed —
     ///    [`PosError::SessionHasUnpostedInvoices`]; retry recognition first). The manager PIN is
     ///    verified. A second open session on the register is impossible by the one-open-session
-    ///    unique, and opening a new one while this close is in flight collides there and surfaces as
-    ///    [`PosError::SessionAlreadyOpen`].
+    ///    constraint, and opening a new one while this close is in flight collides there and surfaces
+    ///    as [`PosError::SessionAlreadyOpen`].
     /// 2. **Count.** For each tender method `expected = opening_float + Σ recognised tenders` (cash
     ///    also `− Σ change_due + Σ cash-movement net`) — the statement legs (what the journals say)
     ///    against the counted legs (what the drawer holds). `difference = counted − expected`.
@@ -153,13 +154,11 @@ impl PosWriteService {
         c: NewClose,
         variance: &dyn super::pos_ports::PosCashVariancePort,
     ) -> Result<CloseOutcome, PosError> {
-        // RLS scope (ADR-0008): company on the DTO — bind it for the whole close, so the drawer reads
-        // and the closing-entry transaction are all fenced.
-        let company = c.company_id;
-        company_scope::with_company_scope(Some(company), async move {
+        // Tenancy (ADR-0029): the guard reads ride the ambient org scope; the write transactions
+        // below open their own connection and re-bind that scope onto it.
         // Guard: the session must exist and be open (this is also what makes close effectively-once —
         // a retried close of an already-closed session refuses here).
-        let st = self.openings.fetch_status(&self.db_pool, c.opening_entry_id, c.company_id).await?;
+        let st = self.openings.fetch_status(&self.db_pool, c.opening_entry_id).await?;
         match st.as_deref() {
             None => return Err(PosError::SessionNotFound(c.opening_entry_id)),
             Some("open") => {}
@@ -178,9 +177,9 @@ impl PosWriteService {
         }
         // Guard: privileged — verify the manager's PIN (server-side, against the stored hash, with the
         // caller's source address feeding the per-address throttle ring).
-        self.verify_manager_internal(c.company_id, &c.manager, c.source_ip.as_deref()).await?;
+        self.verify_manager_internal(&c.manager, c.source_ip.as_deref()).await?;
 
-        let (expected, grand_total, invoice_count) = self.compute_drawer(c.company_id, c.opening_entry_id).await?;
+        let (expected, grand_total, invoice_count) = self.compute_drawer(c.opening_entry_id).await?;
 
         let counted: BTreeMap<String, Decimal> = c.counted.iter().map(|(m, a)| (m.clone(), money(*a))).collect();
         let mut methods: std::collections::BTreeSet<String> = expected.keys().cloned().collect();
@@ -205,7 +204,7 @@ impl PosWriteService {
         let mut booked: Option<super::pos_write_service::VarianceBooking> = None;
         if difference_total != Decimal::ZERO {
             let mut tx = self.db_pool.begin().await?;
-            company_scope::bind_current_company(&mut tx).await?;
+            relay_ambient_scope(&mut tx).await?;
             let (cash_account, write_off_account, currency) = self
                 .openings
                 .fetch_variance_accounts_on(&mut tx, c.opening_entry_id)
@@ -222,7 +221,7 @@ impl PosWriteService {
             };
             let ack = variance
                 .book_cash_variance(&super::pos_ports::CashVarianceRequest {
-                    company_id: c.company_id,
+                    company_id: legacy_company_echo(),
                     opening_entry_id: c.opening_entry_id,
                     closing_entry_id: closing_id,
                     posting_date: c.closed_at.date(),
@@ -246,7 +245,6 @@ impl PosWriteService {
 
         let id = Uuid::new_v4();
         self.finish_close(c, id, totals_json, grand_total, invoice_count, difference_total, by_method, booked).await
-        }).await
     }
 
     /// The persist + emit tail of a close: closing entry + session flip in ONE transaction, then the
@@ -264,11 +262,14 @@ impl PosWriteService {
         booked: Option<super::pos_write_service::VarianceBooking>,
     ) -> Result<CloseOutcome, PosError> {
         let mut tx = self.db_pool.begin().await?;
-        company_scope::bind_current_company(&mut tx).await?;
-        let profile_id = self.openings.fetch_profile_id_on(&mut tx, c.opening_entry_id).await?;
+        relay_ambient_scope(&mut tx).await?;
+        let profile_id = self
+            .openings
+            .fetch_profile_id_on(&mut tx, c.opening_entry_id)
+            .await?
+            .ok_or(PosError::SessionNotFound(c.opening_entry_id))?;
         self.closings.insert_closing_entry(&mut tx, &NewClosingEntryRow {
             id: closing_id,
-            company_id: c.company_id,
             pos_profile_id: profile_id,
             opening_entry_id: c.opening_entry_id,
             closed_at: c.closed_at,
@@ -281,8 +282,10 @@ impl PosWriteService {
         self.openings.mark_closed(&mut tx, c.opening_entry_id).await?;
         tx.commit().await?;
 
+        // The `company_id` field is the documented legacy twin (ADR-0029) — the acting unit id from
+        // the ambient scope's echo.
         self.sink.publish(PosEvent::PosSessionClosed(PosSessionClosed {
-            closing_entry_id: closing_id, opening_entry_id: c.opening_entry_id, company_id: c.company_id,
+            closing_entry_id: closing_id, opening_entry_id: c.opening_entry_id, company_id: legacy_company_echo(),
             difference_total: money(difference_total),
         }));
         Ok(CloseOutcome { closing_id, difference_total: money(difference_total), by_method, variance: booked })

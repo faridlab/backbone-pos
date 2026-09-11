@@ -50,7 +50,6 @@ impl std::ops::Deref for PosOpeningEntryId {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PosOpeningEntry {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub pos_profile_id: Uuid,
     pub branch_id: Option<Uuid>,
     pub cashier_party_id: Uuid,
@@ -69,10 +68,9 @@ impl PosOpeningEntry {
     }
 
     /// Create a new PosOpeningEntry with required fields
-    pub fn new(company_id: Uuid, pos_profile_id: Uuid, cashier_party_id: Uuid, opened_at: DateTime<Utc>, status: PosSessionStatus) -> Self {
+    pub fn new(pos_profile_id: Uuid, cashier_party_id: Uuid, opened_at: DateTime<Utc>, status: PosSessionStatus) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id,
             pos_profile_id,
             branch_id: None,
             cashier_party_id,
@@ -163,9 +161,6 @@ impl PosOpeningEntry {
     pub fn apply_patch(&mut self, fields: std::collections::HashMap<String, serde_json::Value>) {
         for (key, value) in fields {
             match key.as_str() {
-                "company_id" => {
-                    if let Ok(v) = serde_json::from_value(value) { self.company_id = v; }
-                }
                 "pos_profile_id" => {
                     if let Ok(v) = serde_json::from_value(value) { self.pos_profile_id = v; }
                 }
@@ -238,7 +233,6 @@ impl backbone_orm::EntityRepoMeta for PosOpeningEntry {
     fn column_types() -> std::collections::HashMap<String, String> {
         let mut m = std::collections::HashMap::new();
         m.insert("id".to_string(), "uuid".to_string());
-        m.insert("company_id".to_string(), "uuid".to_string());
         m.insert("pos_profile_id".to_string(), "uuid".to_string());
         m.insert("branch_id".to_string(), "uuid".to_string());
         m.insert("cashier_party_id".to_string(), "uuid".to_string());
@@ -248,9 +242,6 @@ impl backbone_orm::EntityRepoMeta for PosOpeningEntry {
     fn search_fields() -> &'static [&'static str] {
         &[]
     }
-    fn company_field() -> Option<&'static str> {
-        Some("company_id")
-    }
 }
 
 /// Builder for PosOpeningEntry entity
@@ -259,7 +250,6 @@ impl backbone_orm::EntityRepoMeta for PosOpeningEntry {
 /// System fields (id, metadata, timestamps) are auto-initialized.
 #[derive(Debug, Clone, Default)]
 pub struct PosOpeningEntryBuilder {
-    company_id: Option<Uuid>,
     pos_profile_id: Option<Uuid>,
     branch_id: Option<Uuid>,
     cashier_party_id: Option<Uuid>,
@@ -269,12 +259,6 @@ pub struct PosOpeningEntryBuilder {
 }
 
 impl PosOpeningEntryBuilder {
-    /// Set the company_id field (required)
-    pub fn company_id(mut self, value: Uuid) -> Self {
-        self.company_id = Some(value);
-        self
-    }
-
     /// Set the pos_profile_id field (required)
     pub fn pos_profile_id(mut self, value: Uuid) -> Self {
         self.pos_profile_id = Some(value);
@@ -315,14 +299,12 @@ impl PosOpeningEntryBuilder {
     ///
     /// Returns Err if any required field without a default is missing.
     pub fn build(self) -> Result<PosOpeningEntry, String> {
-        let company_id = self.company_id.ok_or_else(|| "company_id is required".to_string())?;
         let pos_profile_id = self.pos_profile_id.ok_or_else(|| "pos_profile_id is required".to_string())?;
         let cashier_party_id = self.cashier_party_id.ok_or_else(|| "cashier_party_id is required".to_string())?;
         let opened_at = self.opened_at.ok_or_else(|| "opened_at is required".to_string())?;
 
         Ok(PosOpeningEntry {
             id: Uuid::new_v4(),
-            company_id,
             pos_profile_id,
             branch_id: self.branch_id,
             cashier_party_id,

@@ -24,10 +24,6 @@ models:
         type: uuid
         attributes: ["@id", "@default(uuid)"]
         description: "Unique discount id"
-      company_id:
-        type: uuid
-        attributes: ["@required", "@exclude_from_foreign_key_check"]
-        description: "Books owner # logical FK to organization.Company.id"
       name:
         type: string
         attributes: ["@required", "@max(140)"]
@@ -46,5 +42,6 @@ models:
         description: "Audit metadata"
 
     indexes:
-      - type: index
-        fields: [company_id]
+      # No tenancy indexes (ADR-0029): the module is tenant-agnostic. The unit
+      # listing index is installed by the composing service's tenancy decorator,
+      # not declared here.

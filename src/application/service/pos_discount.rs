@@ -2,13 +2,17 @@
 //!
 //! An `impl PosWriteService` chunk over the vocabulary in [`super::pos_write_service`]. The whole
 //! point of this file is the trust posture: a client ringing a ticket names a discount by ID and
-//! nothing else. The percentage applied is ALWAYS the one on the caller's tenant-scoped master row,
-//! the register must have discounts enabled (`pos_profiles.allow_discount`), and the fold happens
+//! nothing else. The percentage applied is ALWAYS the one on the caller's scoped master row, the
+//! register must have discounts enabled (`pos_profiles.allow_discount`), and the fold happens
 //! server-side into the per-line `discount_amount` BEFORE the tax compute — so tax sees post-discount
 //! nets and a client-authored discount value can never reach a total.
 //!
 //! Per the module's 4-layer rule this file holds no SQL — the master + register reads live on
 //! `PosDiscountRepository` / `PosProfileRepository`.
+//!
+//! Tenancy is composition-installed (ADR-0029): both reads ride the caller's open, scope-relayed
+//! transaction — a master row another unit owns reads as plain absence (typed
+//! [`PosError::DiscountNotFound`]).
 
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -23,21 +27,21 @@ impl PosWriteService {
     /// none applies. Refusals are typed:
     /// - register not found → [`PosError::ProfileNotFound`];
     /// - register has discounts off → [`PosError::DiscountNotAllowed`];
-    /// - master id unknown in this tenant → [`PosError::DiscountNotFound`];
+    /// - master id unknown in the caller's scope → [`PosError::DiscountNotFound`];
     /// - master percentage not a sane fraction → [`PosError::DiscountInvalid`].
     pub(super) async fn resolve_order_discount(
         &self,
-        company_id: Uuid,
+        conn: &mut sqlx::PgConnection,
         pos_profile_id: Uuid,
         discount_id: Option<Uuid>,
     ) -> Result<Option<DiscountRow>, PosError> {
         let Some(discount_id) = discount_id else { return Ok(None) };
         // Register gate: `allow_discount` rides the same config read the compute uses (one extra
-        // scoped round trip on a ring that named a discount — cheap, and keeps a single source for
-        // "does this register exist").
+        // round trip on the caller's connection for a ring that named a discount — cheap, and keeps
+        // a single source for "does this register exist").
         let cfg = self
             .profiles
-            .fetch_tax_config(&self.db_pool, pos_profile_id, company_id)
+            .fetch_tax_config(&mut *conn, pos_profile_id)
             .await?
             .ok_or(PosError::ProfileNotFound(pos_profile_id))?;
         if !cfg.allow_discount {
@@ -45,7 +49,7 @@ impl PosWriteService {
         }
         let d = self
             .discounts
-            .fetch_discount(&self.db_pool, discount_id, company_id)
+            .fetch_discount(&mut *conn, discount_id)
             .await?
             .ok_or(PosError::DiscountNotFound(discount_id))?;
         if d.percentage < Decimal::ZERO || d.percentage > Decimal::ONE {

@@ -6,13 +6,16 @@
 //!
 //! Thin newtype over `backbone_orm::GenericCrudRepository<PosProfile, backbone_orm::SoftDelete>`.
 //! All standard CRUD methods are available via `Deref`.
+//!
+//! Tenancy is composition-installed (ADR-0029): both reads below execute on the CALLER'S connection
+//! — the ticket compute and the session-open guard run inside the caller's scope-relayed
+//! transaction, and the fence on that connection is the whole guard (a register another unit owns
+//! reads as plain absence).
 
 use anyhow::Result;
 use rust_decimal::Decimal;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
-
-use backbone_orm::company_scope;
 
 use crate::domain::entity::PosProfile;
 
@@ -58,25 +61,26 @@ pub struct TaxConfigRow {
 /// 4-layer rule: services orchestrate and own the unit of work, repositories hold the SQL.
 impl PosProfileRepository {
     /// Read a register's pricing-side configuration (tax templates + cash rounding).
-    /// `Ok(None)` = no such register in this tenant.
+    /// `Ok(None)` = no such register visible to the caller's scope.
+    ///
+    /// Takes the caller's EXECUTOR, not a pool: the ticket compute core prices a ticket inside the
+    /// caller's scope-relayed transaction, and this config read MUST ride that same connection — a
+    /// plain pool read under a composed fence sees zero rows and the register would falsely vanish
+    /// (ADR-0029).
     ///
     /// Tax is server-owned: these templates — not any client-supplied total — are what the ticket is
-    /// taxed through (`PosTaxComputePort`). The explicit `company_id = $2` filter is defense-in-depth
-    /// ON TOP of the RLS fence; the caller wraps this in `with_company_scope(Some(company))`.
+    /// taxed through (`PosTaxComputePort`).
     pub async fn fetch_tax_config(
         &self,
-        pool: &PgPool,
+        exec: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
         pos_profile_id: Uuid,
-        company_id: Uuid,
     ) -> Result<Option<TaxConfigRow>, sqlx::Error> {
-        let row = company_scope::fetch_optional_row_scoped(
-            pool,
-            sqlx::query(
-                r#"SELECT tax_template_ids, cash_rounding_strategy::text AS strategy, cash_rounding_unit, allow_discount
-                   FROM pos.pos_profiles WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL"#,
-            )
-            .bind(pos_profile_id).bind(company_id),
+        let row = sqlx::query(
+            r#"SELECT tax_template_ids, cash_rounding_strategy::text AS strategy, cash_rounding_unit, allow_discount
+               FROM pos.pos_profiles WHERE id=$1 AND (metadata->>'deleted_at') IS NULL"#,
         )
+        .bind(pos_profile_id)
+        .fetch_optional(exec)
         .await?;
         Ok(row.map(|r| TaxConfigRow {
             tax_template_ids: r.get("tax_template_ids"),
@@ -86,27 +90,23 @@ impl PosProfileRepository {
         }))
     }
 
-    /// Does this register exist in this tenant (and is it not soft-deleted)?
+    /// Does this register exist (and is it not soft-deleted)?
     ///
-    /// The pre-write validation for opening a cashier session: a session must never open
-    /// against a register uuid the tenant does not own — the id may be unknown outright or
-    /// belong to another tenant, and the fence deliberately cannot tell the two apart (the
-    /// caller gets one typed "no such register" refusal either way). The explicit
-    /// `company_id = $2` filter is defense-in-depth ON TOP of the RLS fence; the caller wraps
-    /// this in `with_company_scope(Some(company))`.
+    /// The pre-write validation for opening a cashier session: a session must never open against a
+    /// register uuid the caller's scope does not own — the id may be unknown outright or belong to
+    /// another unit, and the fence deliberately cannot tell the two apart (the caller gets one typed
+    /// "no such register" refusal either way). Runs on the caller's scope-relayed transaction so the
+    /// check and the session insert it guards see the same world.
     pub async fn exists(
         &self,
-        pool: &PgPool,
+        conn: &mut sqlx::PgConnection,
         pos_profile_id: Uuid,
-        company_id: Uuid,
     ) -> Result<bool, sqlx::Error> {
-        let found: Option<i32> = company_scope::fetch_optional_scalar_scoped(
-            pool,
-            sqlx::query_scalar(
-                "SELECT 1 FROM pos.pos_profiles WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL",
-            )
-            .bind(pos_profile_id).bind(company_id),
+        let found: Option<i32> = sqlx::query_scalar(
+            "SELECT 1 FROM pos.pos_profiles WHERE id=$1 AND (metadata->>'deleted_at') IS NULL",
         )
+        .bind(pos_profile_id)
+        .fetch_optional(conn)
         .await?;
         Ok(found.is_some())
     }

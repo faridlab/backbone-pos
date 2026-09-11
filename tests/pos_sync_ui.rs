@@ -24,9 +24,9 @@ fn tender(client: Uuid, method: &str, amount: &str) -> backbone_pos::application
         client_uuid: client, method: method.into(), amount: d(amount), reference_no: None,
     }
 }
-fn sync(company: Uuid, client: Uuid, prof: Uuid, session: Uuid, lines: Vec<backbone_pos::application::service::pos_write_service::SyncSaleLine>, tenders: Vec<backbone_pos::application::service::pos_write_service::SyncTender>) -> NewSyncSale {
+fn sync(client: Uuid, prof: Uuid, session: Uuid, lines: Vec<backbone_pos::application::service::pos_write_service::SyncSaleLine>, tenders: Vec<backbone_pos::application::service::pos_write_service::SyncTender>) -> NewSyncSale {
     NewSyncSale {
-        company_id: company, client_uuid: client, pos_profile_id: prof, opening_entry_id: session,
+        client_uuid: client, pos_profile_id: prof, opening_entry_id: session,
         rescue_opening_entry_id: None, branch_id: None, customer_id: None,
         pos_table_id: None, discount_id: None, posting_at: at(),
         lines, tenders, refund_of_client_uuid: None, manager: None, source_ip: None,
@@ -35,20 +35,20 @@ fn sync(company: Uuid, client: Uuid, prof: Uuid, session: Uuid, lines: Vec<backb
 
 /// A register with templates + the GL accounts + walk-in customer recognition needs (tests that
 /// finalize tickets use this).
-async fn full_profile(pool: &sqlx::PgPool, company: Uuid, rate: &str) -> (Uuid, TestTax) {
+async fn full_profile(pool: &sqlx::PgPool, rate: &str) -> (Uuid, TestTax) {
     let template = Uuid::new_v4();
     let id = Uuid::new_v4();
-    sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, tax_template_ids, receivable_account_id, income_account_id, cash_account_id, default_customer_id, tax_account_id, allow_discount, status)
-        VALUES ($1,$2,'Register 1','IDR',$3,$4,$5,$6,$7,$8,true,'active')"#)
-        .bind(id).bind(company).bind(serde_json::json!([template.to_string()]))
+    sqlx::query(r#"INSERT INTO pos.pos_profiles (id, name, currency, tax_template_ids, receivable_account_id, income_account_id, cash_account_id, default_customer_id, tax_account_id, allow_discount, status)
+        VALUES ($1,'Register 1','IDR',$2,$3,$4,$5,$6,$7,true,'active')"#)
+        .bind(id).bind(serde_json::json!([template.to_string()]))
         .bind(Uuid::new_v4()).bind(Uuid::new_v4()).bind(Uuid::new_v4()).bind(Uuid::new_v4()).bind(Uuid::new_v4())
         .execute(pool).await.unwrap();
     (id, TestTax::with_rate(template, rate))
 }
 
-async fn open(w: &PosWriteService, company: Uuid, prof: Uuid) -> Uuid {
+async fn open(w: &PosWriteService, prof: Uuid) -> Uuid {
     w.open_session(NewSession {
-        company_id: company, pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(),
+        pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(),
         opened_at: at(), opening_balances: vec![],
     }).await.unwrap()
 }
@@ -60,13 +60,13 @@ async fn first_replay_creates_with_server_totals() {
     let pool = pool().await;
     let rec = support::Recorder::default();
     let w = PosWriteService::with_sink(pool.clone(), std::sync::Arc::new(rec.clone()));
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = full_profile(&pool, company, "0.11").await;
-    let session = open(&w, company, prof).await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = full_profile(&pool, "0.11").await;
+    let session = open(&w, prof).await;
 
     let client = Uuid::new_v4();
     let out = w.sync_from_ui(
-        sync(company, client, prof, session,
+        sync(client, prof, session,
             vec![sync_line(Uuid::new_v4(), item, "2", "50000")],
             vec![tender(Uuid::new_v4(), "cash", "111000")]),
         &tax, &support::StubBilling::default(), &support::StubPayment,
@@ -97,13 +97,13 @@ async fn first_replay_creates_with_server_totals() {
 async fn replay_updates_the_draft_it_names() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = full_profile(&pool, company, "0").await;
-    let session = open(&w, company, prof).await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = full_profile(&pool, "0").await;
+    let session = open(&w, prof).await;
 
     let client = Uuid::new_v4();
     let first = w.sync_from_ui(
-        sync(company, client, prof, session,
+        sync(client, prof, session,
             vec![sync_line(Uuid::new_v4(), item, "2", "50000"), sync_line(Uuid::new_v4(), item, "1", "20000")],
             vec![tender(Uuid::new_v4(), "cash", "120000")]),
         &tax, &support::StubBilling::default(), &support::StubPayment,
@@ -113,7 +113,7 @@ async fn replay_updates_the_draft_it_names() {
 
     // The cashier removed the 20,000 line and paid by card instead.
     let second = w.sync_from_ui(
-        sync(company, client, prof, session,
+        sync(client, prof, session,
             vec![sync_line(Uuid::new_v4(), item, "2", "50000")],
             vec![tender(Uuid::new_v4(), "card", "100000")]),
         &tax, &support::StubBilling::default(), &support::StubPayment,
@@ -148,13 +148,13 @@ async fn replay_updates_the_draft_it_names() {
 async fn replay_of_a_finalized_ticket_is_inert() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = full_profile(&pool, company, "0.11").await;
-    let session = open(&w, company, prof).await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = full_profile(&pool, "0.11").await;
+    let session = open(&w, prof).await;
 
     let client = Uuid::new_v4();
     let first = w.sync_from_ui(
-        sync(company, client, prof, session,
+        sync(client, prof, session,
             vec![sync_line(Uuid::new_v4(), item, "1", "100000")],
             vec![tender(Uuid::new_v4(), "cash", "111000")]),
         &tax, &support::StubBilling::default(), &support::StubPayment,
@@ -163,7 +163,7 @@ async fn replay_of_a_finalized_ticket_is_inert() {
 
     // A late replay (changed lines, whatever tenders) is refused-as-replay: nothing rewritten.
     let replay = w.sync_from_ui(
-        sync(company, client, prof, session,
+        sync(client, prof, session,
             vec![sync_line(Uuid::new_v4(), item, "5", "100000")],
             vec![tender(Uuid::new_v4(), "cash", "555000")]),
         &tax, &support::StubBilling::default(), &support::StubPayment,
@@ -182,21 +182,21 @@ async fn replay_of_a_finalized_ticket_is_inert() {
 async fn closed_session_is_rescue_or_refuse() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = full_profile(&pool, company, "0").await;
-    let manager = manager_with_pin(&w, company, "4321").await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = full_profile(&pool, "0").await;
+    let manager = manager_with_pin(&pool, "4321").await;
     let variance = RecordingVariance::default();
 
     // Shift 1 opens and closes with no tickets; shift 2 is open on the same register.
-    let s1 = open(&w, company, prof).await;
+    let s1 = open(&w, prof).await;
     w.close_session(NewClose {
-        company_id: company, opening_entry_id: s1, cashier_party_id: Uuid::new_v4(), closed_at: at(),
+        opening_entry_id: s1, cashier_party_id: Uuid::new_v4(), closed_at: at(),
         counted: vec![], manager: manager.clone(), source_ip: None,
     }, &variance).await.unwrap();
-    let s2 = open(&w, company, prof).await;
+    let s2 = open(&w, prof).await;
 
     let client = Uuid::new_v4();
-    let mut req = sync(company, client, prof, s1,
+    let mut req = sync(client, prof, s1,
         vec![sync_line(Uuid::new_v4(), item, "1", "50000")],
         vec![tender(Uuid::new_v4(), "cash", "50000")]);
     // No rescue named → typed refusal.
@@ -219,21 +219,21 @@ async fn closed_session_is_rescue_or_refuse() {
 async fn rescue_must_stay_on_the_tickets_register() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof_a, tax) = full_profile(&pool, company, "0").await;
-    let (prof_b, _) = support::profile_at_rate(&pool, company, "0").await;
-    let manager = manager_with_pin(&w, company, "4321").await;
+    let item = Uuid::new_v4();
+    let (prof_a, tax) = full_profile(&pool, "0").await;
+    let (prof_b, _) = support::profile_at_rate(&pool, "0").await;
+    let manager = manager_with_pin(&pool, "4321").await;
     let variance = RecordingVariance::default();
 
-    let s1 = open(&w, company, prof_a).await;
+    let s1 = open(&w, prof_a).await;
     w.close_session(NewClose {
-        company_id: company, opening_entry_id: s1, cashier_party_id: Uuid::new_v4(), closed_at: at(),
+        opening_entry_id: s1, cashier_party_id: Uuid::new_v4(), closed_at: at(),
         counted: vec![], manager, source_ip: None,
     }, &variance).await.unwrap();
-    let other_register_session = open(&w, company, prof_b).await;
+    let other_register_session = open(&w, prof_b).await;
 
     let client = Uuid::new_v4();
-    let req = sync(company, client, prof_a, s1,
+    let req = sync(client, prof_a, s1,
         vec![sync_line(Uuid::new_v4(), item, "1", "50000")],
         vec![tender(Uuid::new_v4(), "cash", "50000")]);
     let mut req = req;
@@ -249,21 +249,22 @@ async fn rescue_must_stay_on_the_tickets_register() {
 async fn plain_open_replay_must_stay_on_its_register() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof_a, tax) = full_profile(&pool, company, "0").await;
-    let (prof_b, _) = support::profile_at_rate(&pool, company, "0").await;
+    let item = Uuid::new_v4();
+    let (prof_a, tax) = full_profile(&pool, "0").await;
+    let (prof_b, _) = support::profile_at_rate(&pool, "0").await;
 
     // Register B's session is open; the payload claims register A's config.
-    let session_b = open(&w, company, prof_b).await;
+    let session_b = open(&w, prof_b).await;
+    let client = Uuid::new_v4();
     let e = w.sync_from_ui(
-        sync(company, Uuid::new_v4(), prof_a, session_b,
+        sync(client, prof_a, session_b,
             vec![sync_line(Uuid::new_v4(), item, "1", "50000")],
             vec![tender(Uuid::new_v4(), "cash", "50000")]),
         &tax, &support::StubBilling::default(), &support::StubPayment,
     ).await.unwrap_err();
     assert!(matches!(e, PosError::SessionRegisterMismatch), "cross-register plain-open replay refused, got {e:?}");
-    let tickets: i64 = sqlx::query_scalar("SELECT count(*) FROM pos.pos_invoices WHERE company_id=$1")
-        .bind(company).fetch_one(&pool).await.unwrap();
+    let tickets: i64 = sqlx::query_scalar("SELECT count(*) FROM pos.pos_invoices WHERE client_uuid=$1")
+        .bind(client).fetch_one(&pool).await.unwrap();
     assert_eq!(tickets, 0, "nothing was written");
 }
 
@@ -273,15 +274,15 @@ async fn plain_open_replay_must_stay_on_its_register() {
 async fn refund_replay_is_privileged_and_idempotent() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = full_profile(&pool, company, "0").await;
-    let session = open(&w, company, prof).await;
-    let manager = manager_with_pin(&w, company, "4321").await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = full_profile(&pool, "0").await;
+    let session = open(&w, prof).await;
+    let manager = manager_with_pin(&pool, "4321").await;
 
     // A recognized parent sale, created by its own replay.
     let parent_uuid = Uuid::new_v4();
     let parent = w.sync_from_ui(
-        sync(company, parent_uuid, prof, session,
+        sync(parent_uuid, prof, session,
             vec![sync_line(Uuid::new_v4(), item, "1", "100000")],
             vec![tender(Uuid::new_v4(), "cash", "100000")]),
         &tax, &support::StubBilling::default(), &support::StubPayment,
@@ -289,7 +290,7 @@ async fn refund_replay_is_privileged_and_idempotent() {
     w.recognize_sale(parent.pos_invoice_id, &support::StubBilling::default(), &support::StubPayment, None).await.unwrap();
 
     // The refund replay: new uuid + refund_of_client_uuid naming the parent.
-    let mut req = sync(company, Uuid::new_v4(), prof, session, vec![], vec![]);
+    let mut req = sync(Uuid::new_v4(), prof, session, vec![], vec![]);
     req.refund_of_client_uuid = Some(parent_uuid);
 
     // Without the manager proof → refused.
@@ -329,12 +330,12 @@ async fn refund_replay_is_privileged_and_idempotent() {
 async fn refund_parent_must_exist_and_be_finalized() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = full_profile(&pool, company, "0").await;
-    let session = open(&w, company, prof).await;
-    let manager = manager_with_pin(&w, company, "4321").await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = full_profile(&pool, "0").await;
+    let session = open(&w, prof).await;
+    let manager = manager_with_pin(&pool, "4321").await;
 
-    let mut req = sync(company, Uuid::new_v4(), prof, session, vec![], vec![]);
+    let mut req = sync(Uuid::new_v4(), prof, session, vec![], vec![]);
     req.refund_of_client_uuid = Some(Uuid::new_v4());
     req.manager = Some(manager.clone());
     let e = w.sync_from_ui(req, &tax, &support::StubBilling::default(), &support::StubPayment).await.unwrap_err();
@@ -343,12 +344,12 @@ async fn refund_parent_must_exist_and_be_finalized() {
     // A DRAFT parent: recognition must complete before any refund.
     let parent_uuid = Uuid::new_v4();
     w.sync_from_ui(
-        sync(company, parent_uuid, prof, session,
+        sync(parent_uuid, prof, session,
             vec![sync_line(Uuid::new_v4(), item, "1", "100000")],
             vec![tender(Uuid::new_v4(), "cash", "100000")]),
         &tax, &support::StubBilling::default(), &support::StubPayment,
     ).await.unwrap();
-    let mut req = sync(company, Uuid::new_v4(), prof, session, vec![], vec![]);
+    let mut req = sync(Uuid::new_v4(), prof, session, vec![], vec![]);
     req.refund_of_client_uuid = Some(parent_uuid);
     req.manager = Some(manager);
     let e = w.sync_from_ui(req, &tax, &support::StubBilling::default(), &support::StubPayment).await.unwrap_err();
@@ -361,28 +362,28 @@ async fn refund_parent_must_exist_and_be_finalized() {
 async fn update_path_fences_lineage_and_partner() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = full_profile(&pool, company, "0").await;
-    let session = open(&w, company, prof).await;
-    let manager = manager_with_pin(&w, company, "4321").await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = full_profile(&pool, "0").await;
+    let session = open(&w, prof).await;
+    let manager = manager_with_pin(&pool, "4321").await;
 
     let client = Uuid::new_v4();
     w.sync_from_ui(
-        sync(company, client, prof, session,
+        sync(client, prof, session,
             vec![sync_line(Uuid::new_v4(), item, "1", "50000")],
             vec![tender(Uuid::new_v4(), "cash", "50000")]),
         &tax, &support::StubBilling::default(), &support::StubPayment,
     ).await.unwrap();
 
     // A plain replay carrying refund_of is a lineage conflict — refunds ride the dedicated path only.
-    let mut req = sync(company, client, prof, session, vec![], vec![]);
+    let mut req = sync(client, prof, session, vec![], vec![]);
     req.refund_of_client_uuid = Some(Uuid::new_v4());
     req.manager = Some(manager);
     let e = w.sync_from_ui(req, &tax, &support::StubBilling::default(), &support::StubPayment).await.unwrap_err();
     assert!(matches!(e, PosError::RefundLineageConflict));
 
     // A replay naming a DIFFERENT customer cannot re-assign the ticket's partner.
-    let mut req = sync(company, client, prof, session,
+    let mut req = sync(client, prof, session,
         vec![sync_line(Uuid::new_v4(), item, "1", "50000")],
         vec![tender(Uuid::new_v4(), "cash", "50000")]);
     req.customer_id = Some(Uuid::new_v4());
@@ -396,11 +397,11 @@ async fn update_path_fences_lineage_and_partner() {
 async fn unknown_tender_method_is_a_typed_refusal() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = full_profile(&pool, company, "0").await;
-    let session = open(&w, company, prof).await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = full_profile(&pool, "0").await;
+    let session = open(&w, prof).await;
 
-    let req = sync(company, Uuid::new_v4(), prof, session,
+    let req = sync(Uuid::new_v4(), prof, session,
         vec![sync_line(Uuid::new_v4(), item, "1", "1000")],
         vec![tender(Uuid::new_v4(), "crypto", "1000")]);
     let e = w.sync_from_ui(req, &tax, &support::StubBilling::default(), &support::StubPayment).await.unwrap_err();
@@ -410,33 +411,39 @@ async fn unknown_tender_method_is_a_typed_refusal() {
     }
 }
 
-/// SY-10: tenant scoping — the identity lookup rides the company fence, so another company's ticket
-/// carrying the same uuid is invisible (the replay creates its own, and never touches the other's).
+/// SY-10: identity is the payload's client uuid — the module keeps no company axis (ADR-0029: the
+/// org fence is composition-installed, so in this undecorated database the uuid namespaces
+/// module-wide). A second register's replay of the SAME uuid cannot double-ring: it collides with
+/// the live draft, and the register pairing refuses the rewrite. The org-scoped
+/// (org_unit_id, client_uuid) namespace is the composing decorator's;
+/// `tenancy_posture_probe.rs` pins the module-side scope-binding contract.
 #[tokio::test]
-async fn identity_lookup_is_tenant_scoped() {
+async fn same_uuid_never_double_rings_across_registers() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company_a, company_b, item) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
-    let (prof_a, tax) = full_profile(&pool, company_a, "0").await;
-    let (prof_b, tax_b) = support::profile_at_rate(&pool, company_b, "0").await;
-    let s_a = open(&w, company_a, prof_a).await;
-    let s_b = open(&w, company_b, prof_b).await;
+    let (item, client) = (Uuid::new_v4(), Uuid::new_v4());
+    let (prof_a, tax) = full_profile(&pool, "0").await;
+    let (prof_b, tax_b) = support::profile_at_rate(&pool, "0").await;
+    let s_a = open(&w, prof_a).await;
+    let s_b = open(&w, prof_b).await;
 
-    let client = Uuid::new_v4();
     let a = w.sync_from_ui(
-        sync(company_a, client, prof_a, s_a,
+        sync(client, prof_a, s_a,
             vec![sync_line(Uuid::new_v4(), item, "1", "100000")],
             vec![tender(Uuid::new_v4(), "cash", "100000")]),
         &tax, &support::StubBilling::default(), &support::StubPayment,
     ).await.unwrap();
-    let b = w.sync_from_ui(
-        sync(company_b, client, prof_b, s_b,
+    assert_eq!(a.action, SyncAction::Created);
+    // The same uuid replayed against ANOTHER register's open session collides with the live
+    // draft — and a rewrite onto a different register is refused, not silently re-attributed.
+    let e = w.sync_from_ui(
+        sync(client, prof_b, s_b,
             vec![sync_line(Uuid::new_v4(), item, "1", "1000")],
             vec![tender(Uuid::new_v4(), "cash", "1000")]),
         &tax_b, &support::StubBilling::default(), &support::StubPayment,
-    ).await.unwrap();
-    assert_ne!(a.pos_invoice_id, b.pos_invoice_id, "the uuid namespaces per company");
-    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pos.pos_invoices WHERE client_uuid=$1 AND company_id=$2")
-        .bind(client).bind(company_a).fetch_one(&pool).await.unwrap();
-    assert_eq!(n, 1);
+    ).await.unwrap_err();
+    assert!(matches!(e, PosError::SyncSessionMismatch), "the collision may not rewrite across registers, got {e:?}");
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pos.pos_invoices WHERE client_uuid=$1")
+        .bind(client).fetch_one(&pool).await.unwrap();
+    assert_eq!(n, 1, "the replay never double-rings the uuid");
 }

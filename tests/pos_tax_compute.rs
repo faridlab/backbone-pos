@@ -6,25 +6,24 @@ mod support;
 use support::{at, d, pool, seed_profile, uq, TestTax};
 
 use rust_decimal::Decimal;
-use sqlx::PgPool;
 use uuid::Uuid;
 
 use backbone_pos::application::service::pos_write_service::{
     NewSale, NewSaleLine, NewSession, PosError, PosWriteService,
 };
 
-async fn open(w: &PosWriteService, company: Uuid, prof: Uuid) -> Uuid {
+async fn open(w: &PosWriteService, prof: Uuid) -> Uuid {
     w.open_session(NewSession {
-        company_id: company, pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(),
+        pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(),
         opened_at: at(), opening_balances: vec![],
     }).await.unwrap()
 }
 fn line(item: Uuid, qty: &str, price: &str) -> NewSaleLine {
     NewSaleLine { item_id: item, revenue_account_id: None, description: None, quantity: d(qty), unit_price: d(price), course: None, discount_amount: Decimal::ZERO }
 }
-async fn ring(w: &PosWriteService, company: Uuid, prof: Uuid, session: Uuid, tax: &TestTax, lines: Vec<NewSaleLine>) -> Result<Uuid, PosError> {
+async fn ring(w: &PosWriteService, prof: Uuid, session: Uuid, tax: &TestTax, lines: Vec<NewSaleLine>) -> Result<Uuid, PosError> {
     w.ring_sale(NewSale {
-        company_id: company, pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
+        pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
         pos_table_id: None, discount_id: None,
         receipt_number: uq("R"), posting_at: at(), lines,
     }, tax).await
@@ -36,10 +35,10 @@ async fn ring(w: &PosWriteService, company: Uuid, prof: Uuid, session: Uuid, tax
 async fn document_grade_tax_on_the_discounted_net() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = support::profile_at_rate(&pool, company, "0.11").await;
-    let session = open(&w, company, prof).await;
-    let sale = ring(&w, company, prof, session, &tax, vec![
+    let item = Uuid::new_v4();
+    let (prof, tax) = support::profile_at_rate(&pool, "0.11").await;
+    let session = open(&w, prof).await;
+    let sale = ring(&w, prof, session, &tax, vec![
         NewSaleLine { discount_amount: d("5000"), ..line(item, "2", "50000") },
     ]).await.unwrap();
     let (net, tax_total, grand, rounded): (Decimal, Decimal, Decimal, Decimal) =
@@ -54,12 +53,12 @@ async fn document_grade_tax_on_the_discounted_net() {
 async fn multiple_templates_sum_into_the_tax_total() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
+    let item = Uuid::new_v4();
     let (t11, t1) = (Uuid::new_v4(), Uuid::new_v4());
-    let prof = seed_profile(&pool, company, &[t11, t1], None).await;
+    let prof = seed_profile(&pool, &[t11, t1], None).await;
     let tax = TestTax::with_rates(vec![(t11, "0.11"), (t1, "0.01")]);
-    let session = open(&w, company, prof).await;
-    let sale = ring(&w, company, prof, session, &tax, vec![line(item, "1", "100000")]).await.unwrap();
+    let session = open(&w, prof).await;
+    let sale = ring(&w, prof, session, &tax, vec![line(item, "1", "100000")]).await.unwrap();
     let (tax_total, grand): (Decimal, Decimal) =
         sqlx::query_as("SELECT tax_total, grand_total FROM pos.pos_invoices WHERE id=$1")
             .bind(sale).fetch_one(&pool).await.unwrap();
@@ -73,11 +72,11 @@ async fn multiple_templates_sum_into_the_tax_total() {
 async fn port_net_redistribution_is_adopted_verbatim() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = support::profile_at_rate(&pool, company, "0").await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = support::profile_at_rate(&pool, "0").await;
     let tax = tax.with_shift(1); // first line +0.01, last line −0.01
-    let session = open(&w, company, prof).await;
-    let sale = ring(&w, company, prof, session, &tax, vec![
+    let session = open(&w, prof).await;
+    let sale = ring(&w, prof, session, &tax, vec![
         line(item, "1", "100000"),
         NewSaleLine { item_id: Uuid::new_v4(), ..line(item, "1", "100000") },
     ]).await.unwrap();
@@ -103,11 +102,11 @@ async fn port_refusal_surfaces_as_tax_rejected() {
     }
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, _) = support::profile_at_rate(&pool, company, "0").await;
-    let session = open(&w, company, prof).await;
+    let item = Uuid::new_v4();
+    let (prof, _) = support::profile_at_rate(&pool, "0").await;
+    let session = open(&w, prof).await;
     let e = w.ring_sale(NewSale {
-        company_id: company, pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
+        pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
         pos_table_id: None, discount_id: None,
         receipt_number: uq("R"), posting_at: at(), lines: vec![line(item, "1", "1000")],
     }, &RefusingTax).await.unwrap_err();
@@ -126,13 +125,13 @@ async fn port_refusal_surfaces_as_tax_rejected() {
 async fn unknown_template_refuses_the_ring() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = support::profile_at_rate(&pool, company, "0").await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = support::profile_at_rate(&pool, "0").await;
     // A second template id on the profile that the port has no rate for.
     sqlx::query("UPDATE pos.pos_profiles SET tax_template_ids=$2 WHERE id=$1")
         .bind(prof).bind(serde_json::json!([Uuid::new_v4().to_string()])).execute(&pool).await.unwrap();
-    let session = open(&w, company, prof).await;
-    let e = ring(&w, company, prof, session, &tax, vec![line(item, "1", "1000")]).await.unwrap_err();
+    let session = open(&w, prof).await;
+    let e = ring(&w, prof, session, &tax, vec![line(item, "1", "1000")]).await.unwrap_err();
     match e {
         PosError::TaxRejected { code, .. } => assert_eq!(code, "unknown_template"),
         other => panic!("expected TaxRejected, got {other:?}"),
@@ -145,12 +144,12 @@ async fn unknown_template_refuses_the_ring() {
 async fn derived_tax_rate_replaces_the_profile_column() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = support::profile_at_rate(&pool, company, "0.11").await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = support::profile_at_rate(&pool, "0.11").await;
     // A stale flat column must not matter: park a wrong value on it.
     sqlx::query("UPDATE pos.pos_profiles SET tax_rate=0.5 WHERE id=$1").bind(prof).execute(&pool).await.unwrap();
-    let session = open(&w, company, prof).await;
-    let sale = ring(&w, company, prof, session, &tax, vec![line(item, "1", "100000")]).await.unwrap();
+    let session = open(&w, prof).await;
+    let sale = ring(&w, prof, session, &tax, vec![line(item, "1", "100000")]).await.unwrap();
     let (tax_total, rate): (Decimal, Decimal) = sqlx::query_as(
         "SELECT tax_total, ROUND(COALESCE(tax_total / NULLIF(net_total, 0), 0), 6) FROM pos.pos_invoices WHERE id=$1",
     ).bind(sale).fetch_one(&pool).await.unwrap();

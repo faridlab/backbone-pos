@@ -22,6 +22,11 @@
 //!
 //! Per the module's 4-layer rule this file holds no SQL — the register-config read lives on
 //! `PosProfileRepository`.
+//!
+//! Tenancy is composition-installed (ADR-0029): the register-config read rides the CALLER'S
+//! connection — every caller holds an open, scope-relayed transaction by the time it computes, so
+//! the read sees through the same fence the ticket insert will write under (a plain pool read here
+//! would see zero rows under a composed fence and refuse with a false 404).
 
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -75,10 +80,12 @@ impl PosWriteService {
     /// Derive a ticket's money from its inputs. See the module doc for the four-part contract.
     ///
     /// `document_type` tells the tax compute whether the document is a sale or a refund (the
-    /// repartition family differs); `on_date` is the ticket's posting date.
+    /// repartition family differs); `on_date` is the ticket's posting date. `exec` is the caller's
+    /// open transaction — the register-config read must ride the same scope-relayed connection the
+    /// ticket insert will write under (ADR-0029).
     pub(super) async fn compute_ticket(
         &self,
-        company_id: Uuid,
+        exec: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
         pos_profile_id: Uuid,
         on_date: chrono::NaiveDate,
         document_type: PosTaxDocumentType,
@@ -93,7 +100,7 @@ impl PosWriteService {
         // template is the non-PKP expression, so NULL/empty cannot silently mean "no tax").
         let cfg: TaxConfigRow = self
             .profiles
-            .fetch_tax_config(&self.db_pool, pos_profile_id, company_id)
+            .fetch_tax_config(exec, pos_profile_id)
             .await?
             .ok_or(PosError::ProfileNotFound(pos_profile_id))?;
         let templates = parse_template_ids(cfg.tax_template_ids.as_ref())
@@ -136,7 +143,6 @@ impl PosWriteService {
             .collect();
         let result = tax
             .compute_document(&PosTaxComputeRequest {
-                company_id,
                 document_type,
                 on_date,
                 lines: tax_lines,

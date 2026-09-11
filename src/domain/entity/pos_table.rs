@@ -48,7 +48,6 @@ impl std::ops::Deref for PosTableId {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PosTable {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub pos_floor_plan_id: Uuid,
     pub name: Option<String>,
     pub seats: Option<i32>,
@@ -66,10 +65,9 @@ impl PosTable {
     }
 
     /// Create a new PosTable with required fields
-    pub fn new(company_id: Uuid, pos_floor_plan_id: Uuid) -> Self {
+    pub fn new(pos_floor_plan_id: Uuid) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id,
             pos_floor_plan_id,
             name: None,
             seats: None,
@@ -166,9 +164,6 @@ impl PosTable {
     pub fn apply_patch(&mut self, fields: std::collections::HashMap<String, serde_json::Value>) {
         for (key, value) in fields {
             match key.as_str() {
-                "company_id" => {
-                    if let Ok(v) = serde_json::from_value(value) { self.company_id = v; }
-                }
                 "pos_floor_plan_id" => {
                     if let Ok(v) = serde_json::from_value(value) { self.pos_floor_plan_id = v; }
                 }
@@ -238,15 +233,11 @@ impl backbone_orm::EntityRepoMeta for PosTable {
     fn column_types() -> std::collections::HashMap<String, String> {
         let mut m = std::collections::HashMap::new();
         m.insert("id".to_string(), "uuid".to_string());
-        m.insert("company_id".to_string(), "uuid".to_string());
         m.insert("pos_floor_plan_id".to_string(), "uuid".to_string());
         m
     }
     fn search_fields() -> &'static [&'static str] {
         &[]
-    }
-    fn company_field() -> Option<&'static str> {
-        Some("company_id")
     }
     fn relations() -> &'static [(&'static str, &'static str, &'static str)] {
         &[("floorPlan", "pos_floor_plans", "posFloorPlanId")]
@@ -259,7 +250,6 @@ impl backbone_orm::EntityRepoMeta for PosTable {
 /// System fields (id, metadata, timestamps) are auto-initialized.
 #[derive(Debug, Clone, Default)]
 pub struct PosTableBuilder {
-    company_id: Option<Uuid>,
     pos_floor_plan_id: Option<Uuid>,
     name: Option<String>,
     seats: Option<i32>,
@@ -268,12 +258,6 @@ pub struct PosTableBuilder {
 }
 
 impl PosTableBuilder {
-    /// Set the company_id field (required)
-    pub fn company_id(mut self, value: Uuid) -> Self {
-        self.company_id = Some(value);
-        self
-    }
-
     /// Set the pos_floor_plan_id field (required)
     pub fn pos_floor_plan_id(mut self, value: Uuid) -> Self {
         self.pos_floor_plan_id = Some(value);
@@ -308,12 +292,10 @@ impl PosTableBuilder {
     ///
     /// Returns Err if any required field without a default is missing.
     pub fn build(self) -> Result<PosTable, String> {
-        let company_id = self.company_id.ok_or_else(|| "company_id is required".to_string())?;
         let pos_floor_plan_id = self.pos_floor_plan_id.ok_or_else(|| "pos_floor_plan_id is required".to_string())?;
 
         Ok(PosTable {
             id: Uuid::new_v4(),
-            company_id,
             pos_floor_plan_id,
             name: self.name,
             seats: self.seats,

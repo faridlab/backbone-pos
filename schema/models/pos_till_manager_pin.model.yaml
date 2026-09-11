@@ -29,10 +29,6 @@ models:
         type: uuid
         attributes: ["@id", "@default(uuid)"]
         description: "Unique credential id"
-      company_id:
-        type: uuid
-        attributes: ["@required", "@exclude_from_foreign_key_check"]
-        description: "Books owner # logical FK to organization.Company.id"
       employee_party_id:
         type: uuid
         attributes: ["@required", "@exclude_from_foreign_key_check"]
@@ -61,8 +57,10 @@ models:
         description: "Audit metadata"
 
     indexes:
-      # One live credential per manager per company; a manager carries one PIN
-      # across the company's registers.
-      - type: unique
-        fields: [company_id, employee_party_id]
-        where: "deleted_at IS NULL"
+      # No tenancy indexes (ADR-0029): the module is tenant-agnostic. One live
+      # credential per manager is a per-tenant guarantee (a manager carries one
+      # PIN across their org unit's registers), so the per-(unit, manager) unique
+      # is installed by the composing service's tenancy decorator, not declared
+      # here — its tenant-free global shape would bind the credential slot to no
+      # unit at all. The set-PIN verb arbitrates the slot with a validation read
+      # inside its transaction until the decorator composes.

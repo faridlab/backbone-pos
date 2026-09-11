@@ -6,13 +6,24 @@
 //!
 //! Thin newtype over `backbone_orm::GenericCrudRepository<PosInvoice, backbone_orm::SoftDelete>`.
 //! All standard CRUD methods are available via `Deref`.
+//!
+//! Tenancy is composition-installed (ADR-0029): pool reads ride the ambient org scope's
+//! request-dedicated connection (fail-narrow, never leaky — a row the scope cannot see is simply
+//! absent); connection-taking methods run on the CALLER'S open, scope-relayed transaction.
 
 use anyhow::Result;
 use rust_decimal::Decimal;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-use backbone_orm::company_scope;
+use backbone_orm::org_scope;
+// The multi-row and scalar read twins live only in the legacy `company_scope` module. Their
+// connection discipline is what this repository needs — request-dedicated connection when the
+// composing service bound one, plain pool otherwise. The helper's legacy task-local branch is
+// never taken: this module sets no legacy scope of its own (ADR-0029).
+use backbone_orm::company_scope::{
+    fetch_one_row_scoped, fetch_one_scalar_scoped, fetch_optional_scalar_scoped,
+};
 
 use crate::domain::entity::PosInvoice;
 
@@ -46,7 +57,6 @@ impl PosInvoiceRepository {
 /// `pos_table_id` seats the ticket at a dining table (restaurant lanes); counter sales pass None.
 pub struct NewDraftInvoiceRow<'a> {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub client_uuid: Option<Uuid>,
     pub pos_profile_id: Uuid,
     pub opening_entry_id: Uuid,
@@ -91,7 +101,6 @@ pub struct SyncLookupRow {
 /// `change_due` to 0, and fixes `is_return`/`status` to `true`/`'returned'`.
 pub struct NewReturnInvoiceRow {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub pos_profile_id: Uuid,
     pub opening_entry_id: Uuid,
     pub branch_id: Option<Uuid>,
@@ -106,11 +115,10 @@ pub struct NewReturnInvoiceRow {
     pub return_against: Uuid,
 }
 
-/// A ticket header as `add_tender` reads it: the draft gate, the target total, and the company to bind.
+/// A ticket header as `add_tender` reads it: the draft gate and the target total.
 pub struct TenderHeaderRow {
     pub status: String,
     pub rounded_total: Decimal,
-    pub company_id: Uuid,
 }
 
 /// A ticket's already-recognised state, as the recognise short-circuit reads it.
@@ -123,7 +131,6 @@ pub struct PaidStateRow {
 /// Everything recognition needs about a draft ticket + its register, in one read: the money to settle,
 /// the accounts to post to, and the stock dimensions to relieve.
 pub struct RecognitionRow {
-    pub company_id: Uuid,
     pub customer_id: Option<Uuid>,
     pub branch_id: Option<Uuid>,
     pub posting_at: chrono::DateTime<chrono::Utc>,
@@ -147,7 +154,6 @@ pub struct RecognitionRow {
 /// The original ticket as the returns path reads it — the source of every field the return ticket
 /// copies, plus the tender/invoice refs to reverse.
 pub struct ReturnSourceRow {
-    pub company_id: Uuid,
     pub pos_profile_id: Uuid,
     pub opening_entry_id: Uuid,
     pub branch_id: Option<Uuid>,
@@ -188,7 +194,7 @@ impl PosInvoiceRepository {
     /// Insert a rung ticket in `draft`.
     ///
     /// Takes the CALLER'S connection so the header and its lines commit as one unit. The caller has
-    /// already bound the company on it (`bind_current_company`) — don't re-bind here.
+    /// already relayed the ambient org scope onto it — don't re-bind here.
     ///
     /// Returns the raw `sqlx::Error` deliberately: the caller inspects it for a unique violation to turn
     /// a re-used receipt number (or a re-used sync `client_uuid`) into a domain error.
@@ -199,12 +205,12 @@ impl PosInvoiceRepository {
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO pos.pos_invoices
-                (id, company_id, client_uuid, pos_profile_id, opening_entry_id, branch_id, customer_id, pos_table_id, receipt_number,
+                (id, client_uuid, pos_profile_id, opening_entry_id, branch_id, customer_id, pos_table_id, receipt_number,
                  posting_at, net_total, tax_total, grand_total, rounding_adjustment, rounded_total,
                  paid_total, change_due, is_return, status)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,0,0,false,'draft'::pos_invoice_status)"#,
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,0,0,false,'draft'::pos_invoice_status)"#,
         )
-        .bind(i.id).bind(i.company_id).bind(i.client_uuid).bind(i.pos_profile_id).bind(i.opening_entry_id).bind(i.branch_id)
+        .bind(i.id).bind(i.client_uuid).bind(i.pos_profile_id).bind(i.opening_entry_id).bind(i.branch_id)
         .bind(i.customer_id).bind(i.pos_table_id).bind(i.receipt_number).bind(i.posting_at).bind(i.net_total).bind(i.tax_total)
         .bind(i.grand_total).bind(i.rounding_adjustment).bind(i.rounded_total)
         .execute(conn)
@@ -212,26 +218,23 @@ impl PosInvoiceRepository {
         Ok(())
     }
 
-    /// Find the live ticket carrying an offline client uuid. The explicit `company_id = $2` filter is
-    /// defense-in-depth ON TOP of the RLS fence (same contract as
-    /// `PosOpeningEntryRepository::fetch_status`): a uuid only namespaces inside its tenant, so
-    /// another company's ticket carrying the same uuid is simply not found.
+    /// Find the live ticket carrying an offline client uuid. The uuid only namespaces inside the
+    /// caller's scope: the ambient org scope's fence is the whole guard — another unit's ticket
+    /// carrying the same uuid is simply not found.
     pub async fn find_by_client_uuid(
         &self,
         pool: &PgPool,
         client_uuid: Uuid,
-        company_id: Uuid,
     ) -> Result<Option<SyncLookupRow>, sqlx::Error> {
-        let row = company_scope::fetch_optional_row_scoped(
+        let row = org_scope::fetch_optional_row_scoped(
             pool,
             sqlx::query(
                 r#"SELECT id, status::text AS st, pos_profile_id, opening_entry_id, branch_id, customer_id,
                           pos_table_id, is_return, return_against, net_total, tax_total, grand_total, rounding_adjustment,
                           rounded_total, paid_total, change_due
-                   FROM pos.pos_invoices WHERE client_uuid=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL"#,
+                   FROM pos.pos_invoices WHERE client_uuid=$1 AND (metadata->>'deleted_at') IS NULL"#,
             )
-            .bind(client_uuid)
-            .bind(company_id),
+            .bind(client_uuid),
         )
         .await?;
         Ok(row.map(|r| SyncLookupRow {
@@ -249,7 +252,7 @@ impl PosInvoiceRepository {
     /// session, re-seat it at the replay's table (a changed `pos_table_id` is a table TRANSFER), and
     /// replace its server-derived money + partner with the replay's re-derived values.
     /// State-guarded on `draft` — a finalized ticket is never rewritten (the replay short-circuits
-    /// before this). Takes the CALLER'S connection; the caller has already bound the company.
+    /// before this). Takes the CALLER'S connection; the caller has already relayed the ambient scope.
     /// Returns the raw `sqlx::Error` so the caller can map the one-draft-per-table partial unique.
     pub async fn update_draft_from_sync(
         &self,
@@ -286,25 +289,46 @@ impl PosInvoiceRepository {
     /// one-draft-per-table guard (the DB partial unique `idx_pos_invoices_pos_table_id` is the
     /// backstop; this read turns the collision into a typed refusal naming the occupying ticket).
     /// `exclude_invoice_id` skips the ticket being re-seated (a replay that keeps its own table is
-    /// not a collision). `Ok(None)` = the table is free. Explicit `company_id` filter is
-    /// defense-in-depth on top of the RLS fence.
+    /// not a collision). `Ok(None)` = the table is free. Takes the CALLER'S scope-relayed
+    /// connection — the fence is the whole guard.
     pub async fn find_draft_on_table(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        pos_table_id: Uuid,
+        exclude_invoice_id: Option<Uuid>,
+    ) -> Result<Option<Uuid>, sqlx::Error> {
+        let row = sqlx::query(
+            r#"SELECT id FROM pos.pos_invoices
+               WHERE pos_table_id=$1 AND status='draft'::pos_invoice_status
+                 AND (metadata->>'deleted_at') IS NULL AND ($2::uuid IS NULL OR id <> $2)
+               LIMIT 1"#,
+        )
+        .bind(pos_table_id)
+        .bind(exclude_invoice_id)
+        .fetch_optional(conn)
+        .await?;
+        Ok(row.map(|r| r.get("id")))
+    }
+
+    /// The pool twin of [`Self::find_draft_on_table`] for the duplicate-mapping enrichment: after a
+    /// failed insert the caller's transaction is ABORTED, so the occupying ticket must be read on a
+    /// fresh connection. Rides the ambient org scope (ADR-0029) — under a composed fence the read
+    /// stays inside the acting unit, and a fence-blind read would enrich the 409 with a nil id.
+    pub async fn find_draft_on_table_scoped(
         &self,
         pool: &PgPool,
         pos_table_id: Uuid,
-        company_id: Uuid,
         exclude_invoice_id: Option<Uuid>,
     ) -> Result<Option<Uuid>, sqlx::Error> {
-        let row = company_scope::fetch_optional_row_scoped(
+        let row = org_scope::fetch_optional_row_scoped(
             pool,
             sqlx::query(
                 r#"SELECT id FROM pos.pos_invoices
-                   WHERE pos_table_id=$1 AND company_id=$2 AND status='draft'::pos_invoice_status
-                     AND (metadata->>'deleted_at') IS NULL AND ($3::uuid IS NULL OR id <> $3)
+                   WHERE pos_table_id=$1 AND status='draft'::pos_invoice_status
+                     AND (metadata->>'deleted_at') IS NULL AND ($2::uuid IS NULL OR id <> $2)
                    LIMIT 1"#,
             )
             .bind(pos_table_id)
-            .bind(company_id)
             .bind(exclude_invoice_id),
         )
         .await?;
@@ -330,14 +354,13 @@ impl PosInvoiceRepository {
         Ok(())
     }
 
-    /// Count a session's DRAFT tickets — the close guard. ID-only: the caller wraps it in
-    /// `with_company_scope(Some(company))`.
+    /// Count a session's DRAFT tickets — the close guard. ID-only: rides the ambient org scope.
     pub async fn count_draft_orders_for_session(
         &self,
         pool: &PgPool,
         opening_entry_id: Uuid,
     ) -> Result<i64, sqlx::Error> {
-        company_scope::fetch_one_scalar_scoped(
+        fetch_one_scalar_scoped(
             pool,
             sqlx::query_scalar(
                 "SELECT COUNT(*) FROM pos.pos_invoices WHERE opening_entry_id=$1 AND status='draft'::pos_invoice_status AND is_return=false AND (metadata->>'deleted_at') IS NULL",
@@ -355,7 +378,7 @@ impl PosInvoiceRepository {
         pool: &PgPool,
         opening_entry_id: Uuid,
     ) -> Result<i64, sqlx::Error> {
-        company_scope::fetch_one_scalar_scoped(
+        fetch_one_scalar_scoped(
             pool,
             sqlx::query_scalar(
                 "SELECT COUNT(*) FROM pos.pos_invoices WHERE opening_entry_id=$1 AND status='draft'::pos_invoice_status AND billing_invoice_id IS NOT NULL AND (metadata->>'deleted_at') IS NULL",
@@ -367,31 +390,27 @@ impl PosInvoiceRepository {
 
     /// Read the header `add_tender` gates on.
     ///
-    /// ID-only: no company argument. `fetch_optional_row_scoped` means it rides the REQUEST-dedicated
-    /// connection carrying the caller's `app.company_id`, so another company's ticket simply is not
-    /// found. A non-request caller MUST wrap this in `with_company_scope(Some(company_id))` — otherwise
-    /// it fails closed and returns `Ok(None)`. The returned `company_id` is what the caller then binds
-    /// onto its own transaction.
+    /// ID-only: rides the ambient org scope's request-dedicated connection, so a ticket the scope
+    /// cannot see simply is not found. The caller runs this on its own scope-relayed transaction
+    /// (`fetch_tender_header_on` shape inlined: same statement, caller's connection).
     pub async fn fetch_tender_header(
         &self,
-        pool: &PgPool,
+        conn: &mut sqlx::PgConnection,
         pos_invoice_id: Uuid,
     ) -> Result<Option<TenderHeaderRow>, sqlx::Error> {
-        let row = company_scope::fetch_optional_row_scoped(
-            pool,
-            sqlx::query(
-                "SELECT status::text AS st, rounded_total, company_id FROM pos.pos_invoices WHERE id=$1 AND (metadata->>'deleted_at') IS NULL",
-            )
-            .bind(pos_invoice_id),
+        let row = sqlx::query(
+            "SELECT status::text AS st, rounded_total FROM pos.pos_invoices WHERE id=$1 AND (metadata->>'deleted_at') IS NULL",
         )
+        .bind(pos_invoice_id)
+        .fetch_optional(conn)
         .await?;
         Ok(row.map(|r| TenderHeaderRow {
-            status: r.get("st"), rounded_total: r.get("rounded_total"), company_id: r.get("company_id"),
+            status: r.get("st"), rounded_total: r.get("rounded_total"),
         }))
     }
 
     /// Write back a ticket's recomputed tender totals. Takes the CALLER'S connection so this and the
-    /// tender insert commit as one unit; the caller has already bound the company on it.
+    /// tender insert commit as one unit; the caller has already relayed the ambient scope on it.
     pub async fn update_tender_totals(
         &self,
         conn: &mut sqlx::PgConnection,
@@ -406,14 +425,14 @@ impl PosInvoiceRepository {
         Ok(())
     }
 
-    /// Read a ticket's recognised state, for the recognise short-circuit. Same ID-only scope contract as
-    /// [`Self::fetch_tender_header`].
+    /// Read a ticket's recognised state, for the recognise short-circuit. Same ID-only scope contract
+    /// as [`Self::fetch_tender_header`].
     pub async fn fetch_paid_state(
         &self,
         pool: &PgPool,
         pos_invoice_id: Uuid,
     ) -> Result<Option<PaidStateRow>, sqlx::Error> {
-        let row = company_scope::fetch_optional_row_scoped(
+        let row = org_scope::fetch_optional_row_scoped(
             pool,
             sqlx::query(
                 "SELECT status::text AS st, billing_invoice_id, payment_entry_id FROM pos.pos_invoices WHERE id=$1 AND (metadata->>'deleted_at') IS NULL",
@@ -428,22 +447,22 @@ impl PosInvoiceRepository {
     }
 
     /// Read a DRAFT ticket joined to its register — everything recognition needs to drive billing,
-    /// payment, and the optional stock issue. `Ok(None)` = absent, already recognised, or another
-    /// company's.
+    /// payment, and the optional stock issue. `Ok(None)` = absent, already recognised, or outside the
+    /// caller's scope.
     ///
-    /// ID-only: no company argument. Under HTTP the request-dedicated connection carries the scope. When
-    /// driven by an EVENT (the recognition sink subscribing to `PosTenderCompleted`), the caller MUST
-    /// wrap this in `with_company_scope(Some(event.company_id))` — the event carries the company —
-    /// otherwise this read fails closed.
+    /// ID-only: rides the ambient org scope. Under HTTP the request-dedicated connection carries the
+    /// scope. When driven by an EVENT (the recognition sink subscribing to `PosTenderCompleted`), the
+    /// caller MUST wrap this in the composing service's org request scope — bound from the event's
+    /// `company_id` twin (the acting unit) — otherwise this read fails closed.
     pub async fn fetch_for_recognition(
         &self,
         pool: &PgPool,
         pos_invoice_id: Uuid,
     ) -> Result<Option<RecognitionRow>, sqlx::Error> {
-        let row = company_scope::fetch_optional_row_scoped(
+        let row = org_scope::fetch_optional_row_scoped(
             pool,
             sqlx::query(
-                r#"SELECT i.company_id, i.customer_id, i.pos_profile_id, i.branch_id, i.posting_at, i.rounded_total, i.grand_total,
+                r#"SELECT i.customer_id, i.pos_profile_id, i.branch_id, i.posting_at, i.rounded_total, i.grand_total,
                           i.tax_total, i.paid_total, i.billing_invoice_id,
                           p.receivable_account_id, p.income_account_id, p.cash_account_id, p.tax_account_id,
                           ROUND(COALESCE(i.tax_total / NULLIF(i.net_total, 0), 0), 6) AS tax_rate,
@@ -456,7 +475,7 @@ impl PosInvoiceRepository {
         )
         .await?;
         Ok(row.map(|r| RecognitionRow {
-            company_id: r.get("company_id"), customer_id: r.get("customer_id"), branch_id: r.get("branch_id"),
+            customer_id: r.get("customer_id"), branch_id: r.get("branch_id"),
             posting_at: r.get("posting_at"), rounded_total: r.get("rounded_total"), grand_total: r.get("grand_total"),
             tax_total: r.get("tax_total"), paid_total: r.get("paid_total"),
             billing_invoice_id: r.get("billing_invoice_id"),
@@ -473,15 +492,15 @@ impl PosInvoiceRepository {
     /// This is billing's at-most-once gate (council 2026-07-05): writing the link the instant
     /// `raise_and_post` returns makes a retry after a settle failure (declined card / closed period)
     /// REUSE the invoice instead of raising a second one — otherwise the counter's ordinary
-    /// decline-then-retry doubles the revenue journal. State-guarded on `draft`. Caller supplies the
-    /// company scope.
+    /// decline-then-retry doubles the revenue journal. State-guarded on `draft`. Rides the ambient
+    /// org scope.
     pub async fn link_billing_invoice(
         &self,
         pool: &PgPool,
         pos_invoice_id: Uuid,
         billing_invoice_id: Uuid,
     ) -> Result<(), sqlx::Error> {
-        company_scope::execute_scoped(
+        org_scope::execute_scoped(
             pool,
             sqlx::query("UPDATE pos.pos_invoices SET billing_invoice_id=$2 WHERE id=$1 AND status='draft'::pos_invoice_status")
                 .bind(pos_invoice_id).bind(billing_invoice_id),
@@ -496,7 +515,7 @@ impl PosInvoiceRepository {
     ///
     /// Persisting `payment_entry_id` in the same flip is what lets a later return refund the tender from
     /// the ticket (no cross-schema lookup) and gives a crash-retry a durable skip-gate (ADR-001
-    /// `settle`-idempotency). Caller supplies the company scope.
+    /// `settle`-idempotency). Rides the ambient org scope.
     pub async fn mark_paid(
         &self,
         pool: &PgPool,
@@ -504,7 +523,7 @@ impl PosInvoiceRepository {
         billing_invoice_id: Uuid,
         payment_entry_id: Uuid,
     ) -> Result<u64, sqlx::Error> {
-        let res = company_scope::execute_scoped(
+        let res = org_scope::execute_scoped(
             pool,
             sqlx::query(
                 "UPDATE pos.pos_invoices SET status='paid'::pos_invoice_status, billing_invoice_id=$2, payment_entry_id=$3 WHERE id=$1 AND status='draft'::pos_invoice_status",
@@ -522,10 +541,10 @@ impl PosInvoiceRepository {
         pool: &PgPool,
         pos_invoice_id: Uuid,
     ) -> Result<Option<ReturnSourceRow>, sqlx::Error> {
-        let row = company_scope::fetch_optional_row_scoped(
+        let row = org_scope::fetch_optional_row_scoped(
             pool,
             sqlx::query(
-                r#"SELECT company_id, pos_profile_id, opening_entry_id, branch_id, customer_id, billing_invoice_id,
+                r#"SELECT pos_profile_id, opening_entry_id, branch_id, customer_id, billing_invoice_id,
                           payment_entry_id, rounded_total, net_total, tax_total, grand_total, posting_at, status::text AS st
                    FROM pos.pos_invoices WHERE id=$1 AND (metadata->>'deleted_at') IS NULL"#,
             )
@@ -533,7 +552,7 @@ impl PosInvoiceRepository {
         )
         .await?;
         Ok(row.map(|r| ReturnSourceRow {
-            company_id: r.get("company_id"), pos_profile_id: r.get("pos_profile_id"),
+            pos_profile_id: r.get("pos_profile_id"),
             opening_entry_id: r.get("opening_entry_id"), branch_id: r.get("branch_id"),
             customer_id: r.get("customer_id"), billing_invoice_id: r.get("billing_invoice_id"),
             payment_entry_id: r.get("payment_entry_id"), rounded_total: r.get("rounded_total"),
@@ -544,13 +563,13 @@ impl PosInvoiceRepository {
 
     /// Flip the original ticket paid→returned. Returns the rows affected: the caller gates the return
     /// ticket and the `PosInvoiceReturned` event on this being 1, so a repeat return records at most
-    /// once. Caller supplies the company scope.
+    /// once. Rides the ambient org scope.
     pub async fn mark_returned(
         &self,
         pool: &PgPool,
         pos_invoice_id: Uuid,
     ) -> Result<u64, sqlx::Error> {
-        let res = company_scope::execute_scoped(
+        let res = org_scope::execute_scoped(
             pool,
             sqlx::query("UPDATE pos.pos_invoices SET status='returned'::pos_invoice_status WHERE id=$1 AND status='paid'::pos_invoice_status")
                 .bind(pos_invoice_id),
@@ -559,23 +578,23 @@ impl PosInvoiceRepository {
         Ok(res.rows_affected())
     }
 
-    /// Insert the mirror return ticket, linked to the original via `return_against`. Caller supplies the
-    /// company scope.
+    /// Insert the mirror return ticket, linked to the original via `return_against`. Rides the ambient
+    /// org scope.
     pub async fn insert_return_ticket(
         &self,
         pool: &PgPool,
         r: &NewReturnInvoiceRow,
     ) -> Result<(), sqlx::Error> {
-        company_scope::execute_scoped(
+        org_scope::execute_scoped(
             pool,
             sqlx::query(
                 r#"INSERT INTO pos.pos_invoices
-                    (id, company_id, pos_profile_id, opening_entry_id, branch_id, customer_id, receipt_number,
+                    (id, pos_profile_id, opening_entry_id, branch_id, customer_id, receipt_number,
                      posting_at, net_total, tax_total, grand_total, rounding_adjustment, rounded_total,
                      paid_total, change_due, billing_invoice_id, is_return, return_against, status)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,$12,$12,0,$13,true,$14,'returned'::pos_invoice_status)"#,
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,0,$11,$11,0,$12,true,$13,'returned'::pos_invoice_status)"#,
             )
-            .bind(r.id).bind(r.company_id).bind(r.pos_profile_id).bind(r.opening_entry_id)
+            .bind(r.id).bind(r.pos_profile_id).bind(r.opening_entry_id)
             .bind(r.branch_id).bind(r.customer_id).bind(&r.receipt_number)
             .bind(r.posting_at).bind(r.net_total).bind(r.tax_total).bind(r.grand_total).bind(r.rounded_total)
             .bind(r.billing_invoice_id).bind(r.return_against),
@@ -585,13 +604,13 @@ impl PosInvoiceRepository {
     }
 
     /// Find the return ticket already recorded against an original — the idempotent-replay path when the
-    /// paid→returned flip found nothing to do. Caller supplies the company scope.
+    /// paid→returned flip found nothing to do. Rides the ambient org scope.
     pub async fn find_return_ticket(
         &self,
         pool: &PgPool,
         original_pos_invoice_id: Uuid,
     ) -> Result<Option<Uuid>, sqlx::Error> {
-        company_scope::fetch_optional_scalar_scoped(
+        fetch_optional_scalar_scoped(
             pool,
             sqlx::query_scalar(
                 "SELECT id FROM pos.pos_invoices WHERE return_against=$1 AND is_return=true AND (metadata->>'deleted_at') IS NULL LIMIT 1",
@@ -602,13 +621,13 @@ impl PosInvoiceRepository {
     }
 
     /// Sum the cash handed back as change across a session's recognised tickets — it reduces the drawer.
-    /// ID-only: the caller wraps it in `with_company_scope(Some(company))`.
+    /// ID-only: rides the ambient org scope.
     pub async fn sum_change_due_for_session(
         &self,
         pool: &PgPool,
         opening_entry_id: Uuid,
     ) -> Result<Decimal, sqlx::Error> {
-        company_scope::fetch_one_scalar_scoped(
+        fetch_one_scalar_scoped(
             pool,
             sqlx::query_scalar(
                 "SELECT COALESCE(SUM(change_due),0) FROM pos.pos_invoices WHERE opening_entry_id=$1 AND status='paid'::pos_invoice_status AND (metadata->>'deleted_at') IS NULL",
@@ -618,35 +637,32 @@ impl PosInvoiceRepository {
         .await
     }
 
-    /// A session's recognised turnover + paid-ticket count, for the X/Z report. ID-only: the caller
-    /// wraps it in `with_company_scope(Some(company))`.
+    /// A session's recognised turnover + paid-ticket count, for the X/Z report. ID-only: rides the
+    /// ambient org scope.
     pub async fn session_totals(
         &self,
         pool: &PgPool,
         opening_entry_id: Uuid,
     ) -> Result<(Decimal, i64), sqlx::Error> {
-        company_scope::fetch_one_scoped(
+        let row = fetch_one_row_scoped(
             pool,
-            sqlx::query_as(
+            sqlx::query(
                 "SELECT COALESCE(SUM(rounded_total),0), COUNT(*) FROM pos.pos_invoices WHERE opening_entry_id=$1 AND status='paid'::pos_invoice_status AND (metadata->>'deleted_at') IS NULL",
             )
             .bind(opening_entry_id),
         )
-        .await
+        .await?;
+        Ok((row.get(0), row.get(1)))
     }
 
-    /// Read a ticket header joined to its register for the printed receipt. `Ok(None)` = no such ticket
-    /// in this tenant.
-    ///
-    /// The explicit `i.company_id = $2` filter is defense-in-depth ON TOP of the RLS fence; the company
-    /// is on the parameter.
+    /// Read a ticket header joined to its register for the printed receipt. `Ok(None)` = no such
+    /// ticket in the caller's scope. Rides the ambient org scope — the fence is the whole guard.
     pub async fn fetch_receipt_header(
         &self,
         pool: &PgPool,
         pos_invoice_id: Uuid,
-        company_id: Uuid,
     ) -> Result<Option<ReceiptHeaderRow>, sqlx::Error> {
-        let row = company_scope::fetch_optional_row_scoped(
+        let row = org_scope::fetch_optional_row_scoped(
             pool,
             sqlx::query(
                 r#"SELECT i.receipt_number, i.posting_at, i.net_total, i.tax_total, i.rounding_adjustment,
@@ -655,9 +671,9 @@ impl PosInvoiceRepository {
                           ROUND(COALESCE(i.tax_total / NULLIF(i.net_total, 0), 0), 6) AS tax_rate,
                           (i.billing_invoice_id IS NOT NULL) AS is_invoiced
                    FROM pos.pos_invoices i JOIN pos.pos_profiles p ON p.id = i.pos_profile_id
-                   WHERE i.id=$1 AND i.company_id=$2 AND (i.metadata->>'deleted_at') IS NULL"#,
+                   WHERE i.id=$1 AND (i.metadata->>'deleted_at') IS NULL"#,
             )
-            .bind(pos_invoice_id).bind(company_id),
+            .bind(pos_invoice_id),
         )
         .await?;
         Ok(row.map(|r| ReceiptHeaderRow {

@@ -12,7 +12,11 @@ use rust_decimal::Decimal;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-use backbone_orm::company_scope;
+// The scalar read twin lives only in the legacy `company_scope` module; what this repository needs
+// from it is the connection discipline — request-dedicated connection when the composing service
+// bound one, plain pool otherwise. Its legacy task-local branch never fires: this module sets no
+// legacy scope of its own (ADR-0029).
+use backbone_orm::company_scope::fetch_one_scalar_scoped;
 
 use crate::domain::entity::PosCashMovement;
 
@@ -44,7 +48,6 @@ impl PosCashMovementRepository {
 /// (`$6::pos_cash_movement_type`), so an unknown kind fails as a DB error, not a deserialize panic.
 pub struct NewCashMovementRow<'a> {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub pos_profile_id: Uuid,
     pub opening_entry_id: Uuid,
     pub cashier_party_id: Uuid,
@@ -59,24 +62,22 @@ pub struct NewCashMovementRow<'a> {
 impl PosCashMovementRepository {
     /// Record a non-sale drawer movement (`pay_in` / `pay_out` / `drop` / `no_sale`).
     ///
-    /// A write outside any transaction: takes the pool and runs `execute_scoped` so the RLS fence
-    /// (ADR-0008) applies. The caller wraps this in `with_company_scope(Some(company))` — the company is
-    /// on the DTO, and that scope is what satisfies the INSERT's WITH CHECK fence.
+    /// Takes the CALLER'S connection so the open-session guard and the movement commit as one unit;
+    /// the caller has already relayed the ambient org scope onto it (ADR-0029), which is what
+    /// satisfies the fence's WITH CHECK under a composed host.
     pub async fn insert_movement(
         &self,
-        pool: &PgPool,
+        conn: &mut sqlx::PgConnection,
         m: &NewCashMovementRow<'_>,
     ) -> Result<(), sqlx::Error> {
-        company_scope::execute_scoped(
-            pool,
-            sqlx::query(
-                r#"INSERT INTO pos.pos_cash_movements
-                    (id, company_id, pos_profile_id, opening_entry_id, cashier_party_id, movement_type, amount, reason, moved_at)
-                   VALUES ($1,$2,$3,$4,$5,$6::pos_cash_movement_type,$7,$8,$9)"#,
-            )
-            .bind(m.id).bind(m.company_id).bind(m.pos_profile_id).bind(m.opening_entry_id).bind(m.cashier_party_id)
-            .bind(m.movement_type).bind(m.amount).bind(m.reason).bind(m.moved_at),
+        sqlx::query(
+            r#"INSERT INTO pos.pos_cash_movements
+                (id, pos_profile_id, opening_entry_id, cashier_party_id, movement_type, amount, reason, moved_at)
+               VALUES ($1,$2,$3,$4,$5::pos_cash_movement_type,$6,$7,$8)"#,
         )
+        .bind(m.id).bind(m.pos_profile_id).bind(m.opening_entry_id).bind(m.cashier_party_id)
+        .bind(m.movement_type).bind(m.amount).bind(m.reason).bind(m.moved_at)
+        .execute(conn)
         .await?;
         Ok(())
     }
@@ -85,13 +86,14 @@ impl PosCashMovementRepository {
     /// remove from it, `no_sale` has no cash effect. Folding this into the expected drawer is what stops
     /// a mid-shift movement reading as an unexplained variance.
     ///
-    /// ID-only: no company argument; the caller wraps it in `with_company_scope(Some(company))`.
+    /// ID-only: rides the ambient org scope (ADR-0029) — the fence bounds the sum to the caller's
+    /// entitled units.
     pub async fn net_for_session(
         &self,
         pool: &PgPool,
         opening_entry_id: Uuid,
     ) -> Result<Decimal, sqlx::Error> {
-        company_scope::fetch_one_scalar_scoped(
+        fetch_one_scalar_scoped(
             pool,
             sqlx::query_scalar(
                 r#"SELECT COALESCE(SUM(CASE movement_type

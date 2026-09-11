@@ -39,14 +39,14 @@ C4Context
     Rel(pos, accounting, "logical FK (account refs on the profile)")
     Rel(pos, party, "logical FK (customer_id)")
     Rel(pos, catalog, "logical FK (item_id)")
-    Rel(pos, org, "logical FK (company_id / branch_id)")
+    Rel(pos, org, "logical FK (branch_id)")
     Rel(pos, sapiens, "logical FK (created_by → sapiens.User.id)")
 ```
 
 *What to notice: **POS posts no GL — it orchestrates two emitters through ports.** Billing and payment
 are reached through the `BillingPort`/`PaymentPort` traits, so the shipped library has **no normal
 Cargo edge** to either (dev-deps only, for the seam test); a composition layer supplies the real
-implementations. Everything else — account, customer, item, company/branch, identity — is a **logical
+implementations. Everything else — account, customer, item, branch, identity — is a **logical
 FK** (`@exclude_from_foreign_key_check`, no DB constraint), a sibling module referenced by id, never a
 copied-in table.*
 

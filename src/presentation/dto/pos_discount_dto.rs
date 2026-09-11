@@ -33,9 +33,6 @@ use crate::domain::entity::AuditMetadata;
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct CreatePosDiscountDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "validation", validate(length(max = 140)))]
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     pub name: String,
@@ -58,9 +55,6 @@ pub struct CreatePosDiscountDto {
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdatePosDiscountDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "validation", validate(length(max = 140)))]
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     pub name: String,
@@ -83,9 +77,6 @@ pub struct UpdatePosDiscountDto {
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct PatchPosDiscountDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "company_id")]
-    pub company_id: Option<Uuid>,
     #[cfg_attr(feature = "validation", validate(length(max = 140)))]
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -100,7 +91,7 @@ pub struct PatchPosDiscountDto {
 impl PatchPosDiscountDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.name.is_some() || self.percentage.is_some() || self.description.is_some()
+        self.name.is_some() || self.percentage.is_some() || self.description.is_some()
     }
 }
 
@@ -118,8 +109,6 @@ impl PatchPosDiscountDto {
 pub struct PosDiscountResponseDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     pub name: String,
     pub percentage: Decimal,
@@ -181,9 +170,9 @@ impl PosDiscountListResponseDto {
 #[serde(rename_all = "camelCase")]
 pub struct PosDiscountSummaryDto {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub name: String,
     pub percentage: Decimal,
+    pub description: Option<String>,
     pub created_at: Option<DateTime<Utc>>,
 }
 
@@ -195,7 +184,6 @@ impl From<PosDiscount> for PosDiscountResponseDto {
     fn from(entity: PosDiscount) -> Self {
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             name: entity.name,
             percentage: entity.percentage,
             description: entity.description,
@@ -209,9 +197,9 @@ impl From<PosDiscount> for PosDiscountSummaryDto {
         let created_at = backbone_core::PersistentEntity::created_at(&entity);
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             name: entity.name,
             percentage: entity.percentage,
+            description: entity.description,
             created_at,
         }
     }
@@ -221,7 +209,6 @@ impl From<CreatePosDiscountDto> for PosDiscount {
     fn from(dto: CreatePosDiscountDto) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id: dto.company_id,
             name: dto.name,
             percentage: dto.percentage,
             description: dto.description,
@@ -234,7 +221,6 @@ impl From<&PosDiscount> for PosDiscountResponseDto {
     fn from(entity: &PosDiscount) -> Self {
         Self {
             id: entity.id.clone(),
-            company_id: entity.company_id.clone(),
             name: entity.name.clone(),
             percentage: entity.percentage.clone(),
             description: entity.description.clone(),
@@ -251,7 +237,6 @@ impl backbone_core::FromCreateDto<CreatePosDiscountDto> for PosDiscount {
 
 impl backbone_core::ApplyUpdateDto<UpdatePosDiscountDto> for PosDiscount {
     fn apply_update(mut self, dto: UpdatePosDiscountDto) -> backbone_core::ServiceResult<Self> {
-        self.company_id = dto.company_id;
         self.name = dto.name;
         self.percentage = dto.percentage;
         self.description = dto.description;

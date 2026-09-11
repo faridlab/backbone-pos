@@ -4,6 +4,12 @@
 //! hook a loyalty/analytics consumer subscribes to, and `PosSessionClosed` carries the drawer
 //! reconciliation result. The retail path reuses billing (revenue) + payment (settlement) as the GL
 //! emitters — POS is the aggregator over them.
+//!
+//! **Tenancy twin (ADR-0029):** every event struct keeps its `company_id` field as an outbound
+//! wire shape, but the value it carries is the acting org unit — the ambient org scope's legacy
+//! company echo (the spine mirrored company ids into org units verbatim, so during the transition
+//! the two names meet on the same uuid). Nothing in this module keys a statement on it; consumers
+//! that still bind a company scope read it as their unit id, and it retires with the legacy twin.
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};

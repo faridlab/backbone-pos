@@ -44,7 +44,6 @@ pub struct PosClosingEntryPaginatedResult {
 /// Filter parameters for list queries
 #[derive(Debug, Clone, Default)]
 pub struct PosClosingEntryFilter {
-    pub company_id: Option<Uuid>,
     pub pos_profile_id: Option<Uuid>,
     pub opening_entry_id: Option<Uuid>,
     pub cashier_party_id: Option<Uuid>,
@@ -54,7 +53,7 @@ pub struct PosClosingEntryFilter {
 impl PosClosingEntryFilter {
     /// Check if any filter is set
     pub fn has_filters(&self) -> bool {
-        self.company_id.is_some() || self.pos_profile_id.is_some() || self.opening_entry_id.is_some() || self.cashier_party_id.is_some() || self.status.is_some()
+        self.pos_profile_id.is_some() || self.opening_entry_id.is_some() || self.cashier_party_id.is_some() || self.status.is_some()
     }
 }
 

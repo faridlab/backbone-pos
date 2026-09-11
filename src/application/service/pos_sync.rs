@@ -26,8 +26,12 @@
 //! Per the module's 4-layer rule this file holds no SQL — the statements live on
 //! `PosInvoiceRepository` / `PosInvoiceItemRepository` / `PosPaymentRepository` /
 //! `PosOpeningEntryRepository` / `PosProfileRepository`.
+//!
+//! Tenancy is composition-installed (ADR-0029): the identity pre-read rides the ambient org scope,
+//! and each write half opens its OWN transaction, re-binds the ambient scope onto it, and runs every
+//! validation read + the compute's register-config read on that same connection — so a replay sees
+//! through exactly the fence it writes under.
 
-use backbone_orm::company_scope;
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
@@ -37,7 +41,8 @@ use super::pos_compute::ComputeLineIn;
 use super::pos_events::{PosEvent, PosTenderCompleted};
 use super::pos_ports::{BillingPort, PaymentPort, PosTaxComputePort, PosTaxDocumentType};
 use super::pos_write_service::{
-    map_invoice_dup, money, NewSyncSale, PosError, PosWriteService, SyncAction, SyncOutcome, TicketTotals,
+    legacy_company_echo, map_invoice_dup, money, relay_ambient_scope, NewSyncSale, PosError,
+    PosWriteService, SyncAction, SyncOutcome, TicketTotals,
 };
 
 impl PosWriteService {
@@ -51,95 +56,95 @@ impl PosWriteService {
         billing: &dyn BillingPort,
         payment: &dyn PaymentPort,
     ) -> Result<SyncOutcome, PosError> {
-        let company = s.company_id;
-        company_scope::with_company_scope(Some(company), async move {
-            // Identity first: does a live ticket already carry this client uuid?
-            if let Some(existing) = self.invoices.find_by_client_uuid(&self.db_pool, s.client_uuid, company).await? {
-                // Finalized server-side (paid/returned): the replay changes nothing. The server's
-                // persisted money is the answer.
-                if existing.status != "draft" {
-                    return Ok(SyncOutcome {
-                        pos_invoice_id: existing.id,
-                        action: SyncAction::ReplayFinalized,
-                        totals: TicketTotals {
-                            net_total: existing.net_total,
-                            tax_total: existing.tax_total,
-                            grand_total: existing.grand_total,
-                            rounding_adjustment: existing.rounding_adjustment,
-                            rounded_total: existing.rounded_total,
-                            paid_total: existing.paid_total,
-                            change_due: existing.change_due,
-                        },
-                    });
-                }
-                return self.sync_update_draft(s, existing, tax).await;
-            }
-
-            // No live ticket carries the uuid. A refund replay never creates a draft — it drives the
-            // (privileged, idempotent) full-return flow against its parent.
-            if let Some(parent_uuid) = s.refund_of_client_uuid {
-                // Privileged: the manager PIN is verified BEFORE anything is read or written.
-                let manager = s.manager.as_ref().ok_or(PosError::ManagerAuthRequired)?;
-                self.verify_manager_internal(company, manager, s.source_ip.as_deref()).await?;
-                let parent = self.invoices
-                    .find_by_client_uuid(&self.db_pool, parent_uuid, company)
-                    .await?
-                    .ok_or(PosError::RefundParentNotFound(parent_uuid))?;
-                // The replay's own totals are discarded by contract: a full refund reverses the
-                // parent's persisted money, whatever the client says it handed back.
-                let out = self
-                    .return_sale(parent.id, billing, payment, None)
-                    .await?;
-                // return_sale is idempotent on the parent's paid→returned flip; whether THIS call
-                // recorded the return ticket or replayed an existing one is observable from the
-                // parent's state we already read.
-                let action = if parent.status == "paid" { SyncAction::Created } else { SyncAction::ReplayFinalized };
+        // Identity first (ambient scope): does a live ticket already carry this client uuid?
+        // A uuid only namespaces inside the caller's scope — another unit's ticket carrying the
+        // same uuid is simply not found.
+        if let Some(existing) = self.invoices.find_by_client_uuid(&self.db_pool, s.client_uuid).await? {
+            // Finalized server-side (paid/returned): the replay changes nothing. The server's
+            // persisted money is the answer.
+            if existing.status != "draft" {
                 return Ok(SyncOutcome {
-                    pos_invoice_id: out.return_ticket_id,
-                    action,
+                    pos_invoice_id: existing.id,
+                    action: SyncAction::ReplayFinalized,
                     totals: TicketTotals {
-                        net_total: parent.net_total,
-                        tax_total: parent.tax_total,
-                        grand_total: parent.grand_total,
-                        rounding_adjustment: Decimal::ZERO,
-                        rounded_total: parent.rounded_total,
-                        paid_total: parent.rounded_total,
-                        change_due: Decimal::ZERO,
+                        net_total: existing.net_total,
+                        tax_total: existing.tax_total,
+                        grand_total: existing.grand_total,
+                        rounding_adjustment: existing.rounding_adjustment,
+                        rounded_total: existing.rounded_total,
+                        paid_total: existing.paid_total,
+                        change_due: existing.change_due,
                     },
                 });
             }
+            return self.sync_update_draft(s, existing, tax).await;
+        }
 
-            self.sync_create_draft(s, tax).await
-        })
-        .await
+        // No live ticket carries the uuid. A refund replay never creates a draft — it drives the
+        // (privileged, idempotent) full-return flow against its parent.
+        if let Some(parent_uuid) = s.refund_of_client_uuid {
+            // Privileged: the manager PIN is verified BEFORE anything is read or written.
+            let manager = s.manager.as_ref().ok_or(PosError::ManagerAuthRequired)?;
+            self.verify_manager_internal(manager, s.source_ip.as_deref()).await?;
+            let parent = self.invoices
+                .find_by_client_uuid(&self.db_pool, parent_uuid)
+                .await?
+                .ok_or(PosError::RefundParentNotFound(parent_uuid))?;
+            // The replay's own totals are discarded by contract: a full refund reverses the
+            // parent's persisted money, whatever the client says it handed back.
+            let out = self
+                .return_sale(parent.id, billing, payment, None)
+                .await?;
+            // return_sale is idempotent on the parent's paid→returned flip; whether THIS call
+            // recorded the return ticket or replayed an existing one is observable from the
+            // parent's state we already read.
+            let action = if parent.status == "paid" { SyncAction::Created } else { SyncAction::ReplayFinalized };
+            return Ok(SyncOutcome {
+                pos_invoice_id: out.return_ticket_id,
+                action,
+                totals: TicketTotals {
+                    net_total: parent.net_total,
+                    tax_total: parent.tax_total,
+                    grand_total: parent.grand_total,
+                    rounding_adjustment: Decimal::ZERO,
+                    rounded_total: parent.rounded_total,
+                    paid_total: parent.rounded_total,
+                    change_due: Decimal::ZERO,
+                },
+            });
+        }
+
+        self.sync_create_draft(s, tax).await
     }
 
     /// The CREATE half: a fresh offline ticket, rung through the shared compute core into a draft
-    /// carrying the sync identity.
+    /// carrying the sync identity. One scope-relayed transaction carries every read and write.
     async fn sync_create_draft(&self, s: NewSyncSale, tax: &dyn PosTaxComputePort) -> Result<SyncOutcome, PosError> {
+        let mut tx = self.db_pool.begin().await?;
+        relay_ambient_scope(&mut tx).await?;
         // Session validation (rescue-or-refuse): the session the client rang under must be open, or
         // the replay must name an open rescue session to attribute the ticket to.
-        let session = self.resolve_session_for_create(&s).await?;
+        let session = self.resolve_session_for_create(&mut *tx, &s).await?;
         // Tender methods are validated against the enum up front — a typo'd method is a typed 422,
         // not a DB cast failure mid-transaction.
-        self.validate_tender_methods(&s).await?;
+        self.validate_tender_methods(&mut *tx, &s).await?;
         // Restaurant lane — seating, same contract as the online ring: the named table must exist
-        // in this tenant and hold no other draft (the DB partial unique is the race backstop).
+        // and hold no other draft (the DB partial unique is the race backstop).
         if let Some(table) = s.pos_table_id {
-            if self.tables.fetch_table(&self.db_pool, table, s.company_id).await?.is_none() {
+            if self.tables.fetch_table(&mut *tx, table).await?.is_none() {
                 return Err(PosError::TableNotFound(table));
             }
             if let Some(occupant) = self
                 .invoices
-                .find_draft_on_table(&self.db_pool, table, s.company_id, None)
+                .find_draft_on_table(&mut *tx, table, None)
                 .await?
             {
                 return Err(PosError::TableOccupied { pos_table_id: table, draft_invoice_id: occupant });
             }
         }
-        // Order-level discount: rate resolved from the tenant's master, folded before the compute.
+        // Order-level discount: rate resolved from the master, folded before the compute.
         let order_discount = self
-            .resolve_order_discount(s.company_id, s.pos_profile_id, s.discount_id)
+            .resolve_order_discount(&mut tx, s.pos_profile_id, s.discount_id)
             .await?;
 
         let mut compute_lines: Vec<ComputeLineIn> = s
@@ -160,7 +165,7 @@ impl PosWriteService {
         }
         let computed = self
             .compute_ticket(
-                s.company_id,
+                &mut *tx,
                 s.pos_profile_id,
                 s.posting_at.date(),
                 PosTaxDocumentType::Invoice,
@@ -171,21 +176,19 @@ impl PosWriteService {
         let paid = s.tenders.iter().map(|t| t.amount).sum::<Decimal>();
         let totals = Self::totals_with_tenders(&computed, paid);
 
-        // The server mints the receipt number, deterministically from the sync identity (company
+        // The server mints the receipt number, deterministically from the sync identity (scope
         // fragment + uuid fragment): a retried create collides on it (and on the uuid) instead of
         // double-ringing, while two tenants replaying the same device uuid never collide — the
-        // receipt-number unique index is global.
+        // receipt-number unique index is global. The scope fragment is the ambient scope's legacy
+        // company echo (the acting unit; nil only when undecorated).
         let receipt_number = format!(
             "SYNC-{}-{}",
-            &s.company_id.simple().to_string()[..4],
+            &legacy_company_echo().simple().to_string()[..4],
             &s.client_uuid.simple().to_string()[..12]
         );
         let id = Uuid::new_v4();
-        let mut tx = self.db_pool.begin().await?;
-        company_scope::bind_current_company(&mut tx).await?;
         let r = self.invoices.insert_draft(&mut tx, &NewDraftInvoiceRow {
             id,
-            company_id: s.company_id,
             client_uuid: Some(s.client_uuid),
             pos_profile_id: s.pos_profile_id,
             opening_entry_id: session,
@@ -202,11 +205,11 @@ impl PosWriteService {
         }).await;
         if let Err(e) = r {
             return Err(map_invoice_dup(
-                e, &receipt_number, Some(s.client_uuid), s.pos_table_id, s.company_id,
+                e, &receipt_number, Some(s.client_uuid), s.pos_table_id,
                 &self.invoices, &self.db_pool, None,
             ).await);
         }
-        self.sync_write_children(&mut tx, id, s.company_id, &computed, &s).await?;
+        self.sync_write_children(&mut tx, id, &computed, &s).await?;
         // The replay can carry tenders from the first moment (the offline client already took
         // payment). Re-sum what was just written onto the header so paid/change can never disagree
         // with the tender rows — same contract `add_tender` holds on the online path.
@@ -217,13 +220,13 @@ impl PosWriteService {
             Decimal::ZERO
         };
         self.invoices.update_tender_totals(&mut tx, id, paid_total, change_due).await?;
-        // Durable recognition event, staged INSIDE this (company-bound) transaction — atomic with
+        // Durable recognition event, staged INSIDE this (scope-relayed) transaction — atomic with
         // the ticket, the same contract the online `add_tender` path holds. A staging failure
         // fails the replay: a silently lost event would leave the ticket draft forever with no
         // trace of why.
-        self.stage_tender_completed_in_tx(&mut tx, id, s.company_id, computed.rounded_total, paid_total).await?;
+        self.stage_tender_completed_in_tx(&mut tx, id, computed.rounded_total, paid_total).await?;
         tx.commit().await?;
-        self.emit_sync_events(id, s.company_id, totals.rounded_total, paid_total).await;
+        self.emit_sync_events(id, totals.rounded_total, paid_total).await;
         Ok(SyncOutcome {
             pos_invoice_id: id,
             action: SyncAction::Created,
@@ -233,13 +236,16 @@ impl PosWriteService {
 
     /// The UPDATE half: rewrite a live DRAFT ticket from its replay (full-snapshot semantics — the
     /// replay carries the complete basket + tender set). Partner, session, and refund lineage are
-    /// validated before anything is written.
+    /// validated before anything is written. One scope-relayed transaction carries every read and
+    /// write.
     async fn sync_update_draft(
         &self,
         s: NewSyncSale,
         existing: crate::infrastructure::persistence::SyncLookupRow,
         tax: &dyn PosTaxComputePort,
     ) -> Result<SyncOutcome, PosError> {
+        let mut tx = self.db_pool.begin().await?;
+        relay_ambient_scope(&mut tx).await?;
         // Partner is validated, never re-assigned silently.
         if existing.customer_id != s.customer_id {
             return Err(PosError::SyncPartnerMismatch);
@@ -253,29 +259,29 @@ impl PosWriteService {
         // Session: equal names must both be open; a different name is only honored when the
         // ORIGINAL session closed and the payload's session (or named rescue) is open — and the
         // target must be the same register's session.
-        let session = self.resolve_session_for_update(&s, &existing).await?;
-        self.validate_tender_methods(&s).await?;
+        let session = self.resolve_session_for_update(&mut *tx, &s, &existing).await?;
+        self.validate_tender_methods(&mut *tx, &s).await?;
         // Restaurant lane — table TRANSFER: the replay's table is honored as the ticket's new seat
         // (diners move; a draft is not pinned to its birth table the way it is to its register).
         // The named table must exist, and if it differs from the current seat it must hold no
         // OTHER draft — the occupancy check excludes THIS ticket.
         if let Some(table) = s.pos_table_id {
-            if self.tables.fetch_table(&self.db_pool, table, s.company_id).await?.is_none() {
+            if self.tables.fetch_table(&mut *tx, table).await?.is_none() {
                 return Err(PosError::TableNotFound(table));
             }
             if Some(table) != existing.pos_table_id {
                 if let Some(occupant) = self
                     .invoices
-                    .find_draft_on_table(&self.db_pool, table, s.company_id, Some(existing.id))
+                    .find_draft_on_table(&mut *tx, table, Some(existing.id))
                     .await?
                 {
                     return Err(PosError::TableOccupied { pos_table_id: table, draft_invoice_id: occupant });
                 }
             }
         }
-        // Order-level discount: rate resolved from the tenant's master, folded before the compute.
+        // Order-level discount: rate resolved from the master, folded before the compute.
         let order_discount = self
-            .resolve_order_discount(s.company_id, existing.pos_profile_id, s.discount_id)
+            .resolve_order_discount(&mut tx, existing.pos_profile_id, s.discount_id)
             .await?;
 
         // The ticket keeps the register it was born on — its tax + rounding config — even when the
@@ -298,7 +304,7 @@ impl PosWriteService {
         }
         let computed = self
             .compute_ticket(
-                s.company_id,
+                &mut *tx,
                 existing.pos_profile_id,
                 s.posting_at.date(),
                 PosTaxDocumentType::Invoice,
@@ -310,8 +316,6 @@ impl PosWriteService {
         let totals = Self::totals_with_tenders(&computed, paid);
 
         let id = existing.id;
-        let mut tx = self.db_pool.begin().await?;
-        company_scope::bind_current_company(&mut tx).await?;
         let now = chrono::Utc::now();
         // Full snapshot: retire the prior lines + tenders (soft delete — audit trail kept, sync
         // uuid uniqueness freed), then write the replay's.
@@ -329,18 +333,18 @@ impl PosWriteService {
             // A unique violation here is the table partial unique racing the occupancy pre-check
             // (a transfer onto a table another draft just claimed) — map it to the typed 409.
             return Err(map_invoice_dup(
-                e, "", Some(s.client_uuid), s.pos_table_id, s.company_id,
+                e, "", Some(s.client_uuid), s.pos_table_id,
                 &self.invoices, &self.db_pool, Some(id),
             ).await);
         }
-        self.sync_write_children(&mut tx, id, s.company_id, &computed, &s).await?;
-        // Durable recognition event, staged INSIDE this (company-bound) transaction — atomic with
+        self.sync_write_children(&mut tx, id, &computed, &s).await?;
+        // Durable recognition event, staged INSIDE this (scope-relayed) transaction — atomic with
         // the rewrite, the same contract the online `add_tender` path holds. A staging failure
         // fails the replay: a silently lost event would leave the ticket draft forever with no
         // trace of why.
-        self.stage_tender_completed_in_tx(&mut tx, id, s.company_id, computed.rounded_total, totals.paid_total).await?;
+        self.stage_tender_completed_in_tx(&mut tx, id, computed.rounded_total, totals.paid_total).await?;
         tx.commit().await?;
-        self.emit_sync_events(id, s.company_id, totals.rounded_total, totals.paid_total).await;
+        self.emit_sync_events(id, totals.rounded_total, totals.paid_total).await;
         Ok(SyncOutcome { pos_invoice_id: id, action: SyncAction::Updated, totals })
     }
 
@@ -351,14 +355,12 @@ impl PosWriteService {
         &self,
         tx: &mut sqlx::PgConnection,
         pos_invoice_id: Uuid,
-        company_id: Uuid,
         computed: &super::pos_compute::ComputedTicket,
         s: &NewSyncSale,
     ) -> Result<(), PosError> {
         for (l, src) in computed.lines.iter().zip(&s.lines) {
             self.items.insert_line(tx, &NewInvoiceItemRow {
                 id: Uuid::new_v4(),
-                company_id,
                 pos_invoice_id,
                 client_uuid: Some(src.client_uuid),
                 item_id: l.item_id,
@@ -377,7 +379,6 @@ impl PosWriteService {
             }
             self.payments.insert_tender(tx, &NewTenderRow {
                 id: Uuid::new_v4(),
-                company_id,
                 pos_invoice_id,
                 client_uuid: Some(t.client_uuid),
                 payment_method: &t.method,
@@ -391,22 +392,22 @@ impl PosWriteService {
     /// Durable staging half of a replay's recognition triggers: when the replay crosses full
     /// payment AND an outbox schema is configured, stage `PosTenderCompleted` INSIDE the replay's
     /// own transaction — atomic with the ticket, the same contract the online `add_tender` path
-    /// holds. The caller's transaction is company-bound, so the fenced outbox INSERT passes the
+    /// holds. The caller's transaction is scope-relayed, so the fenced outbox INSERT passes the
     /// row-level-security WITH CHECK under a restricted app role; a second, unbound transaction is
     /// exactly what the fence rejects (and what this staging must never revert to). A staging
     /// failure propagates and fails the whole replay — the durable event must never be lost
-    /// silently behind a reported sync success.
+    /// silently behind a reported sync success. The fence column carries the ambient scope's
+    /// legacy company echo (the acting unit; ADR-0029).
     async fn stage_tender_completed_in_tx(
         &self,
         tx: &mut sqlx::PgConnection,
         pos_invoice_id: Uuid,
-        company_id: Uuid,
         rounded_total: Decimal,
         paid_total: Decimal,
     ) -> Result<(), PosError> {
         if paid_total >= rounded_total && rounded_total > Decimal::ZERO {
             if let Some(schema) = &self.outbox_schema {
-                let rec = super::pos_tender::tender_completed_outbox_record(pos_invoice_id, company_id, chrono::Utc::now());
+                let rec = super::pos_tender::tender_completed_outbox_record(pos_invoice_id, legacy_company_echo(), chrono::Utc::now());
                 backbone_outbox::outbox::stage(&mut *tx, schema, &rec)
                     .await
                     .map_err(|e| PosError::Db(sqlx::Error::Protocol(e.to_string())))?;
@@ -419,51 +420,55 @@ impl PosWriteService {
     /// in-process half of the SAME contract as `add_tender`: durable outbox staging first (inside
     /// the replay's transaction, before its commit — see [`Self::stage_tender_completed_in_tx`]),
     /// fire-and-forget sink second. Double delivery is safe: recognition is replay-safe end to end.
-    async fn emit_sync_events(&self, pos_invoice_id: Uuid, company_id: Uuid, rounded_total: Decimal, paid_total: Decimal) {
+    /// The `company_id` field is the documented legacy twin (ADR-0029).
+    async fn emit_sync_events(&self, pos_invoice_id: Uuid, rounded_total: Decimal, paid_total: Decimal) {
         if paid_total >= rounded_total && rounded_total > Decimal::ZERO {
             self.sink.publish(PosEvent::PosTenderCompleted(PosTenderCompleted {
-                pos_invoice_id, company_id,
+                pos_invoice_id, company_id: legacy_company_echo(),
             }));
         }
     }
 
     /// CREATE-session resolution: the named session must be open, or closed WITH an open rescue.
-    /// Refuses with the typed rescue-refusal otherwise.
-    async fn resolve_session_for_create(&self, s: &NewSyncSale) -> Result<Uuid, PosError> {
+    /// Refuses with the typed rescue-refusal otherwise. Reads ride the caller's scope-relayed
+    /// connection.
+    async fn resolve_session_for_create(&self, conn: &mut sqlx::PgConnection, s: &NewSyncSale) -> Result<Uuid, PosError> {
         let named = self.openings
-            .fetch_status(&self.db_pool, s.opening_entry_id, s.company_id)
+            .fetch_status_on(&mut *conn, s.opening_entry_id)
             .await?
             .ok_or(PosError::SessionNotFound(s.opening_entry_id))?;
         if named == "open" {
             // Open, but still the ticket's OWN register: the plain-open path owes the same
             // register pairing the rescue arms enforce — no mixing configs and drawers.
-            return self.same_register_open_session(s.opening_entry_id, s.pos_profile_id, s.company_id).await;
+            return self.same_register_open_session(&mut *conn, s.opening_entry_id, s.pos_profile_id).await;
         }
         // Closed: honor the rescue only when it is an OPEN session on the SAME register the ticket
         // names — a rescue onto another register's drawer would move money between tills.
         if let Some(rescue) = s.rescue_opening_entry_id {
-            return self.same_register_open_session(rescue, s.pos_profile_id, s.company_id).await;
+            return self.same_register_open_session(&mut *conn, rescue, s.pos_profile_id).await;
         }
         Err(PosError::SessionClosedRescueRequired(s.opening_entry_id))
     }
 
     /// UPDATE-session resolution: an unchanged name must be open; a changed name is honored only
     /// when the ORIGINAL closed and the new session is open on the SAME register as the ticket.
+    /// Reads ride the caller's scope-relayed connection.
     async fn resolve_session_for_update(
         &self,
+        conn: &mut sqlx::PgConnection,
         s: &NewSyncSale,
         existing: &crate::infrastructure::persistence::SyncLookupRow,
     ) -> Result<Uuid, PosError> {
         if s.opening_entry_id == existing.opening_entry_id {
             let st = self.openings
-                .fetch_status(&self.db_pool, existing.opening_entry_id, s.company_id)
+                .fetch_status_on(&mut *conn, existing.opening_entry_id)
                 .await?
                 .ok_or(PosError::SessionNotFound(existing.opening_entry_id))?;
             if st != "open" {
                 // The original closed between the create replay and this one: fall through to the
                 // rescue rules below using the payload's rescue, not a silent re-attribution.
                 if let Some(rescue) = s.rescue_opening_entry_id {
-                    return self.same_register_open_session(rescue, existing.pos_profile_id, s.company_id).await;
+                    return self.same_register_open_session(&mut *conn, rescue, existing.pos_profile_id).await;
                 }
                 return Err(PosError::SessionClosedRescueRequired(existing.opening_entry_id));
             }
@@ -471,33 +476,34 @@ impl PosWriteService {
         }
         // Different session name: only a CLOSED original + an OPEN target on the ticket's register.
         let orig = self.openings
-            .fetch_status(&self.db_pool, existing.opening_entry_id, s.company_id)
+            .fetch_status_on(&mut *conn, existing.opening_entry_id)
             .await?
             .ok_or(PosError::SessionNotFound(existing.opening_entry_id))?;
         if orig == "open" {
             return Err(PosError::SyncSessionMismatch);
         }
         let target = s.rescue_opening_entry_id.unwrap_or(s.opening_entry_id);
-        self.same_register_open_session(target, existing.pos_profile_id, s.company_id).await
+        self.same_register_open_session(&mut *conn, target, existing.pos_profile_id).await
     }
 
     /// The rescue must be an OPEN session on the ticket's own register — a rescue onto another
-    /// register's drawer would move money between tills.
+    /// register's drawer would move money between tills. Reads ride the caller's scope-relayed
+    /// connection.
     async fn same_register_open_session(
         &self,
+        conn: &mut sqlx::PgConnection,
         session: Uuid,
         pos_profile_id: Uuid,
-        company_id: Uuid,
     ) -> Result<Uuid, PosError> {
         let st = self.openings
-            .fetch_status(&self.db_pool, session, company_id)
+            .fetch_status_on(&mut *conn, session)
             .await?
             .ok_or(PosError::SessionNotFound(session))?;
         if st != "open" {
             return Err(PosError::SessionClosedRescueRequired(session));
         }
         let profile = self.openings
-            .fetch_profile_id(&self.db_pool, session, company_id)
+            .fetch_profile_id_on(&mut *conn, session)
             .await?
             .ok_or(PosError::SessionNotFound(session))?;
         if profile != pos_profile_id {
@@ -506,9 +512,10 @@ impl PosWriteService {
         Ok(session)
     }
 
-    /// Every replayed tender method must be a live enum variant.
-    async fn validate_tender_methods(&self, s: &NewSyncSale) -> Result<(), PosError> {
-        let valid = self.payments.valid_methods(&self.db_pool).await?;
+    /// Every replayed tender method must be a live enum variant. Reads ride the caller's
+    /// scope-relayed connection.
+    async fn validate_tender_methods(&self, conn: &mut sqlx::PgConnection, s: &NewSyncSale) -> Result<(), PosError> {
+        let valid = self.payments.valid_methods(&mut *conn).await?;
         for t in &s.tenders {
             if !valid.iter().any(|m| m == &t.method) {
                 return Err(PosError::InvalidTenderMethod(t.method.clone()));

@@ -6,13 +6,21 @@
 //!
 //! Thin newtype over `backbone_orm::GenericCrudRepository<PosPayment, backbone_orm::SoftDelete>`.
 //! All standard CRUD methods are available via `Deref`.
+//!
+//! Tenancy is composition-installed (ADR-0029): the tender write and its in-transaction re-sum run
+//! on the CALLER'S scope-relayed transaction; the pool reads ride the ambient org scope's
+//! request-dedicated connection — the fence is the whole guard, no statement keys on tenancy.
 
 use anyhow::Result;
 use rust_decimal::Decimal;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-use backbone_orm::company_scope;
+// The multi-row read twin lives only in the legacy `company_scope` module; what this repository
+// needs from it is the connection discipline — request-dedicated connection when the composing
+// service bound one, plain pool otherwise. Its legacy task-local branch never fires: this module
+// sets no legacy scope of its own (ADR-0029).
+use backbone_orm::company_scope::fetch_all_rows_scoped;
 
 use crate::domain::entity::PosPayment;
 
@@ -41,12 +49,9 @@ impl PosPaymentRepository {
 
 /// The exact row a tender writes. Mirrors the raw column shape rather than the `PosPayment` entity:
 /// `payment_method` binds as `&str` with a DB-side cast (`$3::pos_payment_method`), so an unknown
-/// method fails as a DB error rather than a deserialize panic. `company_id` is denormalised from the
-/// parent ticket so the child row carries its own ADR-0008 RLS fence (ADR-0010 Decision A) — the
-/// caller (the write service) reads it off the ticket header.
+/// method fails as a DB error rather than a deserialize panic.
 pub struct NewTenderRow<'a> {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub pos_invoice_id: Uuid,
     /// The tender's offline-sync identity (None for server-originated tenders).
     pub client_uuid: Option<Uuid>,
@@ -73,17 +78,18 @@ impl PosPaymentRepository {
     /// Insert one tender line.
     ///
     /// Takes the CALLER'S connection so the tender and the header's recomputed `paid_total`/`change_due`
-    /// commit as one unit. The caller has already bound the company on it — don't re-bind here.
+    /// commit as one unit. The caller has already relayed the ambient org scope onto it — don't
+    /// re-bind here.
     pub async fn insert_tender(
         &self,
         conn: &mut sqlx::PgConnection,
         t: &NewTenderRow<'_>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"INSERT INTO pos.pos_payments (id, company_id, pos_invoice_id, client_uuid, payment_method, amount, reference_no)
-               VALUES ($1,$2,$3,$4,$5::pos_payment_method,$6,$7)"#,
+            r#"INSERT INTO pos.pos_payments (id, pos_invoice_id, client_uuid, payment_method, amount, reference_no)
+               VALUES ($1,$2,$3,$4::pos_payment_method,$5,$6)"#,
         )
-        .bind(t.id).bind(t.company_id).bind(t.pos_invoice_id).bind(t.client_uuid).bind(t.payment_method).bind(t.amount).bind(t.reference_no)
+        .bind(t.id).bind(t.pos_invoice_id).bind(t.client_uuid).bind(t.payment_method).bind(t.amount).bind(t.reference_no)
         .execute(conn)
         .await?;
         Ok(())
@@ -109,13 +115,15 @@ impl PosPaymentRepository {
     }
 
     /// The payment-method enum's live variants, for tender-method validation (a replay naming an
-    /// unknown method is a typed 422, not a DB cast error). Runs under the caller's company scope.
-    pub async fn valid_methods(&self, pool: &PgPool) -> Result<Vec<String>, sqlx::Error> {
-        let rows = company_scope::fetch_all_rows_scoped(
-            pool,
-            sqlx::query("SELECT unnest(enum_range(NULL::pos_payment_method))::text AS m"),
-        )
-        .await?;
+    /// unknown method is a typed 422, not a DB cast error). A catalog read — runs directly on the
+    /// CALLER'S connection inside the replay's validation transaction.
+    pub async fn valid_methods(
+        &self,
+        conn: &mut sqlx::PgConnection,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let rows = sqlx::query("SELECT unnest(enum_range(NULL::pos_payment_method))::text AS m")
+            .fetch_all(conn)
+            .await?;
         Ok(rows.iter().map(|r| r.get::<String, _>("m")).collect())
     }
 
@@ -136,14 +144,14 @@ impl PosPaymentRepository {
 
     /// Sum recognised (paid) tenders per method across a session — the drawer's tender side.
     ///
-    /// ID-only: no company argument; the caller wraps it in `with_company_scope(Some(company))` so the
-    /// scoped read is fenced (ADR-0008).
+    /// ID-only: rides the ambient org scope (the fence bounds the session join to the caller's
+    /// entitled units).
     pub async fn sum_by_method_for_session(
         &self,
         pool: &PgPool,
         opening_entry_id: Uuid,
     ) -> Result<Vec<MethodTotalRow>, sqlx::Error> {
-        let rows = company_scope::fetch_all_rows_scoped(
+        let rows = fetch_all_rows_scoped(
             pool,
             sqlx::query(
                 r#"SELECT pay.payment_method::text AS method, COALESCE(SUM(pay.amount),0) AS total
@@ -159,14 +167,14 @@ impl PosPaymentRepository {
         }).collect())
     }
 
-    /// Read a ticket's tenders for the printed receipt, in tender order. Caller supplies the company
-    /// scope on the parameter.
+    /// Read a ticket's tenders for the printed receipt, in tender order. ID-only: rides the ambient
+    /// org scope — the fence is the whole guard.
     pub async fn fetch_receipt_tenders(
         &self,
         pool: &PgPool,
         pos_invoice_id: Uuid,
     ) -> Result<Vec<ReceiptTenderRow>, sqlx::Error> {
-        let rows = company_scope::fetch_all_rows_scoped(
+        let rows = fetch_all_rows_scoped(
             pool,
             sqlx::query(
                 "SELECT payment_method::text AS method, amount FROM pos.pos_payments

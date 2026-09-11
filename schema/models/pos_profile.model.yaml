@@ -18,10 +18,6 @@ models:
         type: uuid
         attributes: ["@id", "@default(uuid)"]
         description: "Unique profile id"
-      company_id:
-        type: uuid
-        attributes: ["@required", "@exclude_from_foreign_key_check"]
-        description: "Books owner # logical FK to organization.Company.id"
       branch_id:
         type: uuid?
         attributes: ["@exclude_from_foreign_key_check"]
@@ -100,8 +96,8 @@ models:
         description: "Audit metadata"
 
     indexes:
-      - type: index
-        fields: [company_id, status]
+      # No tenancy indexes (ADR-0029): the module is tenant-agnostic. The unit-leading
+      # status listing index is installed by the composing service's tenancy decorator.
 
   - name: PosOpeningEntry
     collection: pos_opening_entries
@@ -112,10 +108,6 @@ models:
         type: uuid
         attributes: ["@id", "@default(uuid)"]
         description: "Unique session id"
-      company_id:
-        type: uuid
-        attributes: ["@required", "@exclude_from_foreign_key_check"]
-        description: "Books owner # logical FK to organization.Company.id"
       pos_profile_id:
         type: uuid
         attributes: ["@required", "@foreign_key(PosProfile.id)"]
@@ -145,13 +137,14 @@ models:
         description: "Audit metadata"
 
     indexes:
-      - type: index
-        fields: [company_id, pos_profile_id, status]
-      # One non-closed session per register: opening a second session on a
-      # register that still has an open one must be refused, not forked.
-      - type: unique
-        fields: [pos_profile_id]
-        where: "status = 'open' AND deleted_at IS NULL"
+      # No tenancy indexes (ADR-0029): the module is tenant-agnostic. The unit-leading
+      # register/status listing index is installed by the composing service's tenancy
+      # decorator, and so is the one-open-session-per-register slot: that unique is a
+      # per-tenant guarantee (per (org unit, register) — a register belongs to exactly
+      # one unit's books), so its tenant-free global shape is deliberately NOT declared
+      # here. The open verb refuses a second open session through its own validation
+      # read; once composed, the decorator's org-scoped slot unique is the race-proof
+      # arm behind it.
 
 enums:
   - name: PosCashRoundingStrategy

@@ -44,7 +44,6 @@ pub struct PosFloorPlanPaginatedResult {
 /// Filter parameters for list queries
 #[derive(Debug, Clone, Default)]
 pub struct PosFloorPlanFilter {
-    pub company_id: Option<Uuid>,
     pub branch_id: Option<Uuid>,
     pub name: Option<String>,
 }
@@ -52,7 +51,7 @@ pub struct PosFloorPlanFilter {
 impl PosFloorPlanFilter {
     /// Check if any filter is set
     pub fn has_filters(&self) -> bool {
-        self.company_id.is_some() || self.branch_id.is_some() || self.name.is_some()
+        self.branch_id.is_some() || self.name.is_some()
     }
 }
 

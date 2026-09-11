@@ -34,9 +34,6 @@ use crate::domain::entity::PosSessionStatus;
 #[serde(rename_all = "camelCase")]
 pub struct CreatePosOpeningEntryDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "pos_profile_id")]
     pub pos_profile_id: Uuid,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "branch_id")]
@@ -65,9 +62,6 @@ pub struct CreatePosOpeningEntryDto {
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdatePosOpeningEntryDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "pos_profile_id")]
     pub pos_profile_id: Uuid,
@@ -98,9 +92,6 @@ pub struct UpdatePosOpeningEntryDto {
 #[serde(rename_all = "camelCase")]
 pub struct PatchPosOpeningEntryDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "company_id")]
-    pub company_id: Option<Uuid>,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "pos_profile_id")]
     pub pos_profile_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "branch_id")]
@@ -120,7 +111,7 @@ pub struct PatchPosOpeningEntryDto {
 impl PatchPosOpeningEntryDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.pos_profile_id.is_some() || self.branch_id.is_some() || self.cashier_party_id.is_some() || self.opened_at.is_some() || self.opening_balances.is_some() || self.status.is_some()
+        self.pos_profile_id.is_some() || self.branch_id.is_some() || self.cashier_party_id.is_some() || self.opened_at.is_some() || self.opening_balances.is_some() || self.status.is_some()
     }
 }
 
@@ -138,8 +129,6 @@ impl PatchPosOpeningEntryDto {
 pub struct PosOpeningEntryResponseDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub pos_profile_id: Uuid,
     pub branch_id: Option<Uuid>,
@@ -206,9 +195,9 @@ impl PosOpeningEntryListResponseDto {
 #[serde(rename_all = "camelCase")]
 pub struct PosOpeningEntrySummaryDto {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub pos_profile_id: Uuid,
     pub branch_id: Option<Uuid>,
+    pub cashier_party_id: Uuid,
     pub created_at: Option<DateTime<Utc>>,
 }
 
@@ -220,7 +209,6 @@ impl From<PosOpeningEntry> for PosOpeningEntryResponseDto {
     fn from(entity: PosOpeningEntry) -> Self {
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             pos_profile_id: entity.pos_profile_id,
             branch_id: entity.branch_id,
             cashier_party_id: entity.cashier_party_id,
@@ -237,9 +225,9 @@ impl From<PosOpeningEntry> for PosOpeningEntrySummaryDto {
         let created_at = backbone_core::PersistentEntity::created_at(&entity);
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             pos_profile_id: entity.pos_profile_id,
             branch_id: entity.branch_id,
+            cashier_party_id: entity.cashier_party_id,
             created_at,
         }
     }
@@ -249,7 +237,6 @@ impl From<CreatePosOpeningEntryDto> for PosOpeningEntry {
     fn from(dto: CreatePosOpeningEntryDto) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id: dto.company_id,
             pos_profile_id: dto.pos_profile_id,
             branch_id: dto.branch_id,
             cashier_party_id: dto.cashier_party_id,
@@ -265,7 +252,6 @@ impl From<&PosOpeningEntry> for PosOpeningEntryResponseDto {
     fn from(entity: &PosOpeningEntry) -> Self {
         Self {
             id: entity.id.clone(),
-            company_id: entity.company_id.clone(),
             pos_profile_id: entity.pos_profile_id.clone(),
             branch_id: entity.branch_id.clone(),
             cashier_party_id: entity.cashier_party_id.clone(),
@@ -285,7 +271,6 @@ impl backbone_core::FromCreateDto<CreatePosOpeningEntryDto> for PosOpeningEntry 
 
 impl backbone_core::ApplyUpdateDto<UpdatePosOpeningEntryDto> for PosOpeningEntry {
     fn apply_update(mut self, dto: UpdatePosOpeningEntryDto) -> backbone_core::ServiceResult<Self> {
-        self.company_id = dto.company_id;
         self.pos_profile_id = dto.pos_profile_id;
         self.branch_id = dto.branch_id;
         self.cashier_party_id = dto.cashier_party_id;

@@ -1,6 +1,6 @@
 [package]
 name = "backbone-pos"
-version = "0.4.7"
+version = "0.5.0"
 edition = "2021"
 description = "Point of sale — cashier session, ticket + multi-tender; orchestrates billing (revenue) + payment (settlement), posts no GL directly"
 
@@ -88,6 +88,9 @@ pretty_assertions = "1.0"
 # via reqwest; guarded-route probes hit the router in-process via tower's ServiceExt::oneshot.
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 rand = "0.8"
+# Hash fixture manager PINs the same way the service does (Argon2id defaults; the PHC string
+# carries its own parameters, so verify_password accepts it) — see tests/support/mod.rs.
+argon2 = "0.5"
 
 # TEST-ONLY edges: the retail-sale seam test drives the REAL backbone-billing (raise+post the Sales
 # Invoice) + backbone-payment (settle the tender) + backbone-accounting (the ledger) through in-test
@@ -98,7 +101,7 @@ rand = "0.8"
 #   • Local dev (full workspace)   → .cargo/config.toml (gitignored) [patch]es each git source back
 #     to ../backbone-*, so uncommitted sibling edits propagate instantly. Recreate it from
 #     .cargo/config.toml.example. Without that file present, Cargo falls through to the git tags.
-backbone-accounting = { git = "https://github.com/faridlab/backbone-accounting", tag = "v0.6.10" }
-backbone-billing = { git = "https://github.com/faridlab/backbone-billing", tag = "v0.5.7" }
-backbone-payment = { git = "https://github.com/faridlab/backbone-payment", tag = "v0.8.6" }
+backbone-accounting = { git = "https://github.com/faridlab/backbone-accounting", tag = "v0.8.0" }
+backbone-billing = { git = "https://github.com/faridlab/backbone-billing", tag = "v0.6.0" }
+backbone-payment = { git = "https://github.com/faridlab/backbone-payment", tag = "v0.9.0" }
 backbone-inventory = { git = "https://github.com/faridlab/backbone-inventory", tag = "v0.7.9" }

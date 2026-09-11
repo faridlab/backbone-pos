@@ -3,15 +3,13 @@
 //! convention. Holds the SQL per the 4-layer rule: services orchestrate, repositories hold SQL.
 //!
 //! The order-level discount master is the server-side source of the discount RATE: a ring names a
-//! discount by id, and the percentage applied is ALWAYS the one stored on this company's master row
-//! — never a rate echoed back by the client (the offline-sync trust posture: client identity, server
-//! money).
+//! discount by id, and the percentage applied is ALWAYS the one stored on the caller's scoped
+//! master row — never a rate echoed back by the client (the offline-sync trust posture: client
+//! identity, server money).
 
 use rust_decimal::Decimal;
-use sqlx::{PgPool, Row};
+use sqlx::Row;
 use uuid::Uuid;
-
-use backbone_orm::company_scope;
 
 use crate::infrastructure::persistence::PosDiscountRepository;
 
@@ -24,26 +22,22 @@ pub struct DiscountRow {
 }
 
 impl PosDiscountRepository {
-    /// Read one discount master row by id. `Ok(None)` = no such discount in this tenant (soft-deleted
-    /// masters are retired — a ring naming one is refused, not silently discounted). The explicit
-    /// `company_id = $2` filter is defense-in-depth ON TOP of the RLS fence; the caller wraps this in
-    /// `with_company_scope(Some(company))`.
+    /// Read one discount master row by id, on the CALLER'S scope-relayed transaction (the discount
+    /// gate runs inside the ring/sync unit of work). `Ok(None)` = no such discount visible to the
+    /// caller's scope (soft-deleted masters are retired — a ring naming one is refused, not silently
+    /// discounted). The fence is the whole guard (ADR-0029).
     pub async fn fetch_discount(
         &self,
-        pool: &PgPool,
+        conn: &mut sqlx::PgConnection,
         discount_id: Uuid,
-        company_id: Uuid,
     ) -> Result<Option<DiscountRow>, sqlx::Error> {
-        let row = company_scope::fetch_optional_row_scoped(
-            pool,
-            sqlx::query(
-                r#"SELECT id, name, percentage
-                   FROM pos.pos_discounts
-                   WHERE id=$1 AND company_id=$2 AND (metadata->>'deleted_at') IS NULL"#,
-            )
-            .bind(discount_id)
-            .bind(company_id),
+        let row = sqlx::query(
+            r#"SELECT id, name, percentage
+               FROM pos.pos_discounts
+               WHERE id=$1 AND (metadata->>'deleted_at') IS NULL"#,
         )
+        .bind(discount_id)
+        .fetch_optional(conn)
         .await?;
         Ok(row.map(|r| DiscountRow {
             id: r.get("id"),

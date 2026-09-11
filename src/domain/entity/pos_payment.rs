@@ -51,7 +51,6 @@ impl std::ops::Deref for PosPaymentId {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PosPayment {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub pos_invoice_id: Uuid,
     pub payment_method: PosPaymentMethod,
     pub amount: Decimal,
@@ -70,10 +69,9 @@ impl PosPayment {
     }
 
     /// Create a new PosPayment with required fields
-    pub fn new(company_id: Uuid, pos_invoice_id: Uuid, payment_method: PosPaymentMethod, amount: Decimal) -> Self {
+    pub fn new(pos_invoice_id: Uuid, payment_method: PosPaymentMethod, amount: Decimal) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id,
             pos_invoice_id,
             payment_method,
             amount,
@@ -165,9 +163,6 @@ impl PosPayment {
     pub fn apply_patch(&mut self, fields: std::collections::HashMap<String, serde_json::Value>) {
         for (key, value) in fields {
             match key.as_str() {
-                "company_id" => {
-                    if let Ok(v) = serde_json::from_value(value) { self.company_id = v; }
-                }
                 "pos_invoice_id" => {
                     if let Ok(v) = serde_json::from_value(value) { self.pos_invoice_id = v; }
                 }
@@ -240,7 +235,6 @@ impl backbone_orm::EntityRepoMeta for PosPayment {
     fn column_types() -> std::collections::HashMap<String, String> {
         let mut m = std::collections::HashMap::new();
         m.insert("id".to_string(), "uuid".to_string());
-        m.insert("company_id".to_string(), "uuid".to_string());
         m.insert("pos_invoice_id".to_string(), "uuid".to_string());
         m.insert("payment_entry_id".to_string(), "uuid".to_string());
         m.insert("payment_method".to_string(), "pos_payment_method".to_string());
@@ -248,9 +242,6 @@ impl backbone_orm::EntityRepoMeta for PosPayment {
     }
     fn search_fields() -> &'static [&'static str] {
         &[]
-    }
-    fn company_field() -> Option<&'static str> {
-        Some("company_id")
     }
     fn relations() -> &'static [(&'static str, &'static str, &'static str)] {
         &[("invoice", "pos_invoices", "posInvoiceId")]
@@ -263,7 +254,6 @@ impl backbone_orm::EntityRepoMeta for PosPayment {
 /// System fields (id, metadata, timestamps) are auto-initialized.
 #[derive(Debug, Clone, Default)]
 pub struct PosPaymentBuilder {
-    company_id: Option<Uuid>,
     pos_invoice_id: Option<Uuid>,
     payment_method: Option<PosPaymentMethod>,
     amount: Option<Decimal>,
@@ -273,12 +263,6 @@ pub struct PosPaymentBuilder {
 }
 
 impl PosPaymentBuilder {
-    /// Set the company_id field (required)
-    pub fn company_id(mut self, value: Uuid) -> Self {
-        self.company_id = Some(value);
-        self
-    }
-
     /// Set the pos_invoice_id field (required)
     pub fn pos_invoice_id(mut self, value: Uuid) -> Self {
         self.pos_invoice_id = Some(value);
@@ -319,14 +303,12 @@ impl PosPaymentBuilder {
     ///
     /// Returns Err if any required field without a default is missing.
     pub fn build(self) -> Result<PosPayment, String> {
-        let company_id = self.company_id.ok_or_else(|| "company_id is required".to_string())?;
         let pos_invoice_id = self.pos_invoice_id.ok_or_else(|| "pos_invoice_id is required".to_string())?;
         let payment_method = self.payment_method.ok_or_else(|| "payment_method is required".to_string())?;
         let amount = self.amount.ok_or_else(|| "amount is required".to_string())?;
 
         Ok(PosPayment {
             id: Uuid::new_v4(),
-            company_id,
             pos_invoice_id,
             payment_method,
             amount,

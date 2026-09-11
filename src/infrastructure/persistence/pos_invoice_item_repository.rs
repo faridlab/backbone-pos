@@ -6,13 +6,21 @@
 //!
 //! Thin newtype over `backbone_orm::GenericCrudRepository<PosInvoiceItem, backbone_orm::SoftDelete>`.
 //! All standard CRUD methods are available via `Deref`.
+//!
+//! Tenancy is composition-installed (ADR-0029): the line write runs on the CALLER'S scope-relayed
+//! transaction; the pool reads ride the ambient org scope's request-dedicated connection — the
+//! fence is the whole guard, no statement keys on tenancy.
 
 use anyhow::Result;
 use rust_decimal::Decimal;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-use backbone_orm::company_scope;
+// The multi-row read twin lives only in the legacy `company_scope` module; what this repository
+// needs from it is the connection discipline — request-dedicated connection when the composing
+// service bound one, plain pool otherwise. Its legacy task-local branch never fires: this module
+// sets no legacy scope of its own (ADR-0029).
+use backbone_orm::company_scope::fetch_all_rows_scoped;
 
 use crate::domain::entity::PosInvoiceItem;
 
@@ -41,11 +49,8 @@ impl PosInvoiceItemRepository {
 
 /// The exact row a ticket line writes. Mirrors the raw column shape rather than the `PosInvoiceItem`
 /// entity: `net_amount` is the already-computed line net (qty x price - discount), not re-derived here.
-/// `company_id` is denormalised from the parent ticket so the child row carries its own ADR-0008 RLS
-/// fence (ADR-0010 Decision A) — the caller (the write service) reads it off the sale input.
 pub struct NewInvoiceItemRow<'a> {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub pos_invoice_id: Uuid,
     /// The line's offline-sync identity (None for server-originated rings).
     pub client_uuid: Option<Uuid>,
@@ -92,8 +97,8 @@ impl PosInvoiceItemRepository {
     /// Insert one ticket line.
     ///
     /// Takes the CALLER'S connection so every line and its invoice header commit as one unit — a ticket
-    /// is never half-rung. The caller has already bound the company on it (`bind_current_company`) —
-    /// don't re-bind here.
+    /// is never half-rung. The caller has already relayed the ambient org scope onto it — don't
+    /// re-bind here.
     pub async fn insert_line(
         &self,
         conn: &mut sqlx::PgConnection,
@@ -101,10 +106,10 @@ impl PosInvoiceItemRepository {
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO pos.pos_invoice_items
-                (id, company_id, pos_invoice_id, client_uuid, item_id, description, course, quantity, unit_price, discount_amount, net_amount, revenue_account_id)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)"#,
+                (id, pos_invoice_id, client_uuid, item_id, description, course, quantity, unit_price, discount_amount, net_amount, revenue_account_id)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)"#,
         )
-        .bind(l.id).bind(l.company_id).bind(l.pos_invoice_id).bind(l.client_uuid).bind(l.item_id).bind(l.description).bind(l.course).bind(l.quantity)
+        .bind(l.id).bind(l.pos_invoice_id).bind(l.client_uuid).bind(l.item_id).bind(l.description).bind(l.course).bind(l.quantity)
         .bind(l.unit_price).bind(l.discount_amount).bind(l.net_amount).bind(l.revenue_account_id)
         .execute(conn)
         .await?;
@@ -113,16 +118,17 @@ impl PosInvoiceItemRepository {
 
     /// Read the lines the billing hand-off invoices.
     ///
-    /// ID-only: no company argument. `fetch_all_rows_scoped` means it rides a connection carrying the
-    /// caller's `app.company_id`, so another company's lines simply are not found. A non-request caller
-    /// (the recognition sink driven by `PosTenderCompleted`) MUST wrap this in
-    /// `with_company_scope(Some(company_id))` — otherwise it fails closed and returns no lines.
+    /// ID-only: rides the ambient org scope's request-dedicated connection, so another unit's lines
+    /// simply are not found. A non-request caller (the recognition sink driven by
+    /// `PosTenderCompleted`) MUST wrap this in the composing service's org request scope — bound
+    /// from the event's `company_id` twin (the acting unit) — otherwise it fails closed and returns
+    /// no lines.
     pub async fn fetch_revenue_lines(
         &self,
         pool: &PgPool,
         pos_invoice_id: Uuid,
     ) -> Result<Vec<RevenueLineRow>, sqlx::Error> {
-        let rows = company_scope::fetch_all_rows_scoped(
+        let rows = fetch_all_rows_scoped(
             pool,
             sqlx::query(
                 "SELECT item_id, net_amount, revenue_account_id FROM pos.pos_invoice_items WHERE pos_invoice_id=$1 AND (metadata->>'deleted_at') IS NULL",
@@ -143,7 +149,7 @@ impl PosInvoiceItemRepository {
         pool: &PgPool,
         pos_invoice_id: Uuid,
     ) -> Result<Vec<QuantityLineRow>, sqlx::Error> {
-        let rows = company_scope::fetch_all_rows_scoped(
+        let rows = fetch_all_rows_scoped(
             pool,
             sqlx::query(
                 "SELECT item_id, quantity FROM pos.pos_invoice_items WHERE pos_invoice_id=$1 AND (metadata->>'deleted_at') IS NULL",
@@ -160,7 +166,7 @@ impl PosInvoiceItemRepository {
     /// uniqueness on `client_uuid` is freed for the replay's replacement lines).
     ///
     /// Takes the CALLER'S connection so the retire and its replacements commit as one unit. The
-    /// caller has already bound the company on it.
+    /// caller has already relayed the ambient org scope onto it.
     pub async fn soft_delete_lines_for_ticket(
         &self,
         conn: &mut sqlx::PgConnection,
@@ -180,13 +186,13 @@ impl PosInvoiceItemRepository {
     }
 
     /// Read the lines for the printed receipt, in ring order. Same ID-only scope contract as
-    /// [`Self::fetch_revenue_lines`]; the caller supplies the company scope on the parameter.
+    /// [`Self::fetch_revenue_lines`].
     pub async fn fetch_receipt_lines(
         &self,
         pool: &PgPool,
         pos_invoice_id: Uuid,
     ) -> Result<Vec<ReceiptLineRow>, sqlx::Error> {
-        let rows = company_scope::fetch_all_rows_scoped(
+        let rows = fetch_all_rows_scoped(
             pool,
             sqlx::query(
                 "SELECT description, item_id, course, quantity, unit_price, discount_amount, net_amount

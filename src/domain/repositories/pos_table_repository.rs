@@ -44,7 +44,6 @@ pub struct PosTablePaginatedResult {
 /// Filter parameters for list queries
 #[derive(Debug, Clone, Default)]
 pub struct PosTableFilter {
-    pub company_id: Option<Uuid>,
     pub pos_floor_plan_id: Option<Uuid>,
     pub name: Option<String>,
     pub shape: Option<String>,
@@ -53,7 +52,7 @@ pub struct PosTableFilter {
 impl PosTableFilter {
     /// Check if any filter is set
     pub fn has_filters(&self) -> bool {
-        self.company_id.is_some() || self.pos_floor_plan_id.is_some() || self.name.is_some() || self.shape.is_some()
+        self.pos_floor_plan_id.is_some() || self.name.is_some() || self.shape.is_some()
     }
 }
 

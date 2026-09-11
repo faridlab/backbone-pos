@@ -44,7 +44,6 @@ pub struct PosProfilePaginatedResult {
 /// Filter parameters for list queries
 #[derive(Debug, Clone, Default)]
 pub struct PosProfileFilter {
-    pub company_id: Option<Uuid>,
     pub branch_id: Option<Uuid>,
     pub name: Option<String>,
     pub default_customer_id: Option<Uuid>,
@@ -65,7 +64,7 @@ pub struct PosProfileFilter {
 impl PosProfileFilter {
     /// Check if any filter is set
     pub fn has_filters(&self) -> bool {
-        self.company_id.is_some() || self.branch_id.is_some() || self.name.is_some() || self.default_customer_id.is_some() || self.currency.is_some() || self.income_account_id.is_some() || self.receivable_account_id.is_some() || self.cash_account_id.is_some() || self.write_off_account_id.is_some() || self.tax_account_id.is_some() || self.warehouse_id.is_some() || self.cogs_account_id.is_some() || self.inventory_account_id.is_some() || self.allow_discount.is_some() || self.cash_rounding_strategy.is_some() || self.status.is_some()
+        self.branch_id.is_some() || self.name.is_some() || self.default_customer_id.is_some() || self.currency.is_some() || self.income_account_id.is_some() || self.receivable_account_id.is_some() || self.cash_account_id.is_some() || self.write_off_account_id.is_some() || self.tax_account_id.is_some() || self.warehouse_id.is_some() || self.cogs_account_id.is_some() || self.inventory_account_id.is_some() || self.allow_discount.is_some() || self.cash_rounding_strategy.is_some() || self.status.is_some()
     }
 }
 

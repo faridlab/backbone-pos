@@ -44,7 +44,6 @@ pub struct PosInvoicePaginatedResult {
 /// Filter parameters for list queries
 #[derive(Debug, Clone, Default)]
 pub struct PosInvoiceFilter {
-    pub company_id: Option<Uuid>,
     pub pos_profile_id: Option<Uuid>,
     pub opening_entry_id: Option<Uuid>,
     pub branch_id: Option<Uuid>,
@@ -62,7 +61,7 @@ pub struct PosInvoiceFilter {
 impl PosInvoiceFilter {
     /// Check if any filter is set
     pub fn has_filters(&self) -> bool {
-        self.company_id.is_some() || self.pos_profile_id.is_some() || self.opening_entry_id.is_some() || self.branch_id.is_some() || self.customer_id.is_some() || self.pos_table_id.is_some() || self.receipt_number.is_some() || self.client_uuid.is_some() || self.billing_invoice_id.is_some() || self.payment_entry_id.is_some() || self.is_return.is_some() || self.return_against.is_some() || self.status.is_some()
+        self.pos_profile_id.is_some() || self.opening_entry_id.is_some() || self.branch_id.is_some() || self.customer_id.is_some() || self.pos_table_id.is_some() || self.receipt_number.is_some() || self.client_uuid.is_some() || self.billing_invoice_id.is_some() || self.payment_entry_id.is_some() || self.is_return.is_some() || self.return_against.is_some() || self.status.is_some()
     }
 }
 

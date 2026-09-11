@@ -18,38 +18,38 @@ fn at() -> chrono::NaiveDateTime {
     chrono::NaiveDate::from_ymd_opt(2026, 7, 5).unwrap().and_hms_opt(9, 0, 0).unwrap()
 }
 
-async fn open(w: &PosWriteService, company: Uuid, prof: Uuid) -> Uuid {
+async fn open(w: &PosWriteService, prof: Uuid) -> Uuid {
     w.open_session(NewSession {
-        company_id: company, pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(),
+        pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(),
         opened_at: at(), opening_balances: vec![],
     }).await.unwrap()
 }
 
 /// Seed one floor plan + one table on it; returns (floor_plan_id, table_id).
-async fn seed_table(pool: &sqlx::PgPool, company: Uuid, name: &str) -> (Uuid, Uuid) {
+async fn seed_table(pool: &sqlx::PgPool, name: &str) -> (Uuid, Uuid) {
     let floor = Uuid::new_v4();
     let table = Uuid::new_v4();
-    sqlx::query("INSERT INTO pos.pos_floor_plans (id, company_id, name) VALUES ($1,$2,$3)")
-        .bind(floor).bind(company).bind(name)
+    sqlx::query("INSERT INTO pos.pos_floor_plans (id, name) VALUES ($1,$2)")
+        .bind(floor).bind(name)
         .execute(pool).await.unwrap();
-    sqlx::query("INSERT INTO pos.pos_tables (id, company_id, pos_floor_plan_id, name, seats) VALUES ($1,$2,$3,$4,4)")
-        .bind(table).bind(company).bind(floor).bind(name)
+    sqlx::query("INSERT INTO pos.pos_tables (id, pos_floor_plan_id, name, seats) VALUES ($1,$2,$3,4)")
+        .bind(table).bind(floor).bind(name)
         .execute(pool).await.unwrap();
     (floor, table)
 }
 
 /// Seed an order-level discount master; returns its id.
-async fn seed_discount(pool: &sqlx::PgPool, company: Uuid, pct: &str) -> Uuid {
+async fn seed_discount(pool: &sqlx::PgPool, pct: &str) -> Uuid {
     let id = Uuid::new_v4();
-    sqlx::query("INSERT INTO pos.pos_discounts (id, company_id, name, percentage) VALUES ($1,$2,'Happy Hour',$3)")
-        .bind(id).bind(company).bind(d(pct))
+    sqlx::query("INSERT INTO pos.pos_discounts (id, name, percentage) VALUES ($1,'Happy Hour',$2)")
+        .bind(id).bind(d(pct))
         .execute(pool).await.unwrap();
     id
 }
 
-fn seated_sale(company: Uuid, prof: Uuid, session: Uuid, table: Option<Uuid>, discount: Option<Uuid>, receipt: &str, lines: Vec<NewSaleLine>) -> NewSale {
+fn seated_sale(prof: Uuid, session: Uuid, table: Option<Uuid>, discount: Option<Uuid>, receipt: &str, lines: Vec<NewSaleLine>) -> NewSale {
     NewSale {
-        company_id: company, pos_profile_id: prof, opening_entry_id: session,
+        pos_profile_id: prof, opening_entry_id: session,
         branch_id: None, customer_id: None, pos_table_id: table, discount_id: discount,
         receipt_number: receipt.to_string(), posting_at: at(), lines,
     }
@@ -61,12 +61,12 @@ fn seated_sale(company: Uuid, prof: Uuid, session: Uuid, table: Option<Uuid>, di
 async fn ring_seats_a_draft_and_carries_course() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = support::profile_at_rate(&pool, company, "0").await;
-    let session = open(&w, company, prof).await;
-    let (_floor, table) = seed_table(&pool, company, "T1").await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = support::profile_at_rate(&pool, "0").await;
+    let session = open(&w, prof).await;
+    let (_floor, table) = seed_table(&pool, "T1").await;
 
-    let id = w.ring_sale(seated_sale(company, prof, session, Some(table), None, &uq("REST-1"), vec![
+    let id = w.ring_sale(seated_sale(prof, session, Some(table), None, &uq("REST-1"), vec![
         NewSaleLine { item_id: item, revenue_account_id: None, description: Some("Spring rolls".into()), course: Some(1), quantity: d("2"), unit_price: d("25000"), discount_amount: Decimal::ZERO },
         NewSaleLine { item_id: item, revenue_account_id: None, description: Some("Nasi goreng".into()), course: Some(2), quantity: d("1"), unit_price: d("50000"), discount_amount: Decimal::ZERO },
     ]), &tax).await.unwrap();
@@ -80,7 +80,7 @@ async fn ring_seats_a_draft_and_carries_course() {
     ).bind(id).fetch_all(&pool).await.unwrap();
     assert_eq!(courses, vec![Some(1), Some(2)]);
 
-    let receipt = w.receipt(company, id).await.unwrap();
+    let receipt = w.receipt(id).await.unwrap();
     assert_eq!(receipt.lines[0].course, Some(1));
     assert_eq!(receipt.lines[1].course, Some(2));
 }
@@ -91,16 +91,16 @@ async fn ring_seats_a_draft_and_carries_course() {
 async fn second_draft_on_occupied_table_refuses_loudly() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = support::zero_tax_profile(&pool, company).await;
-    let session = open(&w, company, prof).await;
-    let (_floor, table) = seed_table(&pool, company, "T2").await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = support::zero_tax_profile(&pool).await;
+    let session = open(&w, prof).await;
+    let (_floor, table) = seed_table(&pool, "T2").await;
 
-    let first = w.ring_sale(seated_sale(company, prof, session, Some(table), None, &uq("REST-2A"), vec![
+    let first = w.ring_sale(seated_sale(prof, session, Some(table), None, &uq("REST-2A"), vec![
         NewSaleLine { item_id: item, revenue_account_id: None, description: None, course: None, quantity: d("1"), unit_price: d("10000"), discount_amount: Decimal::ZERO },
     ]), &tax).await.unwrap();
 
-    let e = w.ring_sale(seated_sale(company, prof, session, Some(table), None, &uq("REST-2B"), vec![
+    let e = w.ring_sale(seated_sale(prof, session, Some(table), None, &uq("REST-2B"), vec![
         NewSaleLine { item_id: item, revenue_account_id: None, description: None, course: None, quantity: d("1"), unit_price: d("10000"), discount_amount: Decimal::ZERO },
     ]), &tax).await.unwrap_err();
     match &e {
@@ -119,15 +119,14 @@ async fn second_draft_on_occupied_table_refuses_loudly() {
 #[tokio::test]
 async fn db_partial_unique_backstops_one_draft_per_table() {
     let pool = pool().await;
-    let company = Uuid::new_v4();
-    let (_floor, table) = seed_table(&pool, company, "T3").await;
+    let (_floor, table) = seed_table(&pool, "T3").await;
 
     let insert = |receipt: String| {
         sqlx::query(
-            r#"INSERT INTO pos.pos_invoices (id, company_id, pos_profile_id, opening_entry_id, receipt_number, posting_at, net_total, tax_total, grand_total, rounding_adjustment, rounded_total, pos_table_id, status)
-               VALUES ($1,$2,$3,$4,$5,$6,0,0,0,0,0,$7,'draft')"#,
+            r#"INSERT INTO pos.pos_invoices (id, pos_profile_id, opening_entry_id, receipt_number, posting_at, net_total, tax_total, grand_total, rounding_adjustment, rounded_total, pos_table_id, status)
+               VALUES ($1,$2,$3,$4,$5,0,0,0,0,0,$6,'draft')"#,
         )
-        .bind(Uuid::new_v4()).bind(company).bind(Uuid::new_v4()).bind(Uuid::new_v4())
+        .bind(Uuid::new_v4()).bind(Uuid::new_v4()).bind(Uuid::new_v4())
         .bind(receipt).bind(at()).bind(table)
     };
     let r1 = insert(uq("REST-3A")).execute(&pool).await;
@@ -145,12 +144,12 @@ async fn db_partial_unique_backstops_one_draft_per_table() {
 async fn unknown_table_refuses() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = support::zero_tax_profile(&pool, company).await;
-    let session = open(&w, company, prof).await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = support::zero_tax_profile(&pool).await;
+    let session = open(&w, prof).await;
 
     let ghost = Uuid::new_v4();
-    let e = w.ring_sale(seated_sale(company, prof, session, Some(ghost), None, &uq("REST-4"), vec![
+    let e = w.ring_sale(seated_sale(prof, session, Some(ghost), None, &uq("REST-4"), vec![
         NewSaleLine { item_id: item, revenue_account_id: None, description: None, course: None, quantity: d("1"), unit_price: d("10000"), discount_amount: Decimal::ZERO },
     ]), &tax).await.unwrap_err();
     assert!(matches!(e, PosError::TableNotFound(t) if t == ghost));
@@ -163,15 +162,15 @@ async fn unknown_table_refuses() {
 async fn sync_transfer_moves_the_draft_and_frees_the_old_table() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = support::zero_tax_profile(&pool, company).await;
-    let session = open(&w, company, prof).await;
-    let (_f1, table_a) = seed_table(&pool, company, "T5A").await;
-    let (_f2, table_b) = seed_table(&pool, company, "T5B").await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = support::zero_tax_profile(&pool).await;
+    let session = open(&w, prof).await;
+    let (_f1, table_a) = seed_table(&pool, "T5A").await;
+    let (_f2, table_b) = seed_table(&pool, "T5B").await;
 
     let client = Uuid::new_v4();
     let mk_sync = |table: Option<Uuid>, client: Uuid| NewSyncSale {
-        company_id: company, client_uuid: client, pos_profile_id: prof, opening_entry_id: session,
+        client_uuid: client, pos_profile_id: prof, opening_entry_id: session,
         rescue_opening_entry_id: None, branch_id: None, customer_id: None,
         pos_table_id: table, discount_id: None, posting_at: at(),
         lines: vec![SyncSaleLine {
@@ -207,14 +206,14 @@ async fn sync_transfer_moves_the_draft_and_frees_the_old_table() {
 async fn sync_transfer_onto_occupied_table_refuses() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = support::zero_tax_profile(&pool, company).await;
-    let session = open(&w, company, prof).await;
-    let (_f1, table_a) = seed_table(&pool, company, "T6A").await;
-    let (_f2, table_b) = seed_table(&pool, company, "T6B").await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = support::zero_tax_profile(&pool).await;
+    let session = open(&w, prof).await;
+    let (_f1, table_a) = seed_table(&pool, "T6A").await;
+    let (_f2, table_b) = seed_table(&pool, "T6B").await;
 
     let mk_sync = |table: Option<Uuid>, client: Uuid| NewSyncSale {
-        company_id: company, client_uuid: client, pos_profile_id: prof, opening_entry_id: session,
+        client_uuid: client, pos_profile_id: prof, opening_entry_id: session,
         rescue_opening_entry_id: None, branch_id: None, customer_id: None,
         pos_table_id: table, discount_id: None, posting_at: at(),
         lines: vec![SyncSaleLine {
@@ -241,19 +240,19 @@ async fn sync_transfer_onto_occupied_table_refuses() {
     assert_eq!(e.http_status(), 409);
 }
 
-/// RT-7 (order discount): the percentage comes from the tenant's MASTER row, folds pro-rata into
+/// RT-7 (order discount): the percentage comes from the discount MASTER row, folds pro-rata into
 /// the line discounts BEFORE the tax compute (tax sees post-discount nets), and the totals reflect
 /// it end to end.
 #[tokio::test]
 async fn order_discount_folds_server_side_from_the_master() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = support::profile_at_rate(&pool, company, "0.11").await;
-    let session = open(&w, company, prof).await;
-    let discount = seed_discount(&pool, company, "0.1000").await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = support::profile_at_rate(&pool, "0.11").await;
+    let session = open(&w, prof).await;
+    let discount = seed_discount(&pool, "0.1000").await;
 
-    let id = w.ring_sale(seated_sale(company, prof, session, None, Some(discount), &uq("REST-7"), vec![
+    let id = w.ring_sale(seated_sale(prof, session, None, Some(discount), &uq("REST-7"), vec![
         NewSaleLine { item_id: item, revenue_account_id: None, description: None, course: None, quantity: d("2"), unit_price: d("25000"), discount_amount: Decimal::ZERO },
         NewSaleLine { item_id: item, revenue_account_id: None, description: None, course: None, quantity: d("1"), unit_price: d("50000"), discount_amount: Decimal::ZERO },
     ]), &tax).await.unwrap();
@@ -273,21 +272,23 @@ async fn order_discount_folds_server_side_from_the_master() {
     assert_eq!(discounts, vec![d("5000.00"), d("5000.00")]);
 }
 
-/// RT-8 (tenant fence on the discount master): a discount id seeded under ANOTHER company is
-/// unknown to this tenant — typed 404, never a cross-tenant rate application.
+/// RT-8 (unknown discount master): a discount id with no master row behind it is unknown — typed
+/// 404, never a silently priced ticket. Master rows from other units read as plain absence through
+/// the composition's fence (ADR-0029); the undecorated test DB carries no policies, so the
+/// row-absence refusal is the module-level half provable here.
 #[tokio::test]
 async fn discount_master_is_tenant_scoped() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = support::zero_tax_profile(&pool, company).await;
-    let session = open(&w, company, prof).await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = support::zero_tax_profile(&pool).await;
+    let session = open(&w, prof).await;
 
-    let foreign = seed_discount(&pool, Uuid::new_v4(), "0.5").await;
-    let e = w.ring_sale(seated_sale(company, prof, session, None, Some(foreign), &uq("REST-8"), vec![
+    let unknown = Uuid::new_v4();
+    let e = w.ring_sale(seated_sale(prof, session, None, Some(unknown), &uq("REST-8"), vec![
         NewSaleLine { item_id: item, revenue_account_id: None, description: None, course: None, quantity: d("1"), unit_price: d("10000"), discount_amount: Decimal::ZERO },
     ]), &tax).await.unwrap_err();
-    assert!(matches!(e, PosError::DiscountNotFound(d) if d == foreign));
+    assert!(matches!(e, PosError::DiscountNotFound(d) if d == unknown));
     assert_eq!(e.http_status(), 404);
 }
 
@@ -297,20 +298,20 @@ async fn discount_master_is_tenant_scoped() {
 async fn register_with_discounts_off_refuses() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
+    let item = Uuid::new_v4();
     let template = Uuid::new_v4();
     let prof = Uuid::new_v4();
     sqlx::query(
-        r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, tax_template_ids, allow_discount, status)
-           VALUES ($1,$2,'No Discount Register','IDR',$3,false,'active')"#,
+        r#"INSERT INTO pos.pos_profiles (id, name, currency, tax_template_ids, allow_discount, status)
+           VALUES ($1,'No Discount Register','IDR',$2,false,'active')"#,
     )
-    .bind(prof).bind(company).bind(serde_json::json!([template.to_string()]))
+    .bind(prof).bind(serde_json::json!([template.to_string()]))
     .execute(&pool).await.unwrap();
     let tax = TestTax::with_rate(template, "0");
-    let session = open(&w, company, prof).await;
-    let discount = seed_discount(&pool, company, "0.1000").await;
+    let session = open(&w, prof).await;
+    let discount = seed_discount(&pool, "0.1000").await;
 
-    let e = w.ring_sale(seated_sale(company, prof, session, None, Some(discount), &uq("REST-9"), vec![
+    let e = w.ring_sale(seated_sale(prof, session, None, Some(discount), &uq("REST-9"), vec![
         NewSaleLine { item_id: item, revenue_account_id: None, description: None, course: None, quantity: d("1"), unit_price: d("10000"), discount_amount: Decimal::ZERO },
     ]), &tax).await.unwrap_err();
     assert!(matches!(e, PosError::DiscountNotAllowed));
@@ -323,13 +324,13 @@ async fn register_with_discounts_off_refuses() {
 async fn sync_replay_applies_the_same_order_discount() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = support::profile_at_rate(&pool, company, "0.11").await;
-    let session = open(&w, company, prof).await;
-    let discount = seed_discount(&pool, company, "0.1000").await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = support::profile_at_rate(&pool, "0.11").await;
+    let session = open(&w, prof).await;
+    let discount = seed_discount(&pool, "0.1000").await;
 
     let out = w.sync_from_ui(NewSyncSale {
-        company_id: company, client_uuid: Uuid::new_v4(), pos_profile_id: prof, opening_entry_id: session,
+        client_uuid: Uuid::new_v4(), pos_profile_id: prof, opening_entry_id: session,
         rescue_opening_entry_id: None, branch_id: None, customer_id: None,
         pos_table_id: None, discount_id: Some(discount), posting_at: at(),
         lines: vec![SyncSaleLine {

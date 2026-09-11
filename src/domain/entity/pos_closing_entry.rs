@@ -51,7 +51,6 @@ impl std::ops::Deref for PosClosingEntryId {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PosClosingEntry {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub pos_profile_id: Uuid,
     pub opening_entry_id: Uuid,
     pub closed_at: DateTime<Utc>,
@@ -73,10 +72,9 @@ impl PosClosingEntry {
     }
 
     /// Create a new PosClosingEntry with required fields
-    pub fn new(company_id: Uuid, pos_profile_id: Uuid, opening_entry_id: Uuid, closed_at: DateTime<Utc>, cashier_party_id: Uuid, grand_total: Decimal, invoice_count: i32, difference_total: Decimal, status: PosClosingStatus) -> Self {
+    pub fn new(pos_profile_id: Uuid, opening_entry_id: Uuid, closed_at: DateTime<Utc>, cashier_party_id: Uuid, grand_total: Decimal, invoice_count: i32, difference_total: Decimal, status: PosClosingStatus) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id,
             pos_profile_id,
             opening_entry_id,
             closed_at,
@@ -164,9 +162,6 @@ impl PosClosingEntry {
     pub fn apply_patch(&mut self, fields: std::collections::HashMap<String, serde_json::Value>) {
         for (key, value) in fields {
             match key.as_str() {
-                "company_id" => {
-                    if let Ok(v) = serde_json::from_value(value) { self.company_id = v; }
-                }
                 "pos_profile_id" => {
                     if let Ok(v) = serde_json::from_value(value) { self.pos_profile_id = v; }
                 }
@@ -248,7 +243,6 @@ impl backbone_orm::EntityRepoMeta for PosClosingEntry {
     fn column_types() -> std::collections::HashMap<String, String> {
         let mut m = std::collections::HashMap::new();
         m.insert("id".to_string(), "uuid".to_string());
-        m.insert("company_id".to_string(), "uuid".to_string());
         m.insert("pos_profile_id".to_string(), "uuid".to_string());
         m.insert("opening_entry_id".to_string(), "uuid".to_string());
         m.insert("cashier_party_id".to_string(), "uuid".to_string());
@@ -258,9 +252,6 @@ impl backbone_orm::EntityRepoMeta for PosClosingEntry {
     fn search_fields() -> &'static [&'static str] {
         &[]
     }
-    fn company_field() -> Option<&'static str> {
-        Some("company_id")
-    }
 }
 
 /// Builder for PosClosingEntry entity
@@ -269,7 +260,6 @@ impl backbone_orm::EntityRepoMeta for PosClosingEntry {
 /// System fields (id, metadata, timestamps) are auto-initialized.
 #[derive(Debug, Clone, Default)]
 pub struct PosClosingEntryBuilder {
-    company_id: Option<Uuid>,
     pos_profile_id: Option<Uuid>,
     opening_entry_id: Option<Uuid>,
     closed_at: Option<DateTime<Utc>>,
@@ -282,12 +272,6 @@ pub struct PosClosingEntryBuilder {
 }
 
 impl PosClosingEntryBuilder {
-    /// Set the company_id field (required)
-    pub fn company_id(mut self, value: Uuid) -> Self {
-        self.company_id = Some(value);
-        self
-    }
-
     /// Set the pos_profile_id field (required)
     pub fn pos_profile_id(mut self, value: Uuid) -> Self {
         self.pos_profile_id = Some(value);
@@ -346,7 +330,6 @@ impl PosClosingEntryBuilder {
     ///
     /// Returns Err if any required field without a default is missing.
     pub fn build(self) -> Result<PosClosingEntry, String> {
-        let company_id = self.company_id.ok_or_else(|| "company_id is required".to_string())?;
         let pos_profile_id = self.pos_profile_id.ok_or_else(|| "pos_profile_id is required".to_string())?;
         let opening_entry_id = self.opening_entry_id.ok_or_else(|| "opening_entry_id is required".to_string())?;
         let closed_at = self.closed_at.ok_or_else(|| "closed_at is required".to_string())?;
@@ -354,7 +337,6 @@ impl PosClosingEntryBuilder {
 
         Ok(PosClosingEntry {
             id: Uuid::new_v4(),
-            company_id,
             pos_profile_id,
             opening_entry_id,
             closed_at,

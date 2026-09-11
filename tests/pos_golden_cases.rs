@@ -16,22 +16,22 @@ use backbone_pos::application::service::pos_write_service::{
     NewClose, NewSale, NewSaleLine, NewSession, PosError, PosWriteService,
 };
 
-async fn profile(pool: &PgPool, company: Uuid) -> (Uuid, TestTax) {
-    support::profile_at_rate(pool, company, "0").await
+async fn profile(pool: &PgPool) -> (Uuid, TestTax) {
+    support::profile_at_rate(pool, "0").await
 }
 fn line(item: Uuid, qty: &str, price: &str, disc: &str) -> NewSaleLine {
     NewSaleLine { item_id: item, revenue_account_id: None, description: None, quantity: d(qty), unit_price: d(price), course: None, discount_amount: d(disc) }
 }
-async fn open(w: &PosWriteService, company: Uuid, prof: Uuid, cash: &str) -> Uuid {
+async fn open(w: &PosWriteService, prof: Uuid, cash: &str) -> Uuid {
     w.open_session(NewSession {
-        company_id: company, pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(),
+        pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(),
         opened_at: at(), opening_balances: vec![("cash".into(), d(cash))],
     }).await.unwrap()
 }
 /// A register configured to round the pay-to total to the nearest 100 (IDR receipt rounding).
-async fn rounding_profile(pool: &PgPool, company: Uuid) -> (Uuid, TestTax) {
+async fn rounding_profile(pool: &PgPool) -> (Uuid, TestTax) {
     let template = Uuid::new_v4();
-    let prof = seed_profile(pool, company, &[template], Some(("half_up", d("100")))).await;
+    let prof = seed_profile(pool, &[template], Some(("half_up", d("100")))).await;
     (prof, TestTax::with_rate(template, "0"))
 }
 
@@ -41,11 +41,11 @@ async fn rounding_profile(pool: &PgPool, company: Uuid) -> (Uuid, TestTax) {
 async fn ring_sale_totals() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = profile(&pool, company).await;
-    let session = open(&w, company, prof, "500000").await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = profile(&pool).await;
+    let session = open(&w, prof, "500000").await;
     let sale = w.ring_sale(NewSale {
-        company_id: company, pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
+        pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
         pos_table_id: None, discount_id: None,
         receipt_number: uq("R"), posting_at: at(), lines: vec![line(item, "2", "50000", "5000")],
     }, &tax).await.unwrap();
@@ -63,18 +63,18 @@ async fn ring_sale_totals() {
 async fn ring_sale_must_stay_on_its_register() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof_a, tax) = profile(&pool, company).await;
-    let (prof_b, _) = profile(&pool, company).await;
-    let session_b = open(&w, company, prof_b, "0").await;
+    let item = Uuid::new_v4();
+    let (prof_a, tax) = profile(&pool).await;
+    let (prof_b, _) = profile(&pool).await;
+    let session_b = open(&w, prof_b, "0").await;
     let e = w.ring_sale(NewSale {
-        company_id: company, pos_profile_id: prof_a, opening_entry_id: session_b, branch_id: None, customer_id: None,
+        pos_profile_id: prof_a, opening_entry_id: session_b, branch_id: None, customer_id: None,
         pos_table_id: None, discount_id: None,
         receipt_number: uq("R"), posting_at: at(), lines: vec![line(item, "1", "50000", "0")],
     }, &tax).await.unwrap_err();
     assert!(matches!(e, PosError::SessionRegisterMismatch), "cross-register ring refused, got {e:?}");
-    let tickets: i64 = sqlx::query_scalar("SELECT count(*) FROM pos.pos_invoices WHERE company_id=$1")
-        .bind(company).fetch_one(&pool).await.unwrap();
+    let tickets: i64 = sqlx::query_scalar("SELECT count(*) FROM pos.pos_invoices WHERE opening_entry_id=$1")
+        .bind(session_b).fetch_one(&pool).await.unwrap();
     assert_eq!(tickets, 0, "nothing was written");
 }
 
@@ -84,11 +84,11 @@ async fn ring_sale_must_stay_on_its_register() {
 async fn receipt_rounding_comes_from_the_register_config() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = rounding_profile(&pool, company).await;
-    let session = open(&w, company, prof, "0").await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = rounding_profile(&pool).await;
+    let session = open(&w, prof, "0").await;
     let mk = |price: &str| NewSale {
-        company_id: company, pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
+        pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
         pos_table_id: None, discount_id: None,
         receipt_number: uq("R"), posting_at: at(), lines: vec![line(item, "1", price, "0")],
     };
@@ -106,11 +106,11 @@ async fn receipt_rounding_comes_from_the_register_config() {
 async fn multi_tender_and_change() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = profile(&pool, company).await;
-    let session = open(&w, company, prof, "0").await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = profile(&pool).await;
+    let session = open(&w, prof, "0").await;
     let sale = w.ring_sale(NewSale {
-        company_id: company, pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
+        pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
         pos_table_id: None, discount_id: None,
         receipt_number: uq("R"), posting_at: at(), lines: vec![line(item, "1", "100000", "0")],
     }, &tax).await.unwrap();
@@ -130,15 +130,14 @@ async fn multi_tender_and_change() {
 async fn close_reconciliation_and_manager_gate() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let company = Uuid::new_v4();
-    let (prof, tax) = profile(&pool, company).await;
-    let session = open(&w, company, prof, "500000").await;
-    let manager = manager_with_pin(&w, company, "4321").await;
+    let (prof, tax) = profile(&pool).await;
+    let session = open(&w, prof, "500000").await;
+    let manager = manager_with_pin(&pool, "4321").await;
     let variance = RecordingVariance::default();
 
     // A wrong PIN refuses the close BEFORE anything is written — the session survives.
     let wrong = w.close_session(NewClose {
-        company_id: company, opening_entry_id: session, cashier_party_id: Uuid::new_v4(), closed_at: at(),
+        opening_entry_id: session, cashier_party_id: Uuid::new_v4(), closed_at: at(),
         counted: vec![("cash".into(), d("500000"))],
         manager: backbone_pos::application::service::pos_write_service::ManagerAuth {
             employee_party_id: manager.employee_party_id, pin: "9999".into(),
@@ -151,7 +150,7 @@ async fn close_reconciliation_and_manager_gate() {
     assert!(variance.booking_for(session).is_none());
 
     let out = w.close_session(NewClose {
-        company_id: company, opening_entry_id: session, cashier_party_id: Uuid::new_v4(), closed_at: at(),
+        opening_entry_id: session, cashier_party_id: Uuid::new_v4(), closed_at: at(),
         counted: vec![("cash".into(), d("500000"))],
         manager, source_ip: None,
     }, &variance).await.unwrap();
@@ -164,7 +163,7 @@ async fn close_reconciliation_and_manager_gate() {
     let st: String = sqlx::query_scalar("SELECT status::text FROM pos.pos_opening_entries WHERE id=$1").bind(session).fetch_one(&pool).await.unwrap();
     assert_eq!(st, "closed");
     let e = w.ring_sale(NewSale {
-        company_id: company, pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
+        pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
         pos_table_id: None, discount_id: None,
         receipt_number: uq("R"), posting_at: at(), lines: vec![line(Uuid::new_v4(), "1", "1000", "0")],
     }, &tax).await.unwrap_err();
@@ -177,11 +176,11 @@ async fn close_reconciliation_and_manager_gate() {
 async fn validation_gates() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let (company, item) = (Uuid::new_v4(), Uuid::new_v4());
-    let (prof, tax) = profile(&pool, company).await;
-    let session = open(&w, company, prof, "0").await;
+    let item = Uuid::new_v4();
+    let (prof, tax) = profile(&pool).await;
+    let session = open(&w, prof, "0").await;
     let base = |num: String, lines: Vec<NewSaleLine>| NewSale {
-        company_id: company, pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
+        pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
         pos_table_id: None, discount_id: None,
         receipt_number: num, posting_at: at(), lines,
     };
@@ -194,11 +193,11 @@ async fn validation_gates() {
     // A register whose templates were never configured refuses the ring with the typed error —
     // NULL/empty cannot silently mean "no tax" (a zero-RATE template is the non-PKP expression).
     let bare = Uuid::new_v4();
-    sqlx::query("INSERT INTO pos.pos_profiles (id, company_id, name, currency, allow_discount, status) VALUES ($1,$2,'Bare','IDR',true,'active')")
-        .bind(bare).bind(company).execute(&pool).await.unwrap();
-    let s2 = open(&w, company, bare, "0").await;
+    sqlx::query("INSERT INTO pos.pos_profiles (id, name, currency, allow_discount, status) VALUES ($1,'Bare','IDR',true,'active')")
+        .bind(bare).execute(&pool).await.unwrap();
+    let s2 = open(&w, bare, "0").await;
     let e = w.ring_sale(NewSale {
-        company_id: company, pos_profile_id: bare, opening_entry_id: s2, branch_id: None, customer_id: None,
+        pos_profile_id: bare, opening_entry_id: s2, branch_id: None, customer_id: None,
         pos_table_id: None, discount_id: None,
         receipt_number: uq("R"), posting_at: at(), lines: vec![line(item, "1", "1000", "0")],
     }, &tax).await.unwrap_err();
@@ -211,11 +210,10 @@ async fn validation_gates() {
 async fn second_open_on_same_register_refuses() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
-    let company = Uuid::new_v4();
-    let (prof, _tax) = profile(&pool, company).await;
-    open(&w, company, prof, "0").await;
+    let (prof, _tax) = profile(&pool).await;
+    open(&w, prof, "0").await;
     let e = w.open_session(NewSession {
-        company_id: company, pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(),
+        pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(),
         opened_at: at(), opening_balances: vec![],
     }).await.unwrap_err();
     assert!(matches!(e, PosError::SessionAlreadyOpen));

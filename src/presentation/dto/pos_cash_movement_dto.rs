@@ -35,9 +35,6 @@ use crate::domain::entity::PosCashMovementType;
 #[serde(rename_all = "camelCase")]
 pub struct CreatePosCashMovementDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "pos_profile_id")]
     pub pos_profile_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
@@ -70,9 +67,6 @@ pub struct CreatePosCashMovementDto {
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdatePosCashMovementDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "pos_profile_id")]
     pub pos_profile_id: Uuid,
@@ -107,9 +101,6 @@ pub struct UpdatePosCashMovementDto {
 #[serde(rename_all = "camelCase")]
 pub struct PatchPosCashMovementDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "company_id")]
-    pub company_id: Option<Uuid>,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "pos_profile_id")]
     pub pos_profile_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
@@ -133,7 +124,7 @@ pub struct PatchPosCashMovementDto {
 impl PatchPosCashMovementDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.pos_profile_id.is_some() || self.opening_entry_id.is_some() || self.cashier_party_id.is_some() || self.movement_type.is_some() || self.amount.is_some() || self.reason.is_some() || self.moved_at.is_some()
+        self.pos_profile_id.is_some() || self.opening_entry_id.is_some() || self.cashier_party_id.is_some() || self.movement_type.is_some() || self.amount.is_some() || self.reason.is_some() || self.moved_at.is_some()
     }
 }
 
@@ -151,8 +142,6 @@ impl PatchPosCashMovementDto {
 pub struct PosCashMovementResponseDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub pos_profile_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
@@ -221,9 +210,9 @@ impl PosCashMovementListResponseDto {
 #[serde(rename_all = "camelCase")]
 pub struct PosCashMovementSummaryDto {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub pos_profile_id: Uuid,
     pub opening_entry_id: Uuid,
+    pub cashier_party_id: Uuid,
     pub created_at: Option<DateTime<Utc>>,
 }
 
@@ -235,7 +224,6 @@ impl From<PosCashMovement> for PosCashMovementResponseDto {
     fn from(entity: PosCashMovement) -> Self {
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             pos_profile_id: entity.pos_profile_id,
             opening_entry_id: entity.opening_entry_id,
             cashier_party_id: entity.cashier_party_id,
@@ -253,9 +241,9 @@ impl From<PosCashMovement> for PosCashMovementSummaryDto {
         let created_at = backbone_core::PersistentEntity::created_at(&entity);
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             pos_profile_id: entity.pos_profile_id,
             opening_entry_id: entity.opening_entry_id,
+            cashier_party_id: entity.cashier_party_id,
             created_at,
         }
     }
@@ -265,7 +253,6 @@ impl From<CreatePosCashMovementDto> for PosCashMovement {
     fn from(dto: CreatePosCashMovementDto) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id: dto.company_id,
             pos_profile_id: dto.pos_profile_id,
             opening_entry_id: dto.opening_entry_id,
             cashier_party_id: dto.cashier_party_id,
@@ -282,7 +269,6 @@ impl From<&PosCashMovement> for PosCashMovementResponseDto {
     fn from(entity: &PosCashMovement) -> Self {
         Self {
             id: entity.id.clone(),
-            company_id: entity.company_id.clone(),
             pos_profile_id: entity.pos_profile_id.clone(),
             opening_entry_id: entity.opening_entry_id.clone(),
             cashier_party_id: entity.cashier_party_id.clone(),
@@ -303,7 +289,6 @@ impl backbone_core::FromCreateDto<CreatePosCashMovementDto> for PosCashMovement 
 
 impl backbone_core::ApplyUpdateDto<UpdatePosCashMovementDto> for PosCashMovement {
     fn apply_update(mut self, dto: UpdatePosCashMovementDto) -> backbone_core::ServiceResult<Self> {
-        self.company_id = dto.company_id;
         self.pos_profile_id = dto.pos_profile_id;
         self.opening_entry_id = dto.opening_entry_id;
         self.cashier_party_id = dto.cashier_party_id;

@@ -34,9 +34,6 @@ use crate::domain::entity::AuditMetadata;
 #[serde(rename_all = "camelCase")]
 pub struct CreatePosInvoiceItemDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "pos_invoice_id")]
     pub pos_invoice_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
@@ -74,9 +71,6 @@ pub struct CreatePosInvoiceItemDto {
 #[serde(rename_all = "camelCase")]
 pub struct UpdatePosInvoiceItemDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "pos_invoice_id")]
     pub pos_invoice_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
@@ -110,9 +104,6 @@ pub struct UpdatePosInvoiceItemDto {
 #[serde(rename_all = "camelCase")]
 pub struct PatchPosInvoiceItemDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "company_id")]
-    pub company_id: Option<Uuid>,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "pos_invoice_id")]
     pub pos_invoice_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
@@ -136,7 +127,7 @@ pub struct PatchPosInvoiceItemDto {
 impl PatchPosInvoiceItemDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.pos_invoice_id.is_some() || self.item_id.is_some() || self.description.is_some() || self.course.is_some() || self.quantity.is_some() || self.unit_price.is_some() || self.discount_amount.is_some() || self.revenue_account_id.is_some()
+        self.pos_invoice_id.is_some() || self.item_id.is_some() || self.description.is_some() || self.course.is_some() || self.quantity.is_some() || self.unit_price.is_some() || self.discount_amount.is_some() || self.revenue_account_id.is_some()
     }
 }
 
@@ -154,8 +145,6 @@ impl PatchPosInvoiceItemDto {
 pub struct PosInvoiceItemResponseDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub pos_invoice_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
@@ -225,9 +214,9 @@ impl PosInvoiceItemListResponseDto {
 #[serde(rename_all = "camelCase")]
 pub struct PosInvoiceItemSummaryDto {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub pos_invoice_id: Uuid,
     pub item_id: Uuid,
+    pub description: Option<String>,
     pub created_at: Option<DateTime<Utc>>,
 }
 
@@ -239,7 +228,6 @@ impl From<PosInvoiceItem> for PosInvoiceItemResponseDto {
     fn from(entity: PosInvoiceItem) -> Self {
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             pos_invoice_id: entity.pos_invoice_id,
             item_id: entity.item_id,
             description: entity.description,
@@ -260,9 +248,9 @@ impl From<PosInvoiceItem> for PosInvoiceItemSummaryDto {
         let created_at = backbone_core::PersistentEntity::created_at(&entity);
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             pos_invoice_id: entity.pos_invoice_id,
             item_id: entity.item_id,
+            description: entity.description,
             created_at,
         }
     }
@@ -272,7 +260,6 @@ impl From<CreatePosInvoiceItemDto> for PosInvoiceItem {
     fn from(dto: CreatePosInvoiceItemDto) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id: dto.company_id,
             pos_invoice_id: dto.pos_invoice_id,
             item_id: dto.item_id,
             description: dto.description,
@@ -292,7 +279,6 @@ impl From<&PosInvoiceItem> for PosInvoiceItemResponseDto {
     fn from(entity: &PosInvoiceItem) -> Self {
         Self {
             id: entity.id.clone(),
-            company_id: entity.company_id.clone(),
             pos_invoice_id: entity.pos_invoice_id.clone(),
             item_id: entity.item_id.clone(),
             description: entity.description.clone(),
@@ -316,7 +302,6 @@ impl backbone_core::FromCreateDto<CreatePosInvoiceItemDto> for PosInvoiceItem {
 
 impl backbone_core::ApplyUpdateDto<UpdatePosInvoiceItemDto> for PosInvoiceItem {
     fn apply_update(mut self, dto: UpdatePosInvoiceItemDto) -> backbone_core::ServiceResult<Self> {
-        self.company_id = dto.company_id;
         self.pos_invoice_id = dto.pos_invoice_id;
         self.item_id = dto.item_id;
         self.description = dto.description;

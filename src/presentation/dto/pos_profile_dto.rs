@@ -35,9 +35,6 @@ use crate::domain::entity::PosProfileStatus;
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct CreatePosProfileDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "branch_id")]
     pub branch_id: Option<Uuid>,
     #[cfg_attr(feature = "validation", validate(length(max = 140)))]
@@ -91,9 +88,6 @@ pub struct CreatePosProfileDto {
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdatePosProfileDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "branch_id")]
     pub branch_id: Option<Uuid>,
     #[cfg_attr(feature = "validation", validate(length(max = 140)))]
@@ -147,9 +141,6 @@ pub struct UpdatePosProfileDto {
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct PatchPosProfileDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "company_id")]
-    pub company_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "branch_id")]
     pub branch_id: Option<Uuid>,
     #[cfg_attr(feature = "validation", validate(length(max = 140)))]
@@ -196,7 +187,7 @@ pub struct PatchPosProfileDto {
 impl PatchPosProfileDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.branch_id.is_some() || self.name.is_some() || self.default_customer_id.is_some() || self.currency.is_some() || self.income_account_id.is_some() || self.receivable_account_id.is_some() || self.cash_account_id.is_some() || self.write_off_account_id.is_some() || self.tax_account_id.is_some() || self.tax_rate.is_some() || self.tax_template_ids.is_some() || self.warehouse_id.is_some() || self.cogs_account_id.is_some() || self.inventory_account_id.is_some() || self.allow_discount.is_some() || self.cash_rounding_strategy.is_some() || self.cash_rounding_unit.is_some() || self.status.is_some()
+        self.branch_id.is_some() || self.name.is_some() || self.default_customer_id.is_some() || self.currency.is_some() || self.income_account_id.is_some() || self.receivable_account_id.is_some() || self.cash_account_id.is_some() || self.write_off_account_id.is_some() || self.tax_account_id.is_some() || self.tax_rate.is_some() || self.tax_template_ids.is_some() || self.warehouse_id.is_some() || self.cogs_account_id.is_some() || self.inventory_account_id.is_some() || self.allow_discount.is_some() || self.cash_rounding_strategy.is_some() || self.cash_rounding_unit.is_some() || self.status.is_some()
     }
 }
 
@@ -214,8 +205,6 @@ impl PatchPosProfileDto {
 pub struct PosProfileResponseDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    pub company_id: Uuid,
     pub branch_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     pub name: String,
@@ -294,9 +283,9 @@ impl PosProfileListResponseDto {
 #[serde(rename_all = "camelCase")]
 pub struct PosProfileSummaryDto {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub branch_id: Option<Uuid>,
     pub name: String,
+    pub default_customer_id: Option<Uuid>,
     pub created_at: Option<DateTime<Utc>>,
 }
 
@@ -308,7 +297,6 @@ impl From<PosProfile> for PosProfileResponseDto {
     fn from(entity: PosProfile) -> Self {
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             branch_id: entity.branch_id,
             name: entity.name,
             default_customer_id: entity.default_customer_id,
@@ -337,9 +325,9 @@ impl From<PosProfile> for PosProfileSummaryDto {
         let created_at = backbone_core::PersistentEntity::created_at(&entity);
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             branch_id: entity.branch_id,
             name: entity.name,
+            default_customer_id: entity.default_customer_id,
             created_at,
         }
     }
@@ -349,7 +337,6 @@ impl From<CreatePosProfileDto> for PosProfile {
     fn from(dto: CreatePosProfileDto) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id: dto.company_id,
             branch_id: dto.branch_id,
             name: dto.name,
             default_customer_id: dto.default_customer_id,
@@ -377,7 +364,6 @@ impl From<&PosProfile> for PosProfileResponseDto {
     fn from(entity: &PosProfile) -> Self {
         Self {
             id: entity.id.clone(),
-            company_id: entity.company_id.clone(),
             branch_id: entity.branch_id.clone(),
             name: entity.name.clone(),
             default_customer_id: entity.default_customer_id.clone(),
@@ -409,7 +395,6 @@ impl backbone_core::FromCreateDto<CreatePosProfileDto> for PosProfile {
 
 impl backbone_core::ApplyUpdateDto<UpdatePosProfileDto> for PosProfile {
     fn apply_update(mut self, dto: UpdatePosProfileDto) -> backbone_core::ServiceResult<Self> {
-        self.company_id = dto.company_id;
         self.branch_id = dto.branch_id;
         self.name = dto.name;
         self.default_customer_id = dto.default_customer_id;

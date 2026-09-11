@@ -9,6 +9,13 @@
 //! uses, here for the downstream emitters instead of one. The same posture carries the newer seams:
 //! `PosTaxComputePort` (the register's templates resolved document-grade) and `PosCashVariancePort`
 //! (the one new GL surface a session close produces).
+//!
+//! **Tenancy on the wires (ADR-0029):** the module is tenant-agnostic. Requests to stripped
+//! consumer modules (billing, payment, tax) carry no company field — the composing adapter binds
+//! the ambient org scope around those verbs. Two wires keep a `company_id` as the documented
+//! legacy twin for consumers that still read one: `StockIssueRequest` (inventory keeps the
+//! company axis until its own strip) and `CashVarianceRequest` (the GL-post envelope's legacy
+//! twin). Both are sourced from the ambient org scope's legacy company echo at the call site.
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -26,7 +33,6 @@ pub struct SaleLine {
 /// The request POS hands billing: raise the Sales Invoice for this sale + post its revenue.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SaleInvoiceRequest {
-    pub company_id: Uuid,
     pub customer_id: Uuid,
     pub currency: String,
     /// The POS ticket id (the invoice's `source` reference).
@@ -52,7 +58,6 @@ pub struct InvoiceAck {
 /// The request POS hands payment: settle `amount` against the raised invoice (cash/card tender).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SettlementRequest {
-    pub company_id: Uuid,
     pub customer_id: Uuid,
     pub currency: String,
     /// The billing invoice being settled (from the `InvoiceAck`).
@@ -103,7 +108,6 @@ pub struct PartialCredit {
 /// The request POS hands billing to CREDIT-NOTE a sale (reverse the revenue) on a return.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CreditNoteRequest {
-    pub company_id: Uuid,
     /// The billing Sales Invoice to credit-note (`Dr Revenue · Cr A/R`, invoice → cancelled).
     pub invoice_ref: Uuid,
     /// Optional line-level / amount partial. `None` = whole-invoice credit note (today's behavior).
@@ -124,7 +128,6 @@ pub struct CreditNoteRequest {
 /// skip-gate).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RefundRequest {
-    pub company_id: Uuid,
     /// The billing invoice whose settlement is being reversed (`Dr A/R · Cr Cash`).
     pub invoice_ref: Uuid,
     /// The `PaymentEntry` that settled this sale — the tender being reversed. Nil only for a legacy
@@ -164,6 +167,10 @@ pub struct StockIssueLine {
 /// The request POS hands inventory to ISSUE (decrement) stock for a recognised sale — an outward
 /// Delivery Note. Inventory relieves on-hand and books `Dr COGS · Cr Inventory` at the item's
 /// moving-average cost. Driven only when the register has a warehouse + COGS/inventory accounts.
+///
+/// `company_id` is the legacy tenancy twin (ADR-0029): inventory keeps the company axis until its
+/// own strip, so the composing adapter still needs the owning unit on this wire. The service
+/// sources it from the ambient org scope's legacy company echo.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StockIssueRequest {
     pub company_id: Uuid,
@@ -217,10 +224,9 @@ pub enum PosTaxDocumentType {
 }
 
 /// The request POS hands the document-grade tax compute: the register's templates applied to the
-/// ticket's line nets, on the ticket's date, for this company.
+/// ticket's line nets, on the ticket's date.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PosTaxComputeRequest {
-    pub company_id: Uuid,
     pub document_type: PosTaxDocumentType,
     pub on_date: chrono::NaiveDate,
     pub lines: Vec<PosTaxLineIn>,
@@ -278,7 +284,9 @@ pub enum CashVarianceDirection {
 /// The request POS hands the variance seam when a session close counts a non-zero drawer
 /// difference: book it against the register's cash account and its difference/write-off account.
 /// POS posts no GL itself — this is the ONE new GL surface a close produces (per-ticket posting
-/// stays the posting path).
+/// stays the posting path). `company_id` is the legacy tenancy twin (ADR-0029): the GL-post
+/// envelope still reads one, so the service sources it from the ambient org scope's legacy
+/// company echo.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CashVarianceRequest {
     pub company_id: Uuid,

@@ -11,8 +11,11 @@
 //! money, owns the unit of work (`begin`/`commit`), drives the ports, and publishes events. It holds
 //! no SQL: every statement lives on the repositories in `infrastructure::persistence`, whose custom
 //! methods take the caller's transaction so a cross-entity write (ticket header + its lines) commits
-//! as one unit. The RLS scope wrappers (ADR-0008) stay HERE, in the service, because the service is
-//! what knows the company; tx-taking repo methods ride the bind this service already made.
+//! as one unit. Tenancy is composition-installed (ADR-0029): the module is tenant-agnostic, every
+//! write verb opens its own transaction and re-binds the caller's AMBIENT org scope onto it
+//! ([`PosWriteService::relay_ambient_scope`]) — plain when none is bound — and outbound wires that
+//! still carry a company field read the scope's legacy echo
+//! ([`PosWriteService::legacy_company_echo`]).
 //!
 //! **This file is the hub:** it holds the module's vocabulary (input structs, outcomes, errors) and
 //! the session-open path. The rest of the write surface is chunked into focused siblings, each an
@@ -31,7 +34,7 @@
 //!   company's discount master, never a client-echoed rate).
 //! - [`super::pos_session_alert`] — the old-session alert scheduler handler (pickup-locked).
 
-use backbone_orm::company_scope;
+use backbone_orm::org_scope;
 use rust_decimal::{Decimal, RoundingStrategy};
 use sqlx::PgPool;
 use std::collections::HashMap;
@@ -49,6 +52,28 @@ use super::pos_events::{PosEvent, PosEventSink, PosSessionOpened, LoggingSink};
 pub(super) fn money(v: Decimal) -> Decimal {
     v.round_dp_with_strategy(2, RoundingStrategy::MidpointAwayFromZero)
 }
+
+/// The legacy tenancy twin echo (ADR-0029): outbound wire shapes that still carry a `company_id`
+/// (the events, the durable-outbox record, the stock-issue and variance port requests) get the
+/// ambient org scope's legacy company id when the composing service bound one; nil otherwise.
+/// Nothing in this module keys a statement on it, and an undecorated deployment is unfenced
+/// by design.
+pub(super) fn legacy_company_echo() -> Uuid {
+    org_scope::current_org_scope()
+        .and_then(|s| s.legacy_company_id())
+        .unwrap_or(Uuid::nil())
+}
+
+/// Re-bind the caller's ambient org scope onto a transaction this service opened itself — the
+/// scope is task-local and a fresh pool transaction carries none of it. With no ambient scope
+/// (standalone deployment, jobs) the transaction stays plain: the module is tenant-agnostic and
+/// the composed decorator owns isolation.
+pub(super) async fn relay_ambient_scope(conn: &mut sqlx::PgConnection) -> Result<(), sqlx::Error> {
+    if let Some(scope) = org_scope::current_org_scope() {
+        org_scope::bind_org_scope_on(conn, &scope).await?;
+    }
+    Ok(())
+}
 /// Round `v` to the nearest `step` (IDR receipt rounding; `step == 0` means no rounding).
 pub(super) fn round_to(v: Decimal, step: Decimal) -> Decimal {
     if step <= Decimal::ZERO { return money(v); }
@@ -60,7 +85,6 @@ pub(super) fn round_to(v: Decimal, step: Decimal) -> Decimal {
 
 #[derive(Debug, Clone)]
 pub struct NewSession {
-    pub company_id: Uuid,
     pub pos_profile_id: Uuid,
     pub branch_id: Option<Uuid>,
     pub cashier_party_id: Uuid,
@@ -90,7 +114,6 @@ pub struct NewSaleLine {
 /// percentage the server applies (a client-echoed rate is never read).
 #[derive(Debug, Clone)]
 pub struct NewSale {
-    pub company_id: Uuid,
     pub pos_profile_id: Uuid,
     pub opening_entry_id: Uuid,
     pub branch_id: Option<Uuid>,
@@ -121,7 +144,6 @@ pub struct CartSaleLine {
 /// as on [`NewSale`]; `pos_table_id` / `discount_id` carry the same meaning.
 #[derive(Debug, Clone)]
 pub struct NewCartSale {
-    pub company_id: Uuid,
     pub pos_profile_id: Uuid,
     pub opening_entry_id: Uuid,
     pub branch_id: Option<Uuid>,
@@ -146,7 +168,6 @@ pub struct ManagerAuth {
 
 #[derive(Debug, Clone)]
 pub struct NewClose {
-    pub company_id: Uuid,
     pub opening_entry_id: Uuid,
     pub cashier_party_id: Uuid,
     pub closed_at: chrono::NaiveDateTime,
@@ -194,7 +215,6 @@ pub struct SyncTender {
 /// mutable) instead of creating a second one.
 #[derive(Debug, Clone)]
 pub struct NewSyncSale {
-    pub company_id: Uuid,
     pub client_uuid: Uuid,
     pub pos_profile_id: Uuid,
     /// The session the client rang the ticket under. Validated, not trusted: if that session has
@@ -259,7 +279,6 @@ pub struct TicketTotals {
 
 #[derive(Debug, Clone)]
 pub struct NewCashMovement {
-    pub company_id: Uuid,
     pub pos_profile_id: Uuid,
     pub opening_entry_id: Uuid,
     pub cashier_party_id: Uuid,
@@ -481,8 +500,9 @@ pub enum PosError {
     RefundLineageConflict,
     /// A tender replay carries a method the payment-method enum does not know.
     InvalidTenderMethod(String),
-    /// The client uuid is already held by another live ticket of this company (the sync identity
-    /// namespaces inside the tenant; a collision is a client bug or a replay of someone else's uuid).
+    /// The client uuid is already held by another live ticket (the sync identity namespaces inside
+    /// the acting unit's scope once composed; a collision is a client bug or a replay of someone
+    /// else's uuid).
     DuplicateClientUuid(Uuid),
 
     // --- session close guards --------------------------------------------------
@@ -502,7 +522,7 @@ pub enum PosError {
     // --- manager PIN -----------------------------------------------------------
     /// A privileged mutation was attempted without manager authorization.
     ManagerAuthRequired,
-    /// No live PIN is set for that manager at this company.
+    /// No live PIN is set for that manager.
     PinNotFound,
     /// The presented PIN does not match the stored hash.
     PinInvalid,
@@ -618,18 +638,10 @@ impl From<sqlx::Error> for PosError {
     fn from(e: sqlx::Error) -> Self { PosError::Db(e) }
 }
 
-/// Discriminate a unique violation out of a raw `sqlx::Error`.
-///
-/// This is why the repositories' write methods leak `sqlx::Error` rather than a typed repo error: the
-/// service turns a re-used receipt number into `DuplicateNumber`, and a typed error would have thrown
-/// that information away.
-pub(super) fn is_dup(e: &sqlx::Error) -> bool {
-    e.as_database_error().map(|d| d.is_unique_violation()).unwrap_or(false)
-}
-
-/// The constraint name of a unique violation, when it is one. More discriminating than [`is_dup`]:
-/// the ticket table now carries several partial uniques (receipt number, sync uuid, one draft per
-/// dining table), and the service maps each to its OWN typed refusal instead of guessing.
+/// The constraint name of a unique violation, when it is one. Discriminating over a bare
+/// is-unique check: the ticket table now carries several partial uniques (receipt number, sync
+/// uuid, one draft per dining table), and the service maps each to its OWN typed refusal
+/// instead of guessing.
 pub(super) fn dup_constraint(e: &sqlx::Error) -> Option<String> {
     let db = e.as_database_error()?;
     if !db.is_unique_violation() {
@@ -648,7 +660,6 @@ pub(super) async fn map_invoice_dup(
     receipt_number: &str,
     client_uuid: Option<Uuid>,
     pos_table_id: Option<Uuid>,
-    company_id: Uuid,
     invoices: &crate::infrastructure::persistence::PosInvoiceRepository,
     pool: &sqlx::PgPool,
     exclude_invoice_id: Option<Uuid>,
@@ -659,7 +670,7 @@ pub(super) async fn map_invoice_dup(
         Some(c) if c.contains("pos_table_id") => {
             let table = pos_table_id.unwrap_or_default();
             let draft = invoices
-                .find_draft_on_table(pool, table, company_id, exclude_invoice_id)
+                .find_draft_on_table_scoped(pool, table, exclude_invoice_id)
                 .await
                 .ok()
                 .flatten()
@@ -802,54 +813,65 @@ impl PosWriteService {
     // ---- session ------------------------------------------------------------
 
     pub async fn open_session(&self, s: NewSession) -> Result<Uuid, PosError> {
-        // RLS scope (ADR-0008): bind this call to its own company for the whole body, so every query
-        // runs with `app.company_id` set — via the request-dedicated connection under HTTP, or a
-        // per-statement scope for non-request callers (jobs). The explicit `company_id` binds below
-        // stay as defense-in-depth. This is the pattern every custom write service should follow.
-        let company = s.company_id;
-        company_scope::with_company_scope(Some(company), async move {
-            // The register must exist in THIS tenant before anything is written: without the
-            // check a session opens against a uuid the company does not own (or that does not
-            // exist at all), and the close later fails when its register joins resolve nothing.
-            // The lookup runs under the same fence as the insert, so a uuid owned by another
-            // tenant reads as plain absence — the refusal cannot distinguish whose it is, and
-            // must not (that distinction would be a cross-tenant oracle).
-            let profile_known = self
-                .profiles
-                .exists(&self.db_pool, s.pos_profile_id, s.company_id)
-                .await
-                .map_err(PosError::from)?;
-            if !profile_known {
-                return Err(PosError::ProfileNotFound(s.pos_profile_id));
-            }
-            let id = Uuid::new_v4();
-            let opening = serde_json::Value::Array(s.opening_balances.iter().map(|(m, a)| {
-                serde_json::json!({ "method": m, "amount": a.to_string() })
-            }).collect());
-            let r = self.openings.insert_opening_entry(&self.db_pool, &NewOpeningEntryRow {
-                id,
-                company_id: s.company_id,
-                pos_profile_id: s.pos_profile_id,
-                branch_id: s.branch_id,
-                cashier_party_id: s.cashier_party_id,
-                opened_at: s.opened_at,
-                opening_balances: opening,
-            }).await;
-            if let Err(e) = r {
-                // The one-open-session-per-register partial unique (on (company_id, pos_profile_id)
-                // — the register slot is the tenant's own) is the DB arm; map its violation to the
-                // typed refusal instead of an internal error. Both the current company-scoped index
-                // name and the older profile-only one carry the "pos_profile_id" fragment this
-                // matcher keys on, so the mapping holds on databases either side of the re-key.
-                return Err(match dup_constraint(&e).as_deref() {
-                    Some(c) if c.contains("pos_profile_id") => PosError::SessionAlreadyOpen,
-                    _ => e.into(),
-                });
-            }
-            self.sink.publish(PosEvent::PosSessionOpened(PosSessionOpened {
-                opening_entry_id: id, pos_profile_id: s.pos_profile_id, company_id: s.company_id,
-            }));
-            Ok(id)
-        }).await
+        // Tenancy is composition-installed (ADR-0029): the verb opens its OWN transaction and
+        // re-binds the caller's ambient org scope onto it, so under a composed host the fill
+        // trigger stamps the acting unit and the fence admits the row — while a standalone
+        // deployment (no scope bound) runs plain, exactly as before. Every read below rides the
+        // same transaction, so the validation sees what the insert will see.
+        let mut tx = self.db_pool.begin().await?;
+        relay_ambient_scope(&mut tx).await?;
+
+        // The register must exist before anything is written: without the check a session opens
+        // against a uuid that does not exist, and the close later fails when its register joins
+        // resolve nothing. Under a composed fence a register owned by another unit reads as plain
+        // absence — the refusal cannot distinguish whose it is, and must not (that distinction
+        // would be a cross-unit oracle).
+        let profile_known = self.profiles.exists(&mut *tx, s.pos_profile_id).await.map_err(PosError::from)?;
+        if !profile_known {
+            return Err(PosError::ProfileNotFound(s.pos_profile_id));
+        }
+
+        // One open session per register: the service's own arm. The per-(unit, register) slot
+        // unique is composition-installed (the decorator re-declares it org-scoped — its
+        // tenant-free shape is deliberately NOT declared module-side), so until a host composes,
+        // this read is the only guard; once composed, it also gives the friendly refusal for the
+        // race the constraint aborts.
+        let already_open = self
+            .openings
+            .has_open_session(&mut *tx, s.pos_profile_id)
+            .await
+            .map_err(PosError::from)?;
+        if already_open {
+            return Err(PosError::SessionAlreadyOpen);
+        }
+
+        let id = Uuid::new_v4();
+        let opening = serde_json::Value::Array(s.opening_balances.iter().map(|(m, a)| {
+            serde_json::json!({ "method": m, "amount": a.to_string() })
+        }).collect());
+        let r = self.openings.insert_opening_entry(&mut *tx, &NewOpeningEntryRow {
+            id,
+            pos_profile_id: s.pos_profile_id,
+            branch_id: s.branch_id,
+            cashier_party_id: s.cashier_party_id,
+            opened_at: s.opened_at,
+            opening_balances: opening,
+        }).await;
+        if let Err(e) = r {
+            // A unique violation here is the race on the composition-installed register slot
+            // (its index name carries the "pos_profile_id" fragment this matcher keys on);
+            // map it to the typed refusal instead of an internal error.
+            return Err(match dup_constraint(&e).as_deref() {
+                Some(c) if c.contains("pos_profile_id") => PosError::SessionAlreadyOpen,
+                _ => e.into(),
+            });
+        }
+        tx.commit().await?;
+        self.sink.publish(PosEvent::PosSessionOpened(PosSessionOpened {
+            opening_entry_id: id,
+            pos_profile_id: s.pos_profile_id,
+            company_id: legacy_company_echo(),
+        }));
+        Ok(id)
     }
 }

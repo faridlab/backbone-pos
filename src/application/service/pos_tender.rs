@@ -8,72 +8,68 @@
 //! `PosPaymentRepository` / `PosInvoiceRepository`, and the tender-insert + re-sum + header-update repo
 //! methods take THIS service's transaction so the tender and the totals it implies commit together.
 
-use backbone_orm::company_scope;
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
 use crate::infrastructure::persistence::NewTenderRow;
 
 use super::pos_events::{PosEvent, PosTenderCompleted};
-use super::pos_write_service::{money, PosError, PosWriteService, TenderOutcome};
+use super::pos_write_service::{legacy_company_echo, money, relay_ambient_scope, PosError, PosWriteService, TenderOutcome};
 
 impl PosWriteService {
     /// Add a tender line; recompute `paid_total` + `change_due` (overpayment). Ticket must be draft.
     pub async fn add_tender(&self, pos_invoice_id: Uuid, method: &str, amount: Decimal, reference_no: Option<String>) -> Result<TenderOutcome, PosError> {
         if amount <= Decimal::ZERO { return Err(PosError::NegativeAmount); }
-        // RLS scope (ADR-0008), ID-only pattern: this method is identified by the ticket id alone —
-        // there is no company argument to scope from up front. The header read therefore runs on the
-        // REQUEST-dedicated connection (established by `company_auth`), which carries the caller's
-        // `app.company_id`; RLS fences the lookup so another company's ticket simply isn't found.
-        // Having read the ticket, we then bind its company onto our own transaction below.
+        // Tenancy (ADR-0029), ID-only pattern: this method is identified by the ticket id alone —
+        // there is no unit argument to scope from up front. The verb therefore opens its OWN
+        // transaction, re-binds the caller's ambient org scope onto it, and runs the header read on
+        // that same connection: under a composed fence another unit's ticket simply isn't found
+        // (fail-closed), and the tender insert rides exactly the fence it read through.
+        let mut tx = self.db_pool.begin().await?;
+        relay_ambient_scope(&mut tx).await?;
         let hdr = self.invoices
-            .fetch_tender_header(&self.db_pool, pos_invoice_id).await?
+            .fetch_tender_header(&mut *tx, pos_invoice_id).await?
             .ok_or(PosError::InvoiceNotFound(pos_invoice_id))?;
         if hdr.status != "draft" { return Err(PosError::NotDraft); }
         let rounded_total = hdr.rounded_total;
-        let hdr_company = hdr.company_id;
-        let (paid_total, change_due) = company_scope::with_company_scope(Some(hdr_company), async move {
-            let mut tx = self.db_pool.begin().await?;
-            company_scope::bind_current_company(&mut tx).await?;
-            self.payments.insert_tender(&mut tx, &NewTenderRow {
-                id: Uuid::new_v4(),
-                company_id: hdr_company,
-                pos_invoice_id,
-                client_uuid: None,
-                payment_method: method,
-                amount: money(amount),
-                reference_no: reference_no.as_deref(),
-            }).await?;
-            let paid_total = self.payments.sum_paid_total_on(&mut tx, pos_invoice_id).await?;
-            let change_due = if paid_total > rounded_total { paid_total - rounded_total } else { Decimal::ZERO };
-            self.invoices.update_tender_totals(&mut tx, pos_invoice_id, paid_total, change_due).await?;
-            // Durable event: if this tender crosses full payment AND an outbox schema is configured,
-            // stage PosTenderCompleted INSIDE this transaction (atomic with the tender). A relay
-            // drains it to recognition — surviving a crash between commit and the in-process spawn.
-            // The fire-and-forget `sink.publish` below remains the fast path; double-delivery is a
-            // no-op because recognition is replay-safe (billing reuses billing_invoice_id; settle
-            // carries a payment_id skip-gate). Unset schema → historical fire-and-forget only.
-            let fully_tendered = paid_total >= rounded_total;
-            if fully_tendered && (paid_total - money(amount)) < rounded_total {
-                if let Some(schema) = &self.outbox_schema {
-                    // Outbox fenced by `company_id` (ADR-0011, mirrored from backbone-payment) — see
-                    // `tender_completed_outbox_record` for the fence contract.
-                    let rec = tender_completed_outbox_record(pos_invoice_id, hdr_company, chrono::Utc::now());
-                    backbone_outbox::outbox::stage(&mut *tx, schema, &rec)
-                        .await
-                        .map_err(|e| PosError::Db(sqlx::Error::Protocol(e.to_string())))?;
-                }
-            }
-            tx.commit().await?;
-            Ok::<_, PosError>((paid_total, change_due))
+        self.payments.insert_tender(&mut tx, &NewTenderRow {
+            id: Uuid::new_v4(),
+            pos_invoice_id,
+            client_uuid: None,
+            payment_method: method,
+            amount: money(amount),
+            reference_no: reference_no.as_deref(),
         }).await?;
-        // Emit PosTenderCompleted exactly on the tender that crosses full payment, so a subscriber can
-        // recognise the sale. Guarding on the crossing (prev < total <= now) avoids a re-emit on any
-        // extra tender added before recognition flips the ticket to paid.
+        let paid_total = self.payments.sum_paid_total_on(&mut tx, pos_invoice_id).await?;
+        let change_due = if paid_total > rounded_total { paid_total - rounded_total } else { Decimal::ZERO };
+        self.invoices.update_tender_totals(&mut tx, pos_invoice_id, paid_total, change_due).await?;
+        // Durable event: if this tender crosses full payment AND an outbox schema is configured,
+        // stage PosTenderCompleted INSIDE this transaction (atomic with the tender). A relay
+        // drains it to recognition — surviving a crash between commit and the in-process spawn.
+        // The fire-and-forget `sink.publish` below remains the fast path; double-delivery is a
+        // no-op because recognition is replay-safe (billing reuses billing_invoice_id; settle
+        // carries a payment_id skip-gate). Unset schema → historical fire-and-forget only.
         let fully_tendered = paid_total >= rounded_total;
         if fully_tendered && (paid_total - money(amount)) < rounded_total {
+            if let Some(schema) = &self.outbox_schema {
+                // Outbox fenced by `company_id` (ADR-0011, mirrored from backbone-payment) — see
+                // `tender_completed_outbox_record` for the fence contract. Under composition the
+                // fence column carries the ambient scope's legacy company echo (the acting org
+                // unit; the spine mirrored company ids into org_units verbatim).
+                let rec = tender_completed_outbox_record(pos_invoice_id, legacy_company_echo(), chrono::Utc::now());
+                backbone_outbox::outbox::stage(&mut *tx, schema, &rec)
+                    .await
+                    .map_err(|e| PosError::Db(sqlx::Error::Protocol(e.to_string())))?;
+            }
+        }
+        tx.commit().await?;
+        // Emit PosTenderCompleted exactly on the tender that crosses full payment, so a subscriber can
+        // recognise the sale. Guarding on the crossing (prev < total <= now) avoids a re-emit on any
+        // extra tender added before recognition flips the ticket to paid. The `company_id` field is
+        // the documented legacy twin (ADR-0029) — the acting unit id from the ambient scope's echo.
+        if fully_tendered && (paid_total - money(amount)) < rounded_total {
             self.sink.publish(PosEvent::PosTenderCompleted(PosTenderCompleted {
-                pos_invoice_id, company_id: hdr_company,
+                pos_invoice_id, company_id: legacy_company_echo(),
             }));
         }
         Ok(TenderOutcome { paid_total, change_due, fully_tendered })
@@ -82,10 +78,12 @@ impl PosWriteService {
 
 /// The fenced outbox record for a just-completed tender (ADR-0011, mirrored from backbone-payment).
 ///
-/// `company_id` is the owning tenant. backbone-outbox v2.7.4's `multi_tenant` feature fences
-/// `<schema>.outbox_events` by it — a backfilled `company_id` column + a fail-closed RLS policy —
-/// so a tenant-scoped relay cannot read another company's staged event. `OutboxRecord::new` sets the
-/// top-level field; the payload keeps a copy for consumers that read it from the JSON.
+/// `company_id` is what backbone-outbox v2.7.4's `multi_tenant` feature fences
+/// `<schema>.outbox_events` by — a backfilled `company_id` column + a fail-closed RLS policy —
+/// so a tenant-scoped relay cannot read another tenant's staged event. Under composition
+/// (ADR-0029) the caller sources it from the ambient org scope's legacy company echo: the
+/// acting org unit, which the spine mirrored from the company id verbatim. `OutboxRecord::new`
+/// sets the top-level field; the payload keeps a copy for consumers that read it from the JSON.
 pub(super) fn tender_completed_outbox_record(
     pos_invoice_id: Uuid,
     company_id: Uuid,

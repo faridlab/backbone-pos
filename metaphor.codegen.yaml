@@ -63,21 +63,16 @@ user_owned:
   - "tests/pos_golden_cases.rs"
   - "tests/integrity_probes.rs"
   - "tests/retail_sale_seam.rs"
-  - "tests/company_guard.rs"
   - "tests/pos_cash_movement.rs"
   - "tests/pos_receipt.rs"
   # Offline-sync + manager-PIN + document-grade tax behavior tests, and the shared in-test port
   # fakes + DB seeders they all use.
   - "tests/pos_sync_ui.rs"
-  # Offline-sync durable-event staging under the production RLS fence: mints a NOBYPASSRLS app role
-  # on a scratch Postgres (BACKBONE_POS_RLS_DSN) — the only posture under which a fence-violating
-  # staging write is observable (owner/superuser DSNs bypass RLS and cannot see this class).
-  - "tests/pos_sync_outbox_rls.rs"
-  # Cashier-session open tenant scoping under the same fence: the one-open-session register
-  # slot keyed per (company, register) admits the same register uuid across two tenants,
-  # and a register uuid the tenant does not own is a typed refusal — never a session
-  # opened against nothing, and never a block on the rightful tenant's register.
-  - "tests/pos_open_session_rls.rs"
+  # Tenancy posture pin (ADR-0029): armed RLS flags + zero module policies + default-deny
+  # for a plain NOBYPASSRLS role + the ambient org scope driving module reads. Succeeded
+  # the company-era fence tests (company_guard / open-session-rls / sync-outbox-rls),
+  # which retired with the module's own tenancy.
+  - "tests/tenancy_posture_probe.rs"
   - "tests/pos_manager_pin.rs"
   - "tests/pos_tax_compute.rs"
   # Restaurant-lane behavior (seating, transfer, one draft per table, server-priced order
@@ -118,6 +113,13 @@ user_owned:
   - "migrations/20260824100030_add_cash_rounding_to_pos_profiles.down.sql"
   - "migrations/20260824100040_add_tax_template_refs_to_pos_profiles.up.sql"
   - "migrations/20260824100040_add_tax_template_refs_to_pos_profiles.down.sql"
+  # Hand-written tenancy strip (ADR-0029): drops every company-fence artifact from the
+  # pos tables — company-leading indexes/uniques (their org-scoped re-declarations live
+  # in the composing service's tenancy decorator), the company isolation policies, and
+  # the company_id columns — behind a decorator-first ordering guard. RLS enable/force
+  # flags stay armed with zero policies: the decorator's half-fence.
+  - "migrations/20260912100000_strip_tenancy.up.sql"
+  - "migrations/20260912100000_strip_tenancy.down.sql"
   - "scripts/**"
   # Hand-authored behavior (services + their HTTP surface). Examples:
   # - "src/application/service/onboarding_service.rs"

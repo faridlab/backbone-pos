@@ -35,9 +35,6 @@ use crate::domain::entity::PosClosingStatus;
 #[serde(rename_all = "camelCase")]
 pub struct CreatePosClosingEntryDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "pos_profile_id")]
     pub pos_profile_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
@@ -74,9 +71,6 @@ pub struct CreatePosClosingEntryDto {
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdatePosClosingEntryDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "pos_profile_id")]
     pub pos_profile_id: Uuid,
@@ -115,9 +109,6 @@ pub struct UpdatePosClosingEntryDto {
 #[serde(rename_all = "camelCase")]
 pub struct PatchPosClosingEntryDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "company_id")]
-    pub company_id: Option<Uuid>,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "pos_profile_id")]
     pub pos_profile_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
@@ -145,7 +136,7 @@ pub struct PatchPosClosingEntryDto {
 impl PatchPosClosingEntryDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.pos_profile_id.is_some() || self.opening_entry_id.is_some() || self.closed_at.is_some() || self.cashier_party_id.is_some() || self.totals_by_method.is_some() || self.grand_total.is_some() || self.invoice_count.is_some() || self.difference_total.is_some() || self.status.is_some()
+        self.pos_profile_id.is_some() || self.opening_entry_id.is_some() || self.closed_at.is_some() || self.cashier_party_id.is_some() || self.totals_by_method.is_some() || self.grand_total.is_some() || self.invoice_count.is_some() || self.difference_total.is_some() || self.status.is_some()
     }
 }
 
@@ -163,8 +154,6 @@ impl PatchPosClosingEntryDto {
 pub struct PosClosingEntryResponseDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub pos_profile_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
@@ -236,9 +225,9 @@ impl PosClosingEntryListResponseDto {
 #[serde(rename_all = "camelCase")]
 pub struct PosClosingEntrySummaryDto {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub pos_profile_id: Uuid,
     pub opening_entry_id: Uuid,
+    pub closed_at: DateTime<Utc>,
     pub created_at: Option<DateTime<Utc>>,
 }
 
@@ -250,7 +239,6 @@ impl From<PosClosingEntry> for PosClosingEntryResponseDto {
     fn from(entity: PosClosingEntry) -> Self {
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             pos_profile_id: entity.pos_profile_id,
             opening_entry_id: entity.opening_entry_id,
             closed_at: entity.closed_at,
@@ -270,9 +258,9 @@ impl From<PosClosingEntry> for PosClosingEntrySummaryDto {
         let created_at = backbone_core::PersistentEntity::created_at(&entity);
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             pos_profile_id: entity.pos_profile_id,
             opening_entry_id: entity.opening_entry_id,
+            closed_at: entity.closed_at,
             created_at,
         }
     }
@@ -282,7 +270,6 @@ impl From<CreatePosClosingEntryDto> for PosClosingEntry {
     fn from(dto: CreatePosClosingEntryDto) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id: dto.company_id,
             pos_profile_id: dto.pos_profile_id,
             opening_entry_id: dto.opening_entry_id,
             closed_at: dto.closed_at,
@@ -301,7 +288,6 @@ impl From<&PosClosingEntry> for PosClosingEntryResponseDto {
     fn from(entity: &PosClosingEntry) -> Self {
         Self {
             id: entity.id.clone(),
-            company_id: entity.company_id.clone(),
             pos_profile_id: entity.pos_profile_id.clone(),
             opening_entry_id: entity.opening_entry_id.clone(),
             closed_at: entity.closed_at.clone(),
@@ -324,7 +310,6 @@ impl backbone_core::FromCreateDto<CreatePosClosingEntryDto> for PosClosingEntry 
 
 impl backbone_core::ApplyUpdateDto<UpdatePosClosingEntryDto> for PosClosingEntry {
     fn apply_update(mut self, dto: UpdatePosClosingEntryDto) -> backbone_core::ServiceResult<Self> {
-        self.company_id = dto.company_id;
         self.pos_profile_id = dto.pos_profile_id;
         self.opening_entry_id = dto.opening_entry_id;
         self.closed_at = dto.closed_at;

@@ -13,15 +13,15 @@ use rust_decimal::Decimal;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use argon2::PasswordHasher;
 use backbone_pos::application::service::pos_events::{PosEvent, PosEventSink};
-use backbone_pos::application::service::pos_manager_pin::SetPin;
 use backbone_pos::application::service::pos_ports::{
     BillingPort, CashVarianceAck, CashVarianceDirection, CashVarianceRequest, CreditNoteRequest,
     InvoiceAck, PaymentPort, PosCashVariancePort, PosRejected, PosTaxComponent,
     PosTaxComputePort, PosTaxComputeRequest, PosTaxComputeResult, RefundRequest, ReversalAck,
     SaleInvoiceRequest, SettlementAck, SettlementRequest,
 };
-use backbone_pos::application::service::pos_write_service::{ManagerAuth, PosWriteService};
+use backbone_pos::application::service::pos_write_service::ManagerAuth;
 
 pub fn d(s: &str) -> Decimal {
     Decimal::from_str_exact(s).unwrap()
@@ -48,7 +48,6 @@ pub async fn pool() -> PgPool {
 /// names which templates apply.
 pub async fn seed_profile(
     pool: &PgPool,
-    company: Uuid,
     templates: &[Uuid],
     rounding: Option<(&str, Decimal)>,
 ) -> Uuid {
@@ -59,11 +58,10 @@ pub async fn seed_profile(
     match rounding {
         None => {
             sqlx::query(
-                r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, tax_template_ids, allow_discount, status)
-                   VALUES ($1,$2,'Register 1','IDR',$3,true,'active')"#,
+                r#"INSERT INTO pos.pos_profiles (id, name, currency, tax_template_ids, allow_discount, status)
+                   VALUES ($1,'Register 1','IDR',$2,true,'active')"#,
             )
             .bind(id)
-            .bind(company)
             .bind(templates_json)
             .execute(pool)
             .await
@@ -71,11 +69,10 @@ pub async fn seed_profile(
         }
         Some((strategy, unit)) => {
             sqlx::query(
-                r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, tax_template_ids, cash_rounding_strategy, cash_rounding_unit, allow_discount, status)
-                   VALUES ($1,$2,'Register 1','IDR',$3,$4::pos_cash_rounding_strategy,$5,true,'active')"#,
+                r#"INSERT INTO pos.pos_profiles (id, name, currency, tax_template_ids, cash_rounding_strategy, cash_rounding_unit, allow_discount, status)
+                   VALUES ($1,'Register 1','IDR',$2,$3::pos_cash_rounding_strategy,$4,true,'active')"#,
             )
             .bind(id)
-            .bind(company)
             .bind(templates_json)
             .bind(strategy)
             .bind(unit)
@@ -88,15 +85,15 @@ pub async fn seed_profile(
 }
 
 /// A register with one template — the tax rate applied to it comes from the returned [`TestTax`].
-pub async fn profile_at_rate(pool: &PgPool, company: Uuid, rate: &str) -> (Uuid, TestTax) {
+pub async fn profile_at_rate(pool: &PgPool, rate: &str) -> (Uuid, TestTax) {
     let template = Uuid::new_v4();
-    let profile = seed_profile(pool, company, &[template], None).await;
+    let profile = seed_profile(pool, &[template], None).await;
     (profile, TestTax::with_rate(template, rate))
 }
 
 /// A zero-rated register (the non-PKP expression: template present, rate 0).
-pub async fn zero_tax_profile(pool: &PgPool, company: Uuid) -> (Uuid, TestTax) {
-    profile_at_rate(pool, company, "0").await
+pub async fn zero_tax_profile(pool: &PgPool) -> (Uuid, TestTax) {
+    profile_at_rate(pool, "0").await
 }
 
 // ---- the tax port fake ----------------------------------------------------------
@@ -253,18 +250,32 @@ impl PosEventSink for Recorder {
     }
 }
 
-/// Give a fresh manager a PIN (the bootstrap path — no prior credential exists) and return the auth a
-/// privileged verb carries.
-pub async fn manager_with_pin(w: &PosWriteService, company: Uuid, pin: &str) -> ManagerAuth {
+/// Give a fresh manager a PIN and return the auth a privileged verb carries.
+///
+/// Seeds the credential row DIRECTLY rather than calling `set_pin`: the proof-free bootstrap only
+/// applies while no live credential exists anywhere in scope, and undecorated on the shared scratch
+/// DB that scope is the whole table — leftovers from earlier test binaries (or this one's parallel
+/// siblings) would refuse it. The hash is produced exactly as the service produces it (Argon2id
+/// defaults; the PHC string carries its parameters, so the real verify path accepts it). `set_pin`'s
+/// own bootstrap/rotation semantics are covered by the manager-PIN behavior tests.
+pub async fn manager_with_pin(pool: &PgPool, pin: &str) -> ManagerAuth {
     let employee = Uuid::new_v4();
-    w.set_pin(SetPin {
-        company_id: company,
-        employee_party_id: employee,
-        new_pin: pin.to_string(),
-        current: None,
-        source_ip: None,
-    })
+    let salt = argon2::password_hash::SaltString::generate(&mut argon2::password_hash::rand_core::OsRng);
+    let hash = argon2::Argon2::default()
+        .hash_password(pin.as_bytes(), &salt)
+        .expect("hash fixture pin")
+        .to_string();
+    sqlx::query(
+        r#"INSERT INTO pos.pos_manager_pins
+            (id, employee_party_id, pin_hash, failed_attempts, locked_until, last_attempt_at, last_attempt_ip)
+           VALUES ($1,$2,$3,0,NULL,$4,NULL)"#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(employee)
+    .bind(&hash)
+    .bind(chrono::Utc::now())
+    .execute(pool)
     .await
-    .expect("bootstrap set_pin");
+    .expect("seed fixture pin");
     ManagerAuth { employee_party_id: employee, pin: pin.to_string() }
 }

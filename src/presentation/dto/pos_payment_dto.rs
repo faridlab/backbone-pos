@@ -35,9 +35,6 @@ use crate::domain::entity::PosPaymentMethod;
 #[serde(rename_all = "camelCase")]
 pub struct CreatePosPaymentDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "pos_invoice_id")]
     pub pos_invoice_id: Uuid,
     #[serde(alias = "payment_method")]
@@ -66,9 +63,6 @@ pub struct CreatePosPaymentDto {
 #[serde(rename_all = "camelCase")]
 pub struct UpdatePosPaymentDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "pos_invoice_id")]
     pub pos_invoice_id: Uuid,
     #[serde(alias = "payment_method")]
@@ -93,9 +87,6 @@ pub struct UpdatePosPaymentDto {
 #[serde(rename_all = "camelCase")]
 pub struct PatchPosPaymentDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "company_id")]
-    pub company_id: Option<Uuid>,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "pos_invoice_id")]
     pub pos_invoice_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "payment_method")]
@@ -110,7 +101,7 @@ pub struct PatchPosPaymentDto {
 impl PatchPosPaymentDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.pos_invoice_id.is_some() || self.payment_method.is_some() || self.amount.is_some() || self.reference_no.is_some()
+        self.pos_invoice_id.is_some() || self.payment_method.is_some() || self.amount.is_some() || self.reference_no.is_some()
     }
 }
 
@@ -128,8 +119,6 @@ impl PatchPosPaymentDto {
 pub struct PosPaymentResponseDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub pos_invoice_id: Uuid,
     pub payment_method: PosPaymentMethod,
@@ -194,9 +183,9 @@ impl PosPaymentListResponseDto {
 #[serde(rename_all = "camelCase")]
 pub struct PosPaymentSummaryDto {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub pos_invoice_id: Uuid,
     pub payment_method: PosPaymentMethod,
+    pub amount: Decimal,
     pub created_at: Option<DateTime<Utc>>,
 }
 
@@ -208,7 +197,6 @@ impl From<PosPayment> for PosPaymentResponseDto {
     fn from(entity: PosPayment) -> Self {
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             pos_invoice_id: entity.pos_invoice_id,
             payment_method: entity.payment_method,
             amount: entity.amount,
@@ -225,9 +213,9 @@ impl From<PosPayment> for PosPaymentSummaryDto {
         let created_at = backbone_core::PersistentEntity::created_at(&entity);
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             pos_invoice_id: entity.pos_invoice_id,
             payment_method: entity.payment_method,
+            amount: entity.amount,
             created_at,
         }
     }
@@ -237,7 +225,6 @@ impl From<CreatePosPaymentDto> for PosPayment {
     fn from(dto: CreatePosPaymentDto) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id: dto.company_id,
             pos_invoice_id: dto.pos_invoice_id,
             payment_method: dto.payment_method,
             amount: dto.amount,
@@ -253,7 +240,6 @@ impl From<&PosPayment> for PosPaymentResponseDto {
     fn from(entity: &PosPayment) -> Self {
         Self {
             id: entity.id.clone(),
-            company_id: entity.company_id.clone(),
             pos_invoice_id: entity.pos_invoice_id.clone(),
             payment_method: entity.payment_method.clone(),
             amount: entity.amount.clone(),
@@ -273,7 +259,6 @@ impl backbone_core::FromCreateDto<CreatePosPaymentDto> for PosPayment {
 
 impl backbone_core::ApplyUpdateDto<UpdatePosPaymentDto> for PosPayment {
     fn apply_update(mut self, dto: UpdatePosPaymentDto) -> backbone_core::ServiceResult<Self> {
-        self.company_id = dto.company_id;
         self.pos_invoice_id = dto.pos_invoice_id;
         self.payment_method = dto.payment_method;
         self.amount = dto.amount;

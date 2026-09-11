@@ -32,9 +32,6 @@ use crate::domain::entity::AuditMetadata;
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct CreatePosFloorPlanDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "branch_id")]
     pub branch_id: Option<Uuid>,
     #[cfg_attr(feature = "validation", validate(length(max = 140)))]
@@ -57,9 +54,6 @@ pub struct CreatePosFloorPlanDto {
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdatePosFloorPlanDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "branch_id")]
     pub branch_id: Option<Uuid>,
     #[cfg_attr(feature = "validation", validate(length(max = 140)))]
@@ -82,9 +76,6 @@ pub struct UpdatePosFloorPlanDto {
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct PatchPosFloorPlanDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "company_id")]
-    pub company_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "branch_id")]
     pub branch_id: Option<Uuid>,
     #[cfg_attr(feature = "validation", validate(length(max = 140)))]
@@ -98,7 +89,7 @@ pub struct PatchPosFloorPlanDto {
 impl PatchPosFloorPlanDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.branch_id.is_some() || self.name.is_some() || self.position.is_some()
+        self.branch_id.is_some() || self.name.is_some() || self.position.is_some()
     }
 }
 
@@ -116,8 +107,6 @@ impl PatchPosFloorPlanDto {
 pub struct PosFloorPlanResponseDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    pub company_id: Uuid,
     pub branch_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     pub name: String,
@@ -179,9 +168,9 @@ impl PosFloorPlanListResponseDto {
 #[serde(rename_all = "camelCase")]
 pub struct PosFloorPlanSummaryDto {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub branch_id: Option<Uuid>,
     pub name: String,
+    pub position: Option<i32>,
     pub created_at: Option<DateTime<Utc>>,
 }
 
@@ -193,7 +182,6 @@ impl From<PosFloorPlan> for PosFloorPlanResponseDto {
     fn from(entity: PosFloorPlan) -> Self {
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             branch_id: entity.branch_id,
             name: entity.name,
             position: entity.position,
@@ -207,9 +195,9 @@ impl From<PosFloorPlan> for PosFloorPlanSummaryDto {
         let created_at = backbone_core::PersistentEntity::created_at(&entity);
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             branch_id: entity.branch_id,
             name: entity.name,
+            position: entity.position,
             created_at,
         }
     }
@@ -219,7 +207,6 @@ impl From<CreatePosFloorPlanDto> for PosFloorPlan {
     fn from(dto: CreatePosFloorPlanDto) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id: dto.company_id,
             branch_id: dto.branch_id,
             name: dto.name,
             position: dto.position,
@@ -232,7 +219,6 @@ impl From<&PosFloorPlan> for PosFloorPlanResponseDto {
     fn from(entity: &PosFloorPlan) -> Self {
         Self {
             id: entity.id.clone(),
-            company_id: entity.company_id.clone(),
             branch_id: entity.branch_id.clone(),
             name: entity.name.clone(),
             position: entity.position.clone(),
@@ -249,7 +235,6 @@ impl backbone_core::FromCreateDto<CreatePosFloorPlanDto> for PosFloorPlan {
 
 impl backbone_core::ApplyUpdateDto<UpdatePosFloorPlanDto> for PosFloorPlan {
     fn apply_update(mut self, dto: UpdatePosFloorPlanDto) -> backbone_core::ServiceResult<Self> {
-        self.company_id = dto.company_id;
         self.branch_id = dto.branch_id;
         self.name = dto.name;
         self.position = dto.position;

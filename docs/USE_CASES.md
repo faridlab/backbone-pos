@@ -56,7 +56,7 @@ no stock, no tax rules*. POS does **not** depend on it. Instead:
 
 | Entity | Role | Key fields |
 |---|---|---|
-| **PosProfile** | Register config + the GL accounts the handoff needs | `company_id`, `branch_id`, `warehouse_id`, `income_account_id`, `receivable_account_id`, `cash_account_id`, `tax_account_id`, `cogs_account_id`, `inventory_account_id`, `tax_rate`, `currency`, `default_customer_id` |
+| **PosProfile** | Register config + the GL accounts the handoff needs | `branch_id`, `warehouse_id`, `income_account_id`, `receivable_account_id`, `cash_account_id`, `tax_account_id`, `cogs_account_id`, `inventory_account_id`, `tax_rate`, `currency`, `default_customer_id` |
 | **PosOpeningEntry** | Cashier session (till open) | `pos_profile_id`, `cashier_party_id`, `opening_balances` (JSON per method), `status: open→closed` |
 | **PosInvoice** | The sale ticket | `receipt_number`, money totals (below), `billing_invoice_id`, `payment_entry_id`, `is_return`, `return_against`, `status: draft→paid→returned` |
 | **PosInvoiceItem** *(child)* | Sale line | `item_id` (logical FK → catalog), `description`, `quantity`, `unit_price`, `discount_amount`, `net_amount`, `revenue_account_id` |
@@ -202,7 +202,7 @@ Money is exact IDR (`rust_decimal`, 2 dp, half-away-from-zero). Recognition requ
 | each `PosInvoiceItem` | `SaleLine { item_id, revenue_account_id, quantity = 1, unit_price = net_amount }` | — |
 | `PosInvoice.tax_total / tax_account_id / tax_rate` | same | — |
 | `PosInvoice.rounded_total` | — | `amount` |
-| `PosInvoice.posting_at` / `company_id` / `currency` | same | same |
+| `PosInvoice.posting_at` / `currency` | same | same |
 
 > **Collapse to net:** POS sends each line as `quantity = 1, unit_price = net_amount` — the
 > `qty·price − discount` math is resolved *before* the handoff, so billing books net revenue per line.
@@ -280,8 +280,9 @@ consumer** (implementations) — that is what keeps POS free of normal Cargo edg
 | `POST /pos-sessions/close` | `close_session` | Z-report reconciliation |
 | generated list/get per entity | CRUD read | wrapped in `company_auth` |
 
-All writes derive `company_id` from the authenticated JWT principal (never the request body), so
-every row is tenant-scoped at the source.
+All verbs authenticate through `company_auth`; tenancy itself is composition-installed
+(ADR-0029) — the composing service's scope middleware binds the acting org unit, and its
+tenancy decorator fences every row. The module carries no tenant column of its own.
 
 ---
 

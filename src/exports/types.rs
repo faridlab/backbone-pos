@@ -49,7 +49,6 @@ impl From<PosClosingEntryId> for Uuid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PosClosingEntryDto {
     pub id: PosClosingEntryId,
-    pub company_id: Uuid,
     pub pos_profile_id: Uuid,
     pub opening_entry_id: Uuid,
     pub closed_at: DateTime<Utc>,
@@ -113,7 +112,6 @@ impl From<PosInvoiceId> for Uuid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PosInvoiceDto {
     pub id: PosInvoiceId,
-    pub company_id: Uuid,
     pub pos_profile_id: Uuid,
     pub opening_entry_id: Uuid,
     pub branch_id: Option<Uuid>,
@@ -188,7 +186,6 @@ impl From<PosInvoiceItemId> for Uuid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PosInvoiceItemDto {
     pub id: PosInvoiceItemId,
-    pub company_id: Uuid,
     pub pos_invoice_id: Uuid,
     pub item_id: Uuid,
     pub description: Option<String>,
@@ -252,7 +249,6 @@ impl From<PosPaymentId> for Uuid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PosPaymentDto {
     pub id: PosPaymentId,
-    pub company_id: Uuid,
     pub pos_invoice_id: Uuid,
     pub payment_method: PosPaymentMethod,
     pub amount: Decimal,
@@ -312,7 +308,6 @@ impl From<PosProfileId> for Uuid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PosProfileDto {
     pub id: PosProfileId,
-    pub company_id: Uuid,
     pub branch_id: Option<Uuid>,
     pub name: String,
     pub default_customer_id: Option<Uuid>,
@@ -386,7 +381,6 @@ impl From<PosOpeningEntryId> for Uuid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PosOpeningEntryDto {
     pub id: PosOpeningEntryId,
-    pub company_id: Uuid,
     pub pos_profile_id: Uuid,
     pub branch_id: Option<Uuid>,
     pub cashier_party_id: Uuid,
@@ -447,7 +441,6 @@ impl From<PosCashMovementId> for Uuid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PosCashMovementDto {
     pub id: PosCashMovementId,
-    pub company_id: Uuid,
     pub pos_profile_id: Uuid,
     pub opening_entry_id: Uuid,
     pub cashier_party_id: Uuid,
@@ -508,7 +501,6 @@ impl From<PosDiscountId> for Uuid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PosDiscountDto {
     pub id: PosDiscountId,
-    pub company_id: Uuid,
     pub name: String,
     pub percentage: Decimal,
     pub description: Option<String>,
@@ -566,7 +558,6 @@ impl From<PosManagerPinId> for Uuid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PosManagerPinDto {
     pub id: PosManagerPinId,
-    pub company_id: Uuid,
     pub employee_party_id: Uuid,
     pub pin_hash: String,
     pub failed_attempts: i32,
@@ -626,7 +617,6 @@ impl From<PosFloorPlanId> for Uuid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PosFloorPlanDto {
     pub id: PosFloorPlanId,
-    pub company_id: Uuid,
     pub branch_id: Option<Uuid>,
     pub name: String,
     pub position: Option<i32>,
@@ -684,7 +674,6 @@ impl From<PosTableId> for Uuid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PosTableDto {
     pub id: PosTableId,
-    pub company_id: Uuid,
     pub pos_floor_plan_id: Uuid,
     pub name: Option<String>,
     pub seats: Option<i32>,

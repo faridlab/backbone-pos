@@ -14,15 +14,13 @@ version: 2
 schema: pos
 description: "pos domain module"
 
-# ADR-0014 company fence: every entity here is company-scoped and fenced strict — the register
-# config (pos_profiles), the cashier session (pos_opening_entries), the ticket (pos_invoices)
-# plus its parent-scoped children (pos_invoice_items, pos_payments — company_id denormalised
-# onto each child row per ADR-0010 Decision A), the close/Z-report (pos_closing_entries), the
-# non-sale drawer movements (pos_cash_movements), the manager PIN credentials
-# (pos_manager_pins), the venue layout (pos_floor_plans, pos_tables), and the order-level
-# discount master (pos_discounts). No config-table exceptions: a register belongs to exactly
-# one company's books, so pos_profiles is fenced like every other entity.
-company_fence: strict
+# Tenancy: none, by design (ADR-0029). The module is tenant-agnostic — it ships no
+# scoping column and no fence declaration. A composing backend-service that wants the
+# register/session/ticket tables org-scoped declares them in its tenancy.yaml; the
+# decorator installs org_unit_id, the RLS policy, and the org-scoped re-declarations
+# (the per-(unit, client_uuid) sync-identity uniques, the per-(unit, register)
+# one-open-session slot, the per-(unit, manager) live-credential unique, and the
+# unit-leading listing indexes) at composition time.
 
 config:
   database: postgresql

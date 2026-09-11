@@ -165,7 +165,7 @@ impl BillingPort for BillingAdapter {
             _ => vec![],
         };
         let inv = self.billing.create_sales_invoice(NewSalesInvoice {
-            invoice_number: uq("SI"), company_id: req.company_id, branch_id: None, customer_id: req.customer_id,
+            invoice_number: uq("SI"), branch_id: None, customer_id: req.customer_id,
             source_so_id: Some(req.source_pos_id), posting_date: req.posting_date, due_date: None,
             payment_term_id: None,
             currency: Some(req.currency.clone()), receivable_account_id: req.receivable_account_id,
@@ -181,6 +181,15 @@ impl BillingPort for BillingAdapter {
         Ok(ReversalAck { journal_id: out.journal_id })
     }
 }
+/// The legacy tenancy twin billing's settlement verbs still take explicitly (ADR-0029): under the
+/// composing service's org request scope it is the scope's legacy echo — read it the same way the
+/// composer does; undecorated it falls back to nil, which nothing keys a statement on.
+fn legacy_twin() -> Uuid {
+    backbone_orm::org_scope::current_org_scope()
+        .and_then(|s| s.legacy_company_id())
+        .unwrap_or(Uuid::nil())
+}
+
 /// PaymentPort over the real payment service: settle the tender + draw the invoice down in billing.
 ///
 /// Probe (2026-07-14): this adapter no longer holds a `pool`. The refund path used to resolve the
@@ -193,7 +202,7 @@ struct PaymentAdapter { payment: PaymentWriteService, billing: BillingWriteServi
 impl PaymentPort for PaymentAdapter {
     async fn settle(&self, req: &SettlementRequest) -> Result<SettlementAck, PosRejected> {
         let pay = self.payment.create_payment(NewPayment {
-            payment_number: uq("PE"), company_id: req.company_id, branch_id: None, payment_type: "receive".into(),
+            payment_number: uq("PE"), branch_id: None, payment_type: "receive".into(),
             party_type: Some("customer".into()), party_id: Some(req.customer_id), posting_date: req.posting_date,
             currency: Some(req.currency.clone()), mode_of_payment_id: None, bank_account_id: req.bank_account_id,
             party_account_id: req.party_account_id, paid_amount: req.amount, reference_no: None,
@@ -202,7 +211,7 @@ impl PaymentPort for PaymentAdapter {
             withholding_amount: rust_decimal::Decimal::ZERO, withholding_account_id: None, withholding_tax_type: "none".into(),
         }).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
         let out = self.payment.post_payment(pay, &*self.gl).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
-        self.billing.apply_settlement(req.company_id, req.invoice_ref, "sales", req.amount, pay, self.reconcile.as_ref()).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
+        self.billing.apply_settlement(legacy_twin(), req.invoice_ref, "sales", req.amount, pay, self.reconcile.as_ref()).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
         Ok(SettlementAck { payment_id: pay, journal_id: out.journal_id })
     }
     async fn refund(&self, req: &RefundRequest) -> Result<ReversalAck, PosRejected> {
@@ -210,7 +219,7 @@ impl PaymentPort for PaymentAdapter {
         // from the request (POS persisted it on the ticket at recognition) — no cross-schema read into
         // payment.payment_allocations, so this refund is satisfiable with payment on its own database.
         let out = self.payment.reverse_payment(req.payment_id, &*self.gl).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
-        self.billing.reverse_settlement(req.company_id, req.invoice_ref, "sales", req.amount, req.payment_id, self.reconcile.as_ref()).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
+        self.billing.reverse_settlement(legacy_twin(), req.invoice_ref, "sales", req.amount, req.payment_id, self.reconcile.as_ref()).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
         Ok(ReversalAck { journal_id: out.journal_id })
     }
 }
@@ -227,8 +236,7 @@ async fn pool() -> PgPool {
         .unwrap_or_else(|_| "postgresql://postgres:postgres@localhost:5433/backbone_pos".to_string());
     PgPool::connect(&url).await.expect("connect DB")
 }
-async fn seed_coa(pool: &PgPool) -> (Uuid, HashMap<&'static str, Uuid>) {
-    let company = Uuid::new_v4();
+async fn seed_coa(pool: &PgPool) -> HashMap<&'static str, Uuid> {
     // The A/R control and the tender account must be reconcilable — payment probes the tender's
     // landing account, and billing's settlement edges pair on the A/R control.
     let coa: &[(&str, &str, &str, &str, &str, bool)] = &[
@@ -239,12 +247,12 @@ async fn seed_coa(pool: &PgPool) -> (Uuid, HashMap<&'static str, Uuid>) {
     let mut m = HashMap::new();
     for (code, name, a, s, nb, rec) in coa {
         let id = Uuid::new_v4();
-        sqlx::query(r#"INSERT INTO accounting.accounts (id, company_id, account_number, account_code, name, account_type, account_subtype, normal_balance, is_header, is_detail, is_reconcilable, status)
-            VALUES ($1,$2,$3,$4,$5,$6::account_type,$7::account_subtype,$8::normal_balance,false,true,$9,'active'::account_status)"#)
-            .bind(id).bind(company).bind(code).bind(code).bind(name).bind(a).bind(s).bind(nb).bind(rec).execute(pool).await.expect("seed acct");
+        sqlx::query(r#"INSERT INTO accounting.accounts (id, account_number, account_code, name, account_type, account_subtype, normal_balance, is_header, is_detail, is_reconcilable, status)
+            VALUES ($1,$2,$3,$4,$5::account_type,$6::account_subtype,$7::normal_balance,false,true,$8,'active'::account_status)"#)
+            .bind(id).bind(code).bind(code).bind(name).bind(a).bind(s).bind(nb).bind(rec).execute(pool).await.expect("seed acct");
         m.insert(*code, id);
     }
-    (company, m)
+    m
 }
 async fn balance(pool: &PgPool, account: Uuid) -> Decimal {
     sqlx::query_scalar("SELECT COALESCE(SUM(debit_amount),0) - COALESCE(SUM(credit_amount),0) FROM accounting.ledgers WHERE account_id=$1")
@@ -259,7 +267,15 @@ async fn on_hand(pool: &PgPool, item: Uuid, warehouse: Uuid) -> Decimal {
 #[tokio::test]
 async fn retail_cash_sale_across_four_modules() {
     let pool = pool().await;
-    let (company, coa) = seed_coa(&pool).await;
+    // The composed-shape stand-in (ADR-0029): the whole flow rides an ambient org scope — the
+    // per-request binding a composing service resolves. Payment's GL envelope fails closed without
+    // the scope's legacy company twin, so the counter transaction must run inside one.
+    let company = Uuid::new_v4();
+    backbone_orm::org_scope::with_org_request_scope(
+        &pool,
+        backbone_orm::org_scope::OrgScope::for_company_unit(company),
+        async {
+    let coa = seed_coa(&pool).await;
     let customer = Uuid::new_v4();
     let item = Uuid::new_v4();
 
@@ -268,9 +284,9 @@ async fn retail_cash_sale_across_four_modules() {
     let (prof, tax) = {
         let template = Uuid::new_v4();
         let id = Uuid::new_v4();
-        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, tax_template_ids, receivable_account_id, income_account_id, cash_account_id, default_customer_id, allow_discount, status)
-            VALUES ($1,$2,'Register 1','IDR',$3,$4,$5,$6,$7,true,'active')"#)
-            .bind(id).bind(company).bind(serde_json::json!([template.to_string()])).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(customer).execute(&pool).await.unwrap();
+        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, name, currency, tax_template_ids, receivable_account_id, income_account_id, cash_account_id, default_customer_id, allow_discount, status)
+            VALUES ($1,'Register 1','IDR',$2,$3,$4,$5,$6,true,'active')"#)
+            .bind(id).bind(serde_json::json!([template.to_string()])).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(customer).execute(&pool).await.unwrap();
         (id, support::TestTax::with_rate(template, "0"))
     };
 
@@ -283,11 +299,11 @@ async fn retail_cash_sale_across_four_modules() {
 
     // 1) open the till, ring a 100,000 sale, take 100,000 cash.
     let session = pos.open_session(NewSession {
-        company_id: company, pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(),
+        pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(),
         opened_at: at(), opening_balances: vec![("cash".into(), d("500000"))],
     }).await.unwrap();
     let sale = pos.ring_sale(NewSale {
-        company_id: company, pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
+        pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
         pos_table_id: None, discount_id: None,
         receipt_number: uq("R"), posting_at: at(),
         lines: vec![NewSaleLine { item_id: item, revenue_account_id: None, description: None, quantity: d("1"), unit_price: d("100000"), course: None, discount_amount: Decimal::ZERO }],
@@ -312,17 +328,19 @@ async fn retail_cash_sale_across_four_modules() {
 
     // 4) close the till — expected cash = opening 500,000 + tender 100,000 = 600,000; counted balances.
     // The close is privileged: the manager's PIN is verified server-side (set via the bootstrap
-    // path — this company holds no credential yet), and a balanced drawer books no variance journal.
-    let manager = support::manager_with_pin(&pos, company, "4321").await;
+    // path — no prior credential exists yet), and a balanced drawer books no variance journal.
+    let manager = support::manager_with_pin(&pool, "4321").await;
     let variance = support::RecordingVariance::default();
     let close = pos.close_session(NewClose {
-        company_id: company, opening_entry_id: session, cashier_party_id: Uuid::new_v4(), closed_at: at(),
+        opening_entry_id: session, cashier_party_id: Uuid::new_v4(), closed_at: at(),
         counted: vec![("cash".into(), d("600000"))],
         manager, source_ip: None,
     }, &variance).await.unwrap();
     assert_eq!(close.difference_total, d("0.00"));
     let cash = close.by_method.iter().find(|r| r.method == "cash").unwrap();
     assert_eq!(cash.expected, d("600000.00"), "opening float + recognised cash tender");
+    },
+    ).await.unwrap();
 }
 
 /// RSSEAM-2 (completeness council 2026-07-05): a return reverses BOTH legs — POS drives billing
@@ -331,7 +349,13 @@ async fn retail_cash_sale_across_four_modules() {
 #[tokio::test]
 async fn retail_return_reverses_both_legs_and_is_idempotent() {
     let pool = pool().await;
-    let (company, coa) = seed_coa(&pool).await;
+    // Same composed-shape stand-in as the cash-sale seam (ADR-0029).
+    let company = Uuid::new_v4();
+    backbone_orm::org_scope::with_org_request_scope(
+        &pool,
+        backbone_orm::org_scope::OrgScope::for_company_unit(company),
+        async {
+    let coa = seed_coa(&pool).await;
     let customer = Uuid::new_v4();
     let item = Uuid::new_v4();
 
@@ -343,16 +367,16 @@ async fn retail_return_reverses_both_legs_and_is_idempotent() {
     let (prof, tax) = {
         let template = Uuid::new_v4();
         let id = Uuid::new_v4();
-        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, tax_template_ids, receivable_account_id, income_account_id, cash_account_id, default_customer_id, allow_discount, status)
-            VALUES ($1,$2,'R','IDR',$3,$4,$5,$6,$7,true,'active')"#)
-            .bind(id).bind(company).bind(serde_json::json!([template.to_string()])).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(customer).execute(&pool).await.unwrap();
+        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, name, currency, tax_template_ids, receivable_account_id, income_account_id, cash_account_id, default_customer_id, allow_discount, status)
+            VALUES ($1,'R','IDR',$2,$3,$4,$5,$6,true,'active')"#)
+            .bind(id).bind(serde_json::json!([template.to_string()])).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(customer).execute(&pool).await.unwrap();
         (id, support::TestTax::with_rate(template, "0"))
     };
 
     // A recognised 100,000 cash sale (A/R 0, Revenue -100k, Cash +100k).
-    let session = pos.open_session(NewSession { company_id: company, pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(), opened_at: at(), opening_balances: vec![] }).await.unwrap();
+    let session = pos.open_session(NewSession { pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(), opened_at: at(), opening_balances: vec![] }).await.unwrap();
     let sale = pos.ring_sale(NewSale {
-        company_id: company, pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
+        pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
         pos_table_id: None, discount_id: None,
         receipt_number: uq("R"), posting_at: at(),
         lines: vec![NewSaleLine { item_id: item, revenue_account_id: None, description: None, quantity: d("1"), unit_price: d("100000"), course: None, discount_amount: Decimal::ZERO }],
@@ -379,6 +403,8 @@ async fn retail_return_reverses_both_legs_and_is_idempotent() {
     assert_eq!(balance(&pool, coa["4000"]).await, d("0.00"), "no double credit note");
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pos.pos_invoices WHERE return_against=$1 AND is_return=true").bind(sale).fetch_one(&pool).await.unwrap();
     assert_eq!(n, 1, "exactly one return ticket");
+    },
+    ).await.unwrap();
 }
 
 /// RSSEAM-3 (PPN, 2026-07-14): a PKP register charges 11% output tax, computed SERVER-side from the
@@ -388,24 +414,30 @@ async fn retail_return_reverses_both_legs_and_is_idempotent() {
 #[tokio::test]
 async fn retail_ppn_sale_books_output_tax() {
     let pool = pool().await;
-    let (company, coa) = seed_coa(&pool).await;
+    // Same composed-shape stand-in as the cash-sale seam (ADR-0029).
+    let company = Uuid::new_v4();
+    backbone_orm::org_scope::with_org_request_scope(
+        &pool,
+        backbone_orm::org_scope::OrgScope::for_company_unit(company),
+        async {
+    let coa = seed_coa(&pool).await;
     let customer = Uuid::new_v4();
     let item = Uuid::new_v4();
 
     // PPN output-tax liability account (credit-normal).
     let ppn = Uuid::new_v4();
-    sqlx::query(r#"INSERT INTO accounting.accounts (id, company_id, account_number, account_code, name, account_type, account_subtype, normal_balance, is_header, is_detail, status)
-        VALUES ($1,$2,'2130','2130','Utang PPN Keluaran','liability'::account_type,'tax'::account_subtype,'credit'::normal_balance,false,true,'active'::account_status)"#)
-        .bind(ppn).bind(company).execute(&pool).await.unwrap();
+    sqlx::query(r#"INSERT INTO accounting.accounts (id, account_number, account_code, name, account_type, account_subtype, normal_balance, is_header, is_detail, status)
+        VALUES ($1,'2130','2130','Utang PPN Keluaran','liability'::account_type,'tax'::account_subtype,'credit'::normal_balance,false,true,'active'::account_status)"#)
+        .bind(ppn).execute(&pool).await.unwrap();
 
     // PKP register: one 11% tax template (document-grade, resolved through the port) + the
     // output-tax liability account for the recognition leg.
     let (prof, tax) = {
         let template = Uuid::new_v4();
         let id = Uuid::new_v4();
-        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, tax_template_ids, receivable_account_id, income_account_id, cash_account_id, tax_account_id, default_customer_id, allow_discount, status)
-            VALUES ($1,$2,'PKP Register','IDR',$3,$4,$5,$6,$7,$8,true,'active')"#)
-            .bind(id).bind(company).bind(serde_json::json!([template.to_string()])).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(ppn).bind(customer).execute(&pool).await.unwrap();
+        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, name, currency, tax_template_ids, receivable_account_id, income_account_id, cash_account_id, tax_account_id, default_customer_id, allow_discount, status)
+            VALUES ($1,'PKP Register','IDR',$2,$3,$4,$5,$6,$7,true,'active')"#)
+            .bind(id).bind(serde_json::json!([template.to_string()])).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(ppn).bind(customer).execute(&pool).await.unwrap();
         (id, support::TestTax::with_rate(template, "0.11"))
     };
 
@@ -415,9 +447,9 @@ async fn retail_ppn_sale_books_output_tax() {
     let reconcile = Arc::new(reconcile_sink(&pool));
     let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone(), reconcile };
 
-    let session = pos.open_session(NewSession { company_id: company, pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(), opened_at: at(), opening_balances: vec![] }).await.unwrap();
+    let session = pos.open_session(NewSession { pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(), opened_at: at(), opening_balances: vec![] }).await.unwrap();
     let sale = pos.ring_sale(NewSale {
-        company_id: company, pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
+        pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
         pos_table_id: None, discount_id: None,
         receipt_number: uq("R"), posting_at: at(),
         lines: vec![NewSaleLine { item_id: item, revenue_account_id: None, description: None, quantity: d("1"), unit_price: d("100000"), course: None, discount_amount: Decimal::ZERO }],
@@ -436,6 +468,8 @@ async fn retail_ppn_sale_books_output_tax() {
     assert_eq!(balance(&pool, coa["4000"]).await, d("-100000.00"), "revenue holds the net (credit)");
     assert_eq!(balance(&pool, coa["1110"]).await, d("111000.00"), "cash holds the grand (incl PPN)");
     assert_eq!(balance(&pool, ppn).await, d("-11000.00"), "PPN output-tax liability holds the tax (credit)");
+    },
+    ).await.unwrap();
 }
 
 /// RSSEAM-4 (stock, 2026-07-15): a stock-tracking register relieves on-hand and books COGS on the sale.
@@ -444,7 +478,13 @@ async fn retail_ppn_sale_books_output_tax() {
 #[tokio::test]
 async fn retail_sale_decrements_stock_and_books_cogs() {
     let pool = pool().await;
-    let (company, coa) = seed_coa(&pool).await;
+    // Same composed-shape stand-in as the cash-sale seam (ADR-0029).
+    let company = Uuid::new_v4();
+    backbone_orm::org_scope::with_org_request_scope(
+        &pool,
+        backbone_orm::org_scope::OrgScope::for_company_unit(company),
+        async {
+    let coa = seed_coa(&pool).await;
     let customer = Uuid::new_v4();
     let item = Uuid::new_v4();
 
@@ -457,22 +497,25 @@ async fn retail_sale_decrements_stock_and_books_cogs() {
         (cogs_acct, "5000", "HPP", "cogs", "direct_cost", "debit"),
         (grir_acct, "2140", "GRIR", "liability", "current_liability", "credit"),
     ] {
-        sqlx::query(r#"INSERT INTO accounting.accounts (id, company_id, account_number, account_code, name, account_type, account_subtype, normal_balance, is_header, is_detail, status)
-            VALUES ($1,$2,$3,$4,$5,$6::account_type,$7::account_subtype,$8::normal_balance,false,true,'active'::account_status)"#)
-            .bind(id).bind(company).bind(code).bind(code).bind(name).bind(a).bind(s).bind(nb).execute(&pool).await.unwrap();
+        sqlx::query(r#"INSERT INTO accounting.accounts (id, account_number, account_code, name, account_type, account_subtype, normal_balance, is_header, is_detail, status)
+            VALUES ($1,$2,$3,$4,$5::account_type,$6::account_subtype,$7::normal_balance,false,true,'active'::account_status)"#)
+            .bind(id).bind(code).bind(code).bind(name).bind(a).bind(s).bind(nb).execute(&pool).await.unwrap();
     }
 
     let inv = InventoryWriteService::new(pool.clone());
     let gl = Arc::new(GlAdapter { svc: PostingService::new(Arc::new(SqlxPostingRepository::new(pool.clone()))) });
 
-    // Warehouse + stock item + opening on-hand: receive 10 @ 60,000.
-    let wh = inv.create_warehouse(NewWarehouse { company_id: company, code: uq("WH"), name: "Toko".into(), warehouse_type: None, parent_warehouse_id: None, is_group: false }).await.unwrap();
+    // Warehouse + stock item + opening on-hand: receive 10 @ 60,000. Inventory still carries its
+    // own company axis (its strip lands in a later batch), so every inventory row is seeded under
+    // the scoped unit's legacy id — the same value POS's stock-issue request carries inside the
+    // org request scope.
+    let wh = inv.create_warehouse(NewWarehouse { company_id: company, code: uq("WH"), name: uq("Toko"), warehouse_type: None, parent_warehouse_id: None, is_group: false }).await.unwrap();
     inv.create_stock_item(NewStockItem { item_id: item, company_id: company, stock_uom: "PCS".into(), valuation_method: None, reorder_level: Decimal::ZERO }).await.unwrap();
     let receipt = inv.create_purchase_receipt(NewReceipt {
         receipt_number: uq("PR"), company_id: company, branch_id: None, supplier_id: Uuid::new_v4(), source_po_id: None,
         warehouse_id: wh, posting_date: at().date(), inventory_account_id: inv_acct, grir_account_id: grir_acct,
         currency: "IDR".into(),
-        lines: vec![InvReceiptLine { item_id: item, quantity: d("10"), rate: d("60000") }],
+        lines: vec![InvReceiptLine { item_id: item, quantity: d("10"), rate: d("60000"), is_landed_costs_line: false }],
     }).await.unwrap();
     inv.submit_purchase_receipt(receipt, &*gl).await.unwrap();
     assert_eq!(on_hand(&pool, item, wh).await, d("10.0000"), "seeded on-hand");
@@ -481,9 +524,9 @@ async fn retail_sale_decrements_stock_and_books_cogs() {
     let (prof, tax) = {
         let template = Uuid::new_v4();
         let id = Uuid::new_v4();
-        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, company_id, name, currency, tax_template_ids, receivable_account_id, income_account_id, cash_account_id, warehouse_id, cogs_account_id, inventory_account_id, default_customer_id, allow_discount, status)
-            VALUES ($1,$2,'Register 1','IDR',$3,$4,$5,$6,$7,$8,$9,$10,true,'active')"#)
-            .bind(id).bind(company).bind(serde_json::json!([template.to_string()])).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(wh).bind(cogs_acct).bind(inv_acct).bind(customer).execute(&pool).await.unwrap();
+        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, name, currency, tax_template_ids, receivable_account_id, income_account_id, cash_account_id, warehouse_id, cogs_account_id, inventory_account_id, default_customer_id, allow_discount, status)
+            VALUES ($1,'Register 1','IDR',$2,$3,$4,$5,$6,$7,$8,$9,true,'active')"#)
+            .bind(id).bind(serde_json::json!([template.to_string()])).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(wh).bind(cogs_acct).bind(inv_acct).bind(customer).execute(&pool).await.unwrap();
         (id, support::TestTax::with_rate(template, "0"))
     };
 
@@ -493,9 +536,9 @@ async fn retail_sale_decrements_stock_and_books_cogs() {
     let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone(), reconcile };
     let inventory_port = InventoryAdapter { inv: InventoryWriteService::new(pool.clone()), gl: gl.clone() };
 
-    let session = pos.open_session(NewSession { company_id: company, pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(), opened_at: at(), opening_balances: vec![] }).await.unwrap();
+    let session = pos.open_session(NewSession { pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(), opened_at: at(), opening_balances: vec![] }).await.unwrap();
     let sale = pos.ring_sale(NewSale {
-        company_id: company, pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
+        pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
         pos_table_id: None, discount_id: None,
         receipt_number: uq("R"), posting_at: at(),
         lines: vec![NewSaleLine { item_id: item, revenue_account_id: None, description: None, quantity: d("2"), unit_price: d("100000"), course: None, discount_amount: Decimal::ZERO }],
@@ -507,4 +550,6 @@ async fn retail_sale_decrements_stock_and_books_cogs() {
     assert_eq!(on_hand(&pool, item, wh).await, d("8.0000"), "on-hand decremented by the sale");
     assert_eq!(balance(&pool, cogs_acct).await, d("120000.00"), "COGS debited at cost");
     assert_eq!(balance(&pool, inv_acct).await, d("480000.00"), "inventory = 10*60k received − 2*60k issued");
+    },
+    ).await.unwrap();
 }

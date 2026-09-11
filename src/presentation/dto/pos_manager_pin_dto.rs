@@ -6,11 +6,14 @@
 //! This entity stores an ARGON2 CREDENTIAL HASH, so its DTO surface is deliberately credential-blind:
 //! NO DTO — request or response — carries `pin_hash`, and none carries the attempt-source address.
 //! The hash never leaves the server, and no generic CRUD surface can forge or overwrite one: the
-//! Create/Update/Patch DTOs accept only the identity dimensions (company, manager). The only way to
+//! Create/Update/Patch DTOs accept only the identity dimension (the manager). The only way to
 //! set or change a PIN is the guarded `set_pin` verb, which hashes server-side and checks authority.
 //!
 //! The generated CRUD handlers still compile against these DTOs, but a CRUD create produces a row
 //! whose hash is a non-verifying placeholder — a row that can never authenticate anyone.
+//!
+//! Tenancy is composition-installed (ADR-0029): no tenancy field on any DTO — the composing
+//! service's scope middleware owns the fence.
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -36,16 +39,13 @@ const NEVER_VERIFIES: &str = "(set via the guarded set-pin verb)";
 
 /// Request DTO for creating a new PosManagerPin row.
 ///
-/// Credential-blind: accepts only the identity dimensions. It cannot install a hash — use the
+/// Credential-blind: accepts only the identity dimension. It cannot install a hash — use the
 /// guarded `set_pin` verb (server-side argon2 + authority proof) to give a manager a working PIN.
 #[derive(Debug, Clone, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct CreatePosManagerPinDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "employee_party_id")]
     pub employee_party_id: Uuid,
@@ -57,16 +57,13 @@ pub struct CreatePosManagerPinDto {
 
 /// Request DTO for full update of a PosManagerPin row.
 ///
-/// Credential-blind: an update can re-point the identity dimensions but can never touch the hash,
+/// Credential-blind: an update can re-point the identity dimension but can never touch the hash,
 /// the failure counter, or the lockout — those change only through the verify path.
 #[derive(Debug, Clone, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdatePosManagerPinDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "employee_party_id")]
     pub employee_party_id: Uuid,
@@ -83,9 +80,6 @@ pub struct UpdatePosManagerPinDto {
 #[serde(rename_all = "camelCase")]
 pub struct PatchPosManagerPinDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "company_id")]
-    pub company_id: Option<Uuid>,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "employee_party_id")]
     pub employee_party_id: Option<Uuid>,
 }
@@ -93,7 +87,7 @@ pub struct PatchPosManagerPinDto {
 impl PatchPosManagerPinDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.employee_party_id.is_some()
+        self.employee_party_id.is_some()
     }
 }
 
@@ -110,8 +104,6 @@ impl PatchPosManagerPinDto {
 pub struct PosManagerPinResponseDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub employee_party_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = 42))]
@@ -175,7 +167,6 @@ impl PosManagerPinListResponseDto {
 #[serde(rename_all = "camelCase")]
 pub struct PosManagerPinSummaryDto {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub employee_party_id: Uuid,
     pub created_at: Option<DateTime<Utc>>,
 }
@@ -188,7 +179,6 @@ impl From<PosManagerPin> for PosManagerPinResponseDto {
     fn from(entity: PosManagerPin) -> Self {
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             employee_party_id: entity.employee_party_id,
             failed_attempts: entity.failed_attempts,
             locked_until: entity.locked_until,
@@ -203,7 +193,6 @@ impl From<PosManagerPin> for PosManagerPinSummaryDto {
         let created_at = backbone_core::PersistentEntity::created_at(&entity);
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             employee_party_id: entity.employee_party_id,
             created_at,
         }
@@ -215,7 +204,6 @@ impl From<CreatePosManagerPinDto> for PosManagerPin {
         // The placeholder can never verify — a credential-blind create cannot mint access.
         Self {
             id: Uuid::new_v4(),
-            company_id: dto.company_id,
             employee_party_id: dto.employee_party_id,
             pin_hash: NEVER_VERIFIES.to_string(),
             failed_attempts: 0,
@@ -231,7 +219,6 @@ impl From<&PosManagerPin> for PosManagerPinResponseDto {
     fn from(entity: &PosManagerPin) -> Self {
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             employee_party_id: entity.employee_party_id,
             failed_attempts: entity.failed_attempts,
             locked_until: entity.locked_until,
@@ -249,8 +236,7 @@ impl backbone_core::FromCreateDto<CreatePosManagerPinDto> for PosManagerPin {
 
 impl backbone_core::ApplyUpdateDto<UpdatePosManagerPinDto> for PosManagerPin {
     fn apply_update(mut self, dto: UpdatePosManagerPinDto) -> backbone_core::ServiceResult<Self> {
-        // Only the identity dimensions move; the credential + lockout state are verify-path-owned.
-        self.company_id = dto.company_id;
+        // Only the identity dimension moves; the credential + lockout state are verify-path-owned.
         self.employee_party_id = dto.employee_party_id;
         Ok(self)
     }

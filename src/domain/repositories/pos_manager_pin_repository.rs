@@ -44,7 +44,6 @@ pub struct PosManagerPinPaginatedResult {
 /// Filter parameters for list queries
 #[derive(Debug, Clone, Default)]
 pub struct PosManagerPinFilter {
-    pub company_id: Option<Uuid>,
     pub employee_party_id: Option<Uuid>,
     pub pin_hash: Option<String>,
     pub last_attempt_ip: Option<String>,
@@ -53,7 +52,7 @@ pub struct PosManagerPinFilter {
 impl PosManagerPinFilter {
     /// Check if any filter is set
     pub fn has_filters(&self) -> bool {
-        self.company_id.is_some() || self.employee_party_id.is_some() || self.pin_hash.is_some() || self.last_attempt_ip.is_some()
+        self.employee_party_id.is_some() || self.pin_hash.is_some() || self.last_attempt_ip.is_some()
     }
 }
 

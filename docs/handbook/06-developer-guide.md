@@ -97,7 +97,6 @@ A `PosProfile` and its accounts must already exist (see
 curl -s -X POST localhost:8080/pos-sessions \
   -H 'content-type: application/json' \
   -d '{
-    "companyId": "00000000-0000-0000-0000-0000000000c0",
     "posProfileId": "00000000-0000-0000-0000-0000000000f0",
     "cashierPartyId": "00000000-0000-0000-0000-0000000000ca",
     "openedAt": "2026-07-05T08:00:00",
@@ -114,7 +113,6 @@ A single line: 1 unit @ 100,000, no discount, no PPN, receipt rounded to the nea
 curl -s -X POST localhost:8080/pos-sales \
   -H 'content-type: application/json' \
   -d '{
-    "companyId": "00000000-0000-0000-0000-0000000000c0",
     "posProfileId": "00000000-0000-0000-0000-0000000000f0",
     "openingEntryId": "<opening id from step 1>",
     "receiptNumber": "R-0001",
@@ -190,7 +188,6 @@ composition of the two ports over the real billing/payment services.
 curl -s -X POST localhost:8080/pos-sessions/close \
   -H 'content-type: application/json' \
   -d '{
-    "companyId": "00000000-0000-0000-0000-0000000000c0",
     "openingEntryId": "<opening id from step 1>",
     "cashierPartyId": "00000000-0000-0000-0000-0000000000ca",
     "closedAt": "2026-07-05T20:00:00",
@@ -354,7 +351,7 @@ Write-path errors surface as `{ "error": "<code>", "message": "…" }` with HTTP
 | `not_draft` | Tendering a ticket that is already `paid`/`void`/`returned` | Tenders apply only to a `draft` ticket. |
 | `not_fully_tendered` | `recognize_sale` before `paid_total ≥ rounded_total` | Take more tender until `fullyTendered: true`. |
 | `missing_account` | Recognition with no `receivable_account_id` / `cash_account_id` / revenue account (or PPN with no tax account) | Configure the `PosProfile` accounts; PPN needs a tax account before it is accepted. |
-| `duplicate_number` | A `receiptNumber` already used | Receipt numbers are unique per company; use a fresh one. |
+| `duplicate_number` | A `receiptNumber` already used | Receipt numbers are unique across the module's table; use a fresh one. |
 | `not_returnable` | `return_sale` on a ticket that was never recognised | Only a `paid` (or already-`returned`) ticket can be returned. |
 | `backbone-schema: command not found` | Following an older framework doc/skill | There is no standalone `backbone-schema`/`backbone` binary — use `metaphor schema schema …`. |
 | JSON field rejected / null (`itemId` vs `item_id`) | Sending snake_case on the wire | Request bodies are **camelCase** by design; snake_case is DB/Rust only. |

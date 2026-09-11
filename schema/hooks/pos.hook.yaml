@@ -5,7 +5,7 @@
 # (pos_write_service.rs and its chunks: pos_sale, pos_tender, pos_recognition,
 # pos_drawer, pos_receipt, pos_sync, pos_compute, pos_discount, pos_session_alert),
 # proven by tests/ (pos_golden_cases, integrity_probes, pos_cash_movement,
-# pos_receipt, company_guard, retail_sale_seam, pos_sync_ui, pos_tax_compute,
+# pos_receipt, tenancy_posture_probe, retail_sale_seam, pos_sync_ui, pos_tax_compute,
 # pos_restaurant, pos_session_alert).
 #
 # ADR-0015 enforcement vocabulary: db = a DB object (CHECK / unique index / enum /
@@ -64,15 +64,15 @@ rules:
   - id: R1
     name: session_must_be_open
     when: ringing/tendering/cash_movement/x_report/close
-    assert: "the opening entry exists, belongs to the caller's company, and status == 'open'"
+    assert: "the opening entry exists, belongs to the caller's scope, and status == 'open'"
     error_code: session_not_open
     enforcement: service
-    note: "every write path reads the session status through the company-scoped helpers (RLS fences the lookup so another company's session is simply not found) and refuses unless open; close_session flips status inside the closing transaction so a counted drawer always closes the session"
+    note: "every write path reads the session status through the org-scoped helpers (the composing service's tenancy decorator fences the lookup so an out-of-scope session is simply not found) and refuses unless open; close_session flips status inside the closing transaction so a counted drawer always closes the session"
 
   - id: R2
     name: one_open_session_per_config
     when: opening_session
-    assert: "no other session with status='open' exists for the same (company_id, pos_profile_id)"
+    assert: "no other session with status='open' exists for the same register (pos_profile_id) — the decorator's org-scoped partial unique enforces it per unit"
     error_code: session_already_open
     enforcement: both
     note: "DB arm: partial unique index idx_pos_opening_entries_pos_profile_id WHERE status='open' AND deleted_at IS NULL; service arm maps the insert's unique violation to a friendly 422 (constraint-name discrimination on pos_profile_id)"
@@ -194,7 +194,7 @@ rules:
     assert: "PosTenderCompleted is emitted (and outbox-staged when configured) exactly on the tender that crosses full payment — never re-emitted on extra tenders"
     error_code: none
     enforcement: service
-    note: "the outbox record carries company_id as its top-level fence field (ADR-0011); double-delivery is a no-op because recognition is replay-safe"
+    note: "the outbox record carries the ambient org scope's legacy company echo as its top-level fence field (ADR-0011 wire shape; the column lives in the composing service's outbox, not here — ADR-0029); double-delivery is a no-op because recognition is replay-safe"
 
   - id: R18
     name: one_draft_per_table
@@ -210,7 +210,7 @@ rules:
     assert: "a ticket naming a pos_table_id seats at a table that exists in the caller's tenant"
     error_code: table_not_found
     enforcement: service
-    note: "a soft-deleted or cross-tenant table id is simply not found (the lookup is company-scoped with an explicit company_id filter); the seating is a UI affordance, not money — but a silent unseated ring would hide the mistake from the floor plan"
+    note: "a soft-deleted or out-of-scope table id is simply not found (the lookup rides the caller's relayed transaction under the composing service's fence); the seating is a UI affordance, not money — but a silent unseated ring would hide the mistake from the floor plan"
 
   - id: R20
     name: order_discount_server_priced
@@ -234,7 +234,7 @@ rules:
     assert: "an open session older than the threshold (7 days default) is alerted at most once — the claim stamps metadata->'stale_session_alerted_at' in the same transaction (single_transaction commit policy) under FOR UPDATE SKIP LOCKED"
     error_code: none
     enforcement: service
-    note: "the latch is the durable record; events are emitted after the latch commits, so a crash between commit and emit loses one alert run (re-derivable) rather than re-alerting forever; the handler is per-company — the composing host enumerates companies and rides its own daily schedule (ADR-0020 host_riding)"
+    note: "the latch is the durable record; events are emitted after the latch commits, so a crash between commit and emit loses one alert run (re-derivable) rather than re-alerting forever; the handler is per-unit — the composing host enumerates active org units and rides its own daily schedule (ADR-0020 host_riding)"
 
 # -----------------------------------------------------------------------------
 # Domain events (emission is the service's responsibility; sink or outbox).

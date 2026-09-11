@@ -2,7 +2,8 @@
 //!
 //! An `impl PosWriteService` chunk over the vocabulary in [`super::pos_write_service`]. A manager
 //! PIN is the register's Tier-B credential (PSX-4): a short numeric code whose ARGON2 HASH lives on
-//! `pos.pos_manager_pins`, one live PIN per manager per company. The hash NEVER leaves the server —
+//! `pos.pos_manager_pins`, one live PIN per manager (per org unit under composition — the composing
+//! service's decorator re-declares the live-credential unique). The hash NEVER leaves the server —
 //! not into a response, not into an event, not into a log line.
 //!
 //! **Privileged verbs verify on every call.** There is no session, no token, no "manager mode" a
@@ -21,25 +22,26 @@
 //!
 //! Per the module's 4-layer rule this file holds no SQL — the credential statements live on
 //! `PosManagerPinRepository`.
+//!
+//! Tenancy is composition-installed (ADR-0029): every credential read and write rides the caller's
+//! ambient org scope — under another unit's scope a manager's credential reads as plain absence
+//! (`PinNotFound`), so a PIN cannot be probed across units.
 
 use argon2::password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
 use uuid::Uuid;
 
-use backbone_orm::company_scope;
-
-use super::pos_write_service::{ManagerAuth, PosError, PosWriteService};
+use super::pos_write_service::{relay_ambient_scope, ManagerAuth, PosError, PosWriteService};
 
 /// A `set_pin` request: the manager getting a credential + the new PIN + the proof of authority.
 #[derive(Debug, Clone)]
 pub struct SetPin {
-    pub company_id: Uuid,
     pub employee_party_id: Uuid,
     /// Digits only; length must fall inside the policy window.
     pub new_pin: String,
     /// Proof of authority to set: the SAME manager's current PIN (self-change), ANOTHER manager's
-    /// verified PIN (supervised change), or `None` — allowed only while the company has no live PIN
-    /// at all (the bootstrap: the very first credential cannot demand a credential).
+    /// verified PIN (supervised change), or `None` — allowed only while the caller's scope holds no
+    /// live PIN at all (the bootstrap: the very first credential cannot demand a credential).
     pub current: Option<ManagerAuth>,
     pub source_ip: Option<String>,
 }
@@ -50,25 +52,26 @@ impl PosWriteService {
     pub async fn set_pin(&self, s: SetPin) -> Result<(), PosError> {
         // Strength first — a weak PIN never reaches the hash (and never burns the authority proof).
         validate_pin_strength(&s.new_pin, &self.pin_policy)?;
-        let company = s.company_id;
-        company_scope::with_company_scope(Some(company), async move {
-            // Authority: once ANY credential exists at the company, changing one requires proof —
-            // the manager's own current PIN, or another live manager's.
-            let bootstrapping = !self.pins.any_live_pin_exists(&self.db_pool, company).await?;
-            if !bootstrapping {
-                let proof = s.current.as_ref().ok_or(PosError::ManagerAuthRequired)?;
-                self.verify_manager_internal(company, proof, s.source_ip.as_deref()).await?;
-            }
-            let salt = SaltString::generate(&mut OsRng);
-            let hash = Argon2::default()
-                .hash_password(s.new_pin.as_bytes(), &salt)
-                .map_err(|e| PosError::Db(sqlx::Error::Protocol(format!("pin hash: {e}"))))?;
-            self.pins
-                .upsert_hash(&self.db_pool, company, s.employee_party_id, &hash.to_string(), chrono::Utc::now(), s.source_ip.as_deref())
-                .await?;
-            Ok(())
-        })
-        .await
+        // One scope-relayed transaction (ADR-0029): the bootstrap read, the authority proof, and the
+        // credential write all see through the same fence.
+        let mut tx = self.db_pool.begin().await?;
+        relay_ambient_scope(&mut tx).await?;
+        // Authority: once ANY credential exists in the caller's scope, changing one requires proof —
+        // the manager's own current PIN, or another live manager's.
+        let bootstrapping = !self.pins.any_live_pin_exists_on(&mut *tx).await?;
+        if !bootstrapping {
+            let proof = s.current.as_ref().ok_or(PosError::ManagerAuthRequired)?;
+            self.verify_manager_internal(proof, s.source_ip.as_deref()).await?;
+        }
+        let salt = SaltString::generate(&mut OsRng);
+        let hash = Argon2::default()
+            .hash_password(s.new_pin.as_bytes(), &salt)
+            .map_err(|e| PosError::Db(sqlx::Error::Protocol(format!("pin hash: {e}"))))?;
+        self.pins
+            .upsert_hash_on(&mut tx, s.employee_party_id, &hash.to_string(), chrono::Utc::now(), s.source_ip.as_deref())
+            .await?;
+        tx.commit().await?;
+        Ok(())
     }
 
     /// Verify a manager's PIN — the gate every privileged mutation calls. Fails CLOSED on every
@@ -78,23 +81,21 @@ impl PosWriteService {
     /// resets an in-progress attack.
     pub async fn verify_pin(
         &self,
-        company_id: Uuid,
         employee_party_id: Uuid,
         pin: &str,
         source_ip: Option<&str>,
     ) -> Result<(), PosError> {
         self.verify_manager_internal(
-            company_id,
             &ManagerAuth { employee_party_id, pin: pin.to_string() },
             source_ip,
         )
         .await
     }
 
-    /// The shared verify path (also what privileged verbs call through [`ManagerAuth`]).
+    /// The shared verify path (also what privileged verbs call through [`ManagerAuth`]). Rides the
+    /// ambient org scope (ADR-0029).
     pub(super) async fn verify_manager_internal(
         &self,
-        company_id: Uuid,
         auth: &ManagerAuth,
         source_ip: Option<&str>,
     ) -> Result<(), PosError> {
@@ -106,42 +107,39 @@ impl PosWriteService {
                 return Err(PosError::PinThrottled);
             }
         }
-        company_scope::with_company_scope(Some(company_id), async move {
-            let cred = self.pins
-                .fetch_credential(&self.db_pool, company_id, auth.employee_party_id)
-                .await?
-                .ok_or(PosError::PinNotFound)?;
-            let now = chrono::Utc::now();
-            if let Some(until) = cred.locked_until {
-                if until > now {
-                    return Err(PosError::PinLocked { until });
-                }
+        let cred = self.pins
+            .fetch_credential(&self.db_pool, auth.employee_party_id)
+            .await?
+            .ok_or(PosError::PinNotFound)?;
+        let now = chrono::Utc::now();
+        if let Some(until) = cred.locked_until {
+            if until > now {
+                return Err(PosError::PinLocked { until });
             }
-            let parsed = match PasswordHash::new(&cred.pin_hash) {
-                Ok(h) => h,
-                // An unreadable hash — a corrupt row, or a credential-blind CRUD create that landed on
-                // the non-verifying placeholder — is not a server fault: it is a credential that cannot
-                // authenticate anyone. Fail closed as a wrong-PIN (403), never a 500.
-                Err(_) => return Err(PosError::PinInvalid),
-            };
-            if Argon2::default().verify_password(auth.pin.as_bytes(), &parsed).is_ok() {
-                self.pins.record_success(&self.db_pool, cred.id, now, source_ip).await?;
-                Ok(())
+        }
+        let parsed = match PasswordHash::new(&cred.pin_hash) {
+            Ok(h) => h,
+            // An unreadable hash — a corrupt row, or a credential-blind CRUD create that landed on
+            // the non-verifying placeholder — is not a server fault: it is a credential that cannot
+            // authenticate anyone. Fail closed as a wrong-PIN (403), never a 500.
+            Err(_) => return Err(PosError::PinInvalid),
+        };
+        if Argon2::default().verify_password(auth.pin.as_bytes(), &parsed).is_ok() {
+            self.pins.record_success(&self.db_pool, cred.id, now, source_ip).await?;
+            Ok(())
+        } else {
+            let lockout_until = now + chrono::Duration::seconds(self.pin_policy.lockout_secs);
+            self.pins
+                .record_failure(&self.db_pool, cred.id, self.pin_policy.max_attempts, lockout_until, now, source_ip)
+                .await?;
+            // Report the lock when THIS failure crossed the threshold — the manager sees the
+            // unlock instant instead of a bare "wrong PIN" they cannot recover from.
+            if cred.failed_attempts + 1 >= self.pin_policy.max_attempts as i32 {
+                Err(PosError::PinLocked { until: lockout_until })
             } else {
-                let lockout_until = now + chrono::Duration::seconds(self.pin_policy.lockout_secs);
-                self.pins
-                    .record_failure(&self.db_pool, cred.id, self.pin_policy.max_attempts, lockout_until, now, source_ip)
-                    .await?;
-                // Report the lock when THIS failure crossed the threshold — the manager sees the
-                // unlock instant instead of a bare "wrong PIN" they cannot recover from.
-                if cred.failed_attempts + 1 >= self.pin_policy.max_attempts as i32 {
-                    Err(PosError::PinLocked { until: lockout_until })
-                } else {
-                    Err(PosError::PinInvalid)
-                }
+                Err(PosError::PinInvalid)
             }
-        })
-        .await
+        }
     }
 
     /// Consume one verification attempt from a source address's rolling budget. `false` = over

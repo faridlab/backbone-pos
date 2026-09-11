@@ -12,8 +12,6 @@ use rust_decimal::Decimal;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-use backbone_orm::company_scope;
-
 use crate::domain::entity::PosClosingEntry;
 
 /// Table name for PosClosingEntry entities
@@ -44,7 +42,6 @@ impl PosClosingEntryRepository {
 /// `invoice_count` is the `i32` the column holds. `status` is fixed to `'submitted'` by the SQL.
 pub struct NewClosingEntryRow {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub pos_profile_id: Uuid,
     pub opening_entry_id: Uuid,
     pub closed_at: chrono::NaiveDateTime,
@@ -61,8 +58,8 @@ impl PosClosingEntryRepository {
     /// Write the closing entry (the Z-report).
     ///
     /// Takes the CALLER'S connection so the closing entry and the session's flip to `closed` commit as
-    /// one unit — a drawer is never counted without the session closing. The caller has already bound
-    /// the company on it (`bind_current_company`) — don't re-bind here.
+    /// one unit — a drawer is never counted without the session closing. The caller has already
+    /// relayed the ambient org scope onto it (ADR-0029) — don't re-bind here.
     pub async fn insert_closing_entry(
         &self,
         conn: &mut sqlx::PgConnection,
@@ -70,11 +67,11 @@ impl PosClosingEntryRepository {
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO pos.pos_closing_entries
-                (id, company_id, pos_profile_id, opening_entry_id, closed_at, cashier_party_id,
+                (id, pos_profile_id, opening_entry_id, closed_at, cashier_party_id,
                  totals_by_method, grand_total, invoice_count, difference_total, status)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'submitted'::pos_closing_status)"#,
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'submitted'::pos_closing_status)"#,
         )
-        .bind(c.id).bind(c.company_id).bind(c.pos_profile_id).bind(c.opening_entry_id).bind(c.closed_at)
+        .bind(c.id).bind(c.pos_profile_id).bind(c.opening_entry_id).bind(c.closed_at)
         .bind(c.cashier_party_id).bind(sqlx::types::Json(&c.totals_by_method)).bind(c.grand_total)
         .bind(c.invoice_count).bind(c.difference_total)
         .execute(conn)

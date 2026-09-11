@@ -26,10 +26,6 @@ models:
         type: uuid
         attributes: ["@id", "@default(uuid)"]
         description: "Unique floor plan id"
-      company_id:
-        type: uuid
-        attributes: ["@required", "@exclude_from_foreign_key_check"]
-        description: "Books owner # logical FK to organization.Company.id"
       branch_id:
         type: uuid?
         attributes: ["@exclude_from_foreign_key_check"]
@@ -54,8 +50,9 @@ models:
         inverse: floor_plan
 
     indexes:
-      - type: index
-        fields: [company_id, branch_id]
+      # No tenancy indexes (ADR-0029): the module is tenant-agnostic. The
+      # unit-leading branch listing index is installed by the composing service's
+      # tenancy decorator, not declared here.
 
   - name: PosTable
     collection: pos_tables
@@ -66,10 +63,6 @@ models:
         type: uuid
         attributes: ["@id", "@default(uuid)"]
         description: "Unique table id"
-      company_id:
-        type: uuid
-        attributes: ["@required", "@exclude_from_foreign_key_check"]
-        description: "Books owner # logical FK to organization.Company.id"
       pos_floor_plan_id:
         type: uuid
         attributes: ["@required", "@foreign_key(PosFloorPlan.id)"]
