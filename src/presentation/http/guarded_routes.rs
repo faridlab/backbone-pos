@@ -14,10 +14,16 @@
 //! a `PosTaxComputePort` (document-grade tax — every ring), a `PosCashVariancePort` (session-close
 //! GL correction), and the `BillingPort`/`PaymentPort` pair (only the offline REFUND replay drives
 //! them, through the same reversal pair `return_sale` uses).
+//!
+//! The module ships BARE of authentication (ADR-0029, the org-composed shape): the composing
+//! service wraps this router in its org scope middleware (`org_auth` + the tenant router). The
+//! handlers below extract [`OrgContext`] purely to read the acting node — the branch a session
+//! opens at is the signed `acting_unit_id`, never a body field — while the fence itself is the
+//! request's org scope on the request-dedicated connection.
 
 use std::sync::Arc;
 
-use axum::{extract::{Path, State}, http::StatusCode, middleware::from_fn_with_state, response::IntoResponse, routing::{get, post}, Json, Router};
+use axum::{extract::{Path, State}, http::StatusCode, response::IntoResponse, routing::{get, post}, Json, Router};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -33,7 +39,7 @@ use crate::application::service::pos_write_service::{
 use crate::application::service::pos_manager_pin::SetPin;
 use crate::PosModule;
 
-use backbone_auth::company::{company_auth, CompanyContext, CompanyVerifier};
+use backbone_auth::org::OrgContext;
 use super::{
     create_pos_discount_read_routes, create_pos_floor_plan_read_routes, create_pos_invoice_read_routes,
     create_pos_opening_entry_read_routes, create_pos_profile_read_routes, create_pos_table_read_routes,
@@ -119,12 +125,13 @@ struct OpenSessionBody {
     opened_at: chrono::NaiveDateTime,
     #[serde(default)] opening_balances: Vec<OpeningBalanceBody>,
 }
-async fn open_session(State(st): State<WriteState>, tenant: CompanyContext, Json(b): Json<OpenSessionBody>) -> axum::response::Response {
+async fn open_session(State(st): State<WriteState>, org: OrgContext, Json(b): Json<OpenSessionBody>) -> axum::response::Response {
     // branch_id comes from the authenticated principal, never the request body (it is a business
-    // column, not the tenancy axis). Tenancy is composition-installed (ADR-0029): no company field —
-    // the composing service's scope middleware fences the insert.
+    // column, not the tenancy axis): the signed acting node IS the branch the session opens at.
+    // Tenancy is composition-installed (ADR-0029): no company field — the composing service's
+    // org scope middleware fences the insert.
     let s = NewSession {
-        pos_profile_id: b.pos_profile_id, branch_id: tenant.branch_id,
+        pos_profile_id: b.pos_profile_id, branch_id: Some(org.acting_unit_id),
         cashier_party_id: b.cashier_party_id, opened_at: b.opened_at,
         opening_balances: b.opening_balances.into_iter().map(|o| (o.method, o.amount)).collect(),
     };
@@ -162,17 +169,17 @@ struct RingSaleBody {
     posting_at: chrono::NaiveDateTime,
     lines: Vec<SaleLineBody>,
 }
-async fn ring_sale(State(st): State<WriteState>, tenant: CompanyContext, Json(b): Json<RingSaleBody>) -> axum::response::Response {
-    // Tenant is composition-installed (ADR-0029): the composing service's scope middleware fences
-    // the session lookup, so a session outside the caller's scope reads as plain absence — a token
-    // for one unit cannot ring against another unit's opening_entry_id. EVERY money field is
-    // server-derived: tax resolves through the register's templates via the tax port, and cash
+async fn ring_sale(State(st): State<WriteState>, org: OrgContext, Json(b): Json<RingSaleBody>) -> axum::response::Response {
+    // Tenancy is composition-installed (ADR-0029): the composing service's org scope middleware
+    // fences the session lookup, so a session outside the caller's scope reads as plain absence —
+    // a token for one unit cannot ring against another unit's opening_entry_id. EVERY money field
+    // is server-derived: tax resolves through the register's templates via the tax port, and cash
     // rounding comes from the register's configuration — the body has no total fields at all (a
     // client can neither omit nor overstate the VAT or the pay-to total). The order-level discount
     // is likewise server-priced: only the master's id is accepted, never a rate.
     let sale = NewSale {
         pos_profile_id: b.pos_profile_id, opening_entry_id: b.opening_entry_id,
-        branch_id: tenant.branch_id, customer_id: b.customer_id, pos_table_id: b.pos_table_id,
+        branch_id: Some(org.acting_unit_id), customer_id: b.customer_id, pos_table_id: b.pos_table_id,
         discount_id: b.discount_id, receipt_number: b.receipt_number, posting_at: b.posting_at,
         lines: b.lines.into_iter().map(|l| NewSaleLine {
             item_id: l.item_id, revenue_account_id: l.revenue_account_id, description: l.description,
@@ -193,7 +200,7 @@ struct TenderBody {
     amount: Decimal,
     #[serde(default)] reference_no: Option<String>,
 }
-async fn add_tender(State(st): State<WriteState>, _tenant: CompanyContext, Json(b): Json<TenderBody>) -> axum::response::Response {
+async fn add_tender(State(st): State<WriteState>, Json(b): Json<TenderBody>) -> axum::response::Response {
     match st.svc.add_tender(b.pos_invoice_id, &b.payment_method, b.amount, b.reference_no).await {
         Ok(o) => (StatusCode::OK, Json(serde_json::json!({
             "paidTotal": o.paid_total, "changeDue": o.change_due, "fullyTendered": o.fully_tendered,
@@ -224,9 +231,9 @@ struct CloseBody {
     /// written (the close is the one POS verb that books a GL correction on its own account).
     manager: ManagerBody,
 }
-async fn close_session(State(st): State<WriteState>, headers: axum::http::HeaderMap, _tenant: CompanyContext, Json(b): Json<CloseBody>) -> axum::response::Response {
-    // Tenancy is composition-installed (ADR-0029): the composing service's scope middleware fences
-    // the opening-entry lookup; no company field rides the verb.
+async fn close_session(State(st): State<WriteState>, headers: axum::http::HeaderMap, Json(b): Json<CloseBody>) -> axum::response::Response {
+    // Tenancy is composition-installed (ADR-0029): the composing service's org scope middleware
+    // fences the opening-entry lookup; no company field rides the verb.
     let c = NewClose {
         opening_entry_id: b.opening_entry_id, cashier_party_id: b.cashier_party_id,
         closed_at: b.closed_at, counted: b.counted.into_iter().map(|x| (x.method, x.amount)).collect(),
@@ -296,17 +303,17 @@ struct SyncSaleBody {
     #[serde(default)] refund_of_client_uuid: Option<Uuid>,
     #[serde(default)] manager: Option<ManagerBody>,
 }
-async fn sync_from_ui(State(st): State<WriteState>, headers: axum::http::HeaderMap, tenant: CompanyContext, Json(b): Json<SyncSaleBody>) -> axum::response::Response {
+async fn sync_from_ui(State(st): State<WriteState>, headers: axum::http::HeaderMap, org: OrgContext, Json(b): Json<SyncSaleBody>) -> axum::response::Response {
     // No total field exists on this body by design: the server recomputes every money field from the
     // lines + tenders through the same compute core the online ring uses. Tenancy is
     // composition-installed (ADR-0029): no company field — the replay namespaces inside the acting
-    // unit's scope.
+    // unit's scope (the signed acting node IS the branch).
     let s = NewSyncSale {
         client_uuid: b.client_uuid,
         pos_profile_id: b.pos_profile_id,
         opening_entry_id: b.opening_entry_id,
         rescue_opening_entry_id: b.rescue_opening_entry_id,
-        branch_id: tenant.branch_id,
+        branch_id: Some(org.acting_unit_id),
         customer_id: b.customer_id,
         pos_table_id: b.pos_table_id,
         discount_id: b.discount_id,
@@ -353,7 +360,7 @@ struct SetPinBody {
     /// another manager's. Absent is valid only for the very first credential (bootstrap).
     #[serde(default)] current: Option<ManagerBody>,
 }
-async fn set_pin(State(st): State<WriteState>, headers: axum::http::HeaderMap, _tenant: CompanyContext, Json(b): Json<SetPinBody>) -> axum::response::Response {
+async fn set_pin(State(st): State<WriteState>, headers: axum::http::HeaderMap, Json(b): Json<SetPinBody>) -> axum::response::Response {
     // Tenancy is composition-installed (ADR-0029): the credential namespaces inside the acting
     // unit's scope; no company field rides the verb.
     let s = SetPin {
@@ -371,7 +378,7 @@ async fn set_pin(State(st): State<WriteState>, headers: axum::http::HeaderMap, _
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct VerifyPinBody { employee_party_id: Uuid, pin: String }
-async fn verify_pin(State(st): State<WriteState>, headers: axum::http::HeaderMap, _tenant: CompanyContext, Json(b): Json<VerifyPinBody>) -> axum::response::Response {
+async fn verify_pin(State(st): State<WriteState>, headers: axum::http::HeaderMap, Json(b): Json<VerifyPinBody>) -> axum::response::Response {
     match st.svc.verify_pin(b.employee_party_id, &b.pin, source_ip(&headers).as_deref()).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => err(e),
@@ -422,13 +429,13 @@ struct PricedState {
     pricing: Arc<dyn CartPricingPort>,
 }
 
-async fn ring_sale_priced(State(st): State<PricedState>, tenant: CompanyContext, Json(b): Json<RingSalePricedBody>) -> axum::response::Response {
+async fn ring_sale_priced(State(st): State<PricedState>, org: OrgContext, Json(b): Json<RingSalePricedBody>) -> axum::response::Response {
     // Tenancy is composition-installed (ADR-0029): the composing adapter binds the ambient org scope
     // around promo's cart pricer, so no company field rides the request (branch_id is a business
-    // column and still comes off the principal).
+    // column and still comes off the signed acting node).
     let cart = NewCartSale {
         pos_profile_id: b.pos_profile_id, opening_entry_id: b.opening_entry_id,
-        branch_id: tenant.branch_id, customer_id: b.customer_id, customer_group_id: b.customer_group_id,
+        branch_id: Some(org.acting_unit_id), customer_id: b.customer_id, customer_group_id: b.customer_group_id,
         coupon_code: b.coupon_code, pos_table_id: b.pos_table_id, discount_id: b.discount_id,
         receipt_number: b.receipt_number, posting_at: b.posting_at,
         lines: b.lines.into_iter().map(|l| CartSaleLine {
@@ -443,16 +450,15 @@ async fn ring_sale_priced(State(st): State<PricedState>, tenant: CompanyContext,
     }
 }
 
-/// Mount ONLY the promo-priced ring route (`POST /sales/priced`), authenticated. Merge this in
+/// Mount ONLY the promo-priced ring route (`POST /sales/priced`). Merge this in
 /// addition to `create_guarded_pos_routes` when the service has a promo-backed `CartPricingPort`.
 pub fn create_guarded_pos_priced_route(
     pool: PgPool,
-    verifier: CompanyVerifier,
     pricing: Arc<dyn CartPricingPort>,
     sink: Arc<dyn PosEventSink>,
     tax: Arc<dyn PosTaxComputePort>,
 ) -> Router {
-    create_guarded_pos_priced_route_inner(pool, verifier, pricing, sink, tax, None)
+    create_guarded_pos_priced_route_inner(pool, pricing, sink, tax, None)
 }
 
 /// Like [`create_guarded_pos_priced_route`] but opts the priced-ring write service into
@@ -460,18 +466,16 @@ pub fn create_guarded_pos_priced_route(
 /// [`create_guarded_pos_routes_with_outbox`] for the service-side setup the schema implies.
 pub fn create_guarded_pos_priced_route_with_outbox(
     pool: PgPool,
-    verifier: CompanyVerifier,
     pricing: Arc<dyn CartPricingPort>,
     sink: Arc<dyn PosEventSink>,
     tax: Arc<dyn PosTaxComputePort>,
     outbox_schema: String,
 ) -> Router {
-    create_guarded_pos_priced_route_inner(pool, verifier, pricing, sink, tax, Some(outbox_schema))
+    create_guarded_pos_priced_route_inner(pool, pricing, sink, tax, Some(outbox_schema))
 }
 
 fn create_guarded_pos_priced_route_inner(
     pool: PgPool,
-    verifier: CompanyVerifier,
     pricing: Arc<dyn CartPricingPort>,
     sink: Arc<dyn PosEventSink>,
     tax: Arc<dyn PosTaxComputePort>,
@@ -493,7 +497,6 @@ fn create_guarded_pos_priced_route_inner(
     let st = PricedState { write, pricing };
     Router::new()
         .route("/sales/priced", post(ring_sale_priced))
-        .route_layer(from_fn_with_state(verifier, company_auth))
         .with_state(st)
 }
 
@@ -509,9 +512,9 @@ struct CashMovementBody {
     #[serde(default)] reason: Option<String>,
     moved_at: chrono::NaiveDateTime,
 }
-async fn record_cash_movement(State(st): State<WriteState>, _tenant: CompanyContext, Json(b): Json<CashMovementBody>) -> axum::response::Response {
-    // Tenancy is composition-installed (ADR-0029): the composing service's scope middleware fences
-    // the session lookup; no company field rides the verb.
+async fn record_cash_movement(State(st): State<WriteState>, Json(b): Json<CashMovementBody>) -> axum::response::Response {
+    // Tenancy is composition-installed (ADR-0029): the composing service's org scope middleware
+    // fences the session lookup; no company field rides the verb.
     let m = NewCashMovement {
         pos_profile_id: b.pos_profile_id, opening_entry_id: b.opening_entry_id,
         cashier_party_id: b.cashier_party_id, movement_type: b.movement_type, amount: b.amount,
@@ -523,7 +526,7 @@ async fn record_cash_movement(State(st): State<WriteState>, _tenant: CompanyCont
     }
 }
 
-async fn x_report(State(st): State<WriteState>, _tenant: CompanyContext, Path(opening_entry_id): Path<Uuid>) -> axum::response::Response {
+async fn x_report(State(st): State<WriteState>, Path(opening_entry_id): Path<Uuid>) -> axum::response::Response {
     match st.svc.x_report(opening_entry_id).await {
         Ok(r) => (StatusCode::OK, Json(serde_json::json!({
             "openingEntryId": r.opening_entry_id,
@@ -535,7 +538,7 @@ async fn x_report(State(st): State<WriteState>, _tenant: CompanyContext, Path(op
     }
 }
 
-async fn receipt(State(st): State<WriteState>, _tenant: CompanyContext, Path(pos_invoice_id): Path<Uuid>) -> axum::response::Response {
+async fn receipt(State(st): State<WriteState>, Path(pos_invoice_id): Path<Uuid>) -> axum::response::Response {
     match st.svc.receipt(pos_invoice_id).await {
         Ok(r) => {
             let text = r.render_text();
@@ -549,7 +552,7 @@ async fn receipt(State(st): State<WriteState>, _tenant: CompanyContext, Path(pos
     }
 }
 
-fn write_routes(st: WriteState, verifier: CompanyVerifier) -> Router {
+fn write_routes(st: WriteState) -> Router {
     Router::new()
         .route("/sessions", post(open_session))
         .route("/sessions/close", post(close_session))
@@ -561,41 +564,33 @@ fn write_routes(st: WriteState, verifier: CompanyVerifier) -> Router {
         .route("/receipts/:pos_invoice_id", get(receipt))
         .route("/manager-pins", post(set_pin))
         .route("/manager-pins/verify", post(verify_pin))
-        // Every write requires a valid Bearer token; the layer inserts the CompanyContext the handlers
-        // extract (an authentication gate only — tenancy is composition-installed, ADR-0029, and the
-        // composing service's scope middleware owns the fence). Unauthenticated writes get 401 before
-        // touching the service.
-        .route_layer(from_fn_with_state(verifier, company_auth))
         .with_state(st)
 }
 
-/// Mount the POS module: read documents + **authenticated** validated writes. Generic mutation is not
-/// mounted; sale recognition (billing + payment handoff) is service/job-driven via the ports. The
-/// `verifier` (built by the composing service from `JWT_SECRET`) authenticates every write — callers
-/// do not send `company_id` in the body, and the module itself keys nothing on tenancy
-/// (composition-installed, ADR-0029: the composing service's scope middleware fences every statement
-/// these routes issue).
+/// Mount the POS module: read documents + validated writes, BARE of authentication. Generic mutation
+/// is not mounted; sale recognition (billing + payment handoff) is service/job-driven via the ports.
+/// The module keys nothing on tenancy (composition-installed, ADR-0029): the composing service wraps
+/// this router in its org scope middleware, whose request-dedicated connection fences every
+/// statement these routes issue. Unauthenticated requests never reach a handler — the org guard
+/// rejects them first. Callers send no `company_id` in the body.
 /// **Prefer this over `PosModule::all_crud_routes()` for any real deployment.**
 ///
 /// `tax` resolves document-grade tax for every ring (implement over the tax module's
 /// `calculate_document`); `variance` books the session-close GL correction; `billing` + `payment` are
 /// driven only by offline REFUND replays (the same reversal pair `return_sale` uses).
 ///
-/// Read routes are authenticated: the same `company_auth` layer wraps them. The generic list/get path
-/// rides the request-dedicated connection the scope middleware holds, so the composed fence returns
-/// only rows the caller's org scope entitles it to. Unauthenticated reads get 401 — these surfaces
-/// expose business data.
+/// Read routes ride the same request-dedicated connection, so the composed fence returns only rows
+/// the caller's org scope entitles it to.
 pub fn create_guarded_pos_routes(
     m: &PosModule,
     pool: PgPool,
-    verifier: CompanyVerifier,
     sink: Arc<dyn PosEventSink>,
     tax: Arc<dyn PosTaxComputePort>,
     variance: Arc<dyn PosCashVariancePort>,
     billing: Arc<dyn BillingPort>,
     payment: Arc<dyn PaymentPort>,
 ) -> Router {
-    create_guarded_pos_routes_inner(m, pool, verifier, sink, tax, variance, billing, payment, None)
+    create_guarded_pos_routes_inner(m, pool, sink, tax, variance, billing, payment, None)
 }
 
 /// Like [`create_guarded_pos_routes`] but opts the write service into outbox-backed
@@ -605,7 +600,6 @@ pub fn create_guarded_pos_routes(
 pub fn create_guarded_pos_routes_with_outbox(
     m: &PosModule,
     pool: PgPool,
-    verifier: CompanyVerifier,
     sink: Arc<dyn PosEventSink>,
     tax: Arc<dyn PosTaxComputePort>,
     variance: Arc<dyn PosCashVariancePort>,
@@ -613,13 +607,12 @@ pub fn create_guarded_pos_routes_with_outbox(
     payment: Arc<dyn PaymentPort>,
     outbox_schema: String,
 ) -> Router {
-    create_guarded_pos_routes_inner(m, pool, verifier, sink, tax, variance, billing, payment, Some(outbox_schema))
+    create_guarded_pos_routes_inner(m, pool, sink, tax, variance, billing, payment, Some(outbox_schema))
 }
 
 fn create_guarded_pos_routes_inner(
     m: &PosModule,
     pool: PgPool,
-    verifier: CompanyVerifier,
     sink: Arc<dyn PosEventSink>,
     tax: Arc<dyn PosTaxComputePort>,
     variance: Arc<dyn PosCashVariancePort>,
@@ -637,14 +630,13 @@ fn create_guarded_pos_routes_inner(
         .merge(create_pos_opening_entry_read_routes(m.pos_opening_entry_service.clone()))
         .merge(create_pos_invoice_read_routes(m.pos_invoice_service.clone()))
         // Restaurant lane: floor plans + tables (seating surfaces) and the discount masters (the
-        // order-level discount rate source) as tenant-scoped reads.
+        // order-level discount rate source) as org-scoped reads.
         .merge(create_pos_floor_plan_read_routes(m.pos_floor_plan_service.clone()))
         .merge(create_pos_table_read_routes(m.pos_table_service.clone()))
-        .merge(create_pos_discount_read_routes(m.pos_discount_service.clone()))
-        .route_layer(from_fn_with_state(verifier.clone(), company_auth));
+        .merge(create_pos_discount_read_routes(m.pos_discount_service.clone()));
     Router::new()
         .merge(reads)
-        .merge(write_routes(write, verifier))
+        .merge(write_routes(write))
 }
 
 // --- placeholders for the priced-route-only state shape -------------------------

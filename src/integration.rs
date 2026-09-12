@@ -28,9 +28,10 @@
 //! let inventory: Option<Arc<dyn InventoryPort>> = /* your adapter */;
 //! // subscribe to tenders → drive recognition exactly once
 //! let sink = RecognitionSink::new(pool.clone(), billing, payment, inventory);
-//! // mount the guarded, tenant-fenced, outbox-durable surface
+//! // mount the guarded surface — bare of auth; wrap it in YOUR org scope middleware
+//! // (org_auth + the tenant router) so the request-dedicated connection fences it
 //! let router = create_guarded_pos_routes_with_outbox(
-//!     &pos, pool, tenant_verifier, sink, tax, variance, billing, payment, schema,
+//!     &pos, pool, sink, tax, variance, billing, payment, schema,
 //! );
 //! ```
 
@@ -45,7 +46,9 @@ pub use crate::presentation::http::{
     create_guarded_pos_priced_route, create_guarded_pos_priced_route_with_outbox,
 };
 
-// --- Tenant / company auth (the JWT `CompanyContext` the guarded surface reads) -
+// --- Tenant / company auth re-exports -------------------------------------------
+// The guarded surface itself ships bare and reads `OrgContext` (ADR-0029 org-composed shape); these
+// re-exports stay for composing services that still run their own company lane on module routes.
 // `Company*` are the canonical names (ADR-0005). `Tenant*` are deprecated aliases kept for back-compat.
 pub use crate::presentation::http::{company_auth, CompanyClaims, CompanyContext, CompanyVerifier};
 #[allow(deprecated)]
