@@ -17,11 +17,11 @@ path = "src/lib.rs"
 # or `rev = "<commit-sha>"`. Cargo dedupes the git fetch — the repo is only
 # cloned once even though four crates reference it.
 # -----------------------------------------------------------------------------
-backbone-core = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.19", features = ["postgres"] }
-backbone-orm = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.19" }
-backbone-outbox = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.19", features = ["multi_tenant"] }
-backbone-auth = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.19", features = ["axum"] }
-backbone-messaging = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.19" }
+backbone-core = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.20", features = ["postgres"] }
+backbone-orm = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.20" }
+backbone-outbox = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.20", features = ["multi_tenant"] }
+backbone-auth = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.20", features = ["axum"] }
+backbone-messaging = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.20" }
 
 # Core async runtime and serialization
 tokio = { version = "1.0", features = ["full"] }
@@ -101,7 +101,7 @@ argon2 = "0.5"
 #   • Local dev (full workspace)   → .cargo/config.toml (gitignored) [patch]es each git source back
 #     to ../backbone-*, so uncommitted sibling edits propagate instantly. Recreate it from
 #     .cargo/config.toml.example. Without that file present, Cargo falls through to the git tags.
-backbone-accounting = { git = "https://github.com/faridlab/backbone-accounting", tag = "v0.8.1" }
-backbone-billing = { git = "https://github.com/faridlab/backbone-billing", tag = "v0.6.0" }
-backbone-payment = { git = "https://github.com/faridlab/backbone-payment", tag = "v0.9.1" }
-backbone-inventory = { git = "https://github.com/faridlab/backbone-inventory", tag = "v0.9.1" }
+backbone-accounting = { git = "https://github.com/faridlab/backbone-accounting", tag = "v0.9.0" }
+backbone-billing = { git = "https://github.com/faridlab/backbone-billing", tag = "v0.8.0" }
+backbone-payment = { git = "https://github.com/faridlab/backbone-payment", tag = "v0.11.0" }
+backbone-inventory = { git = "https://github.com/faridlab/backbone-inventory", tag = "v0.9.2" }
