@@ -7,7 +7,7 @@ info:
     This API provides 11 standard CRUD endpoints for each model.
 
 servers:
-  - url: http://localhost:3000
+  - url: /
     description: Development server
 
 tags:
@@ -35,7 +35,7 @@ tags:
     description: PosTable management endpoints
 
 paths:
-  /api/v1/pos_closing_entries:
+  /api/v1/pos/pos_closing_entries:
     get:
       tags:
         - PosClosingEntries
@@ -81,7 +81,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /api/v1/pos_closing_entries/{id}:
+  /api/v1/pos/pos_closing_entries/{id}:
     parameters:
       - $ref: '#/components/parameters/IdParam'
 
@@ -153,7 +153,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_closing_entries/bulk:
+  /api/v1/pos/pos_closing_entries/bulk:
     post:
       tags:
         - PosClosingEntries
@@ -245,7 +245,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_closing_entries/upsert:
+  /api/v1/pos/pos_closing_entries/upsert:
     post:
       tags:
         - PosClosingEntries
@@ -275,7 +275,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosClosingEntry'
 
-  /api/v1/pos_closing_entries/trash:
+  /api/v1/pos/pos_closing_entries/trash:
     get:
       tags:
         - PosClosingEntries
@@ -292,7 +292,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosClosingEntryList'
 
-  /api/v1/pos_closing_entries/{id}/restore:
+  /api/v1/pos/pos_closing_entries/{id}/restore:
     parameters:
       - $ref: '#/components/parameters/IdParam'
     post:
@@ -310,7 +310,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_closing_entries/empty:
+  /api/v1/pos/pos_closing_entries/empty:
     delete:
       tags:
         - PosClosingEntries
@@ -327,7 +327,7 @@ paths:
                   deleted_count:
                     type: integer
 
-  /api/v1/pos_closing_entries/delete/bulk:
+  /api/v1/pos/pos_closing_entries/delete/bulk:
     post:
       tags:
         - PosClosingEntries
@@ -347,7 +347,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_closing_entries/restore/bulk:
+  /api/v1/pos/pos_closing_entries/restore/bulk:
     post:
       tags:
         - PosClosingEntries
@@ -365,7 +365,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_closing_entries/restore/all:
+  /api/v1/pos/pos_closing_entries/restore/all:
     post:
       tags:
         - PosClosingEntries
@@ -381,7 +381,7 @@ paths:
                 properties:
                   restored: { type: integer }
 
-  /api/v1/pos_closing_entries/trash/bulk:
+  /api/v1/pos/pos_closing_entries/trash/bulk:
     delete:
       tags:
         - PosClosingEntries
@@ -401,7 +401,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_invoices:
+  /api/v1/pos/pos_invoices:
     get:
       tags:
         - PosInvoices
@@ -447,7 +447,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /api/v1/pos_invoices/{id}:
+  /api/v1/pos/pos_invoices/{id}:
     parameters:
       - $ref: '#/components/parameters/IdParam'
 
@@ -519,7 +519,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_invoices/bulk:
+  /api/v1/pos/pos_invoices/bulk:
     post:
       tags:
         - PosInvoices
@@ -611,7 +611,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_invoices/upsert:
+  /api/v1/pos/pos_invoices/upsert:
     post:
       tags:
         - PosInvoices
@@ -641,7 +641,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosInvoice'
 
-  /api/v1/pos_invoices/trash:
+  /api/v1/pos/pos_invoices/trash:
     get:
       tags:
         - PosInvoices
@@ -658,7 +658,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosInvoiceList'
 
-  /api/v1/pos_invoices/{id}/restore:
+  /api/v1/pos/pos_invoices/{id}/restore:
     parameters:
       - $ref: '#/components/parameters/IdParam'
     post:
@@ -676,7 +676,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_invoices/empty:
+  /api/v1/pos/pos_invoices/empty:
     delete:
       tags:
         - PosInvoices
@@ -693,7 +693,7 @@ paths:
                   deleted_count:
                     type: integer
 
-  /api/v1/pos_invoices/delete/bulk:
+  /api/v1/pos/pos_invoices/delete/bulk:
     post:
       tags:
         - PosInvoices
@@ -713,7 +713,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_invoices/restore/bulk:
+  /api/v1/pos/pos_invoices/restore/bulk:
     post:
       tags:
         - PosInvoices
@@ -731,7 +731,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_invoices/restore/all:
+  /api/v1/pos/pos_invoices/restore/all:
     post:
       tags:
         - PosInvoices
@@ -747,7 +747,7 @@ paths:
                 properties:
                   restored: { type: integer }
 
-  /api/v1/pos_invoices/trash/bulk:
+  /api/v1/pos/pos_invoices/trash/bulk:
     delete:
       tags:
         - PosInvoices
@@ -767,7 +767,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_invoice_items:
+  /api/v1/pos/pos_invoice_items:
     get:
       tags:
         - PosInvoiceItems
@@ -813,7 +813,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /api/v1/pos_invoice_items/{id}:
+  /api/v1/pos/pos_invoice_items/{id}:
     parameters:
       - $ref: '#/components/parameters/IdParam'
 
@@ -885,7 +885,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_invoice_items/bulk:
+  /api/v1/pos/pos_invoice_items/bulk:
     post:
       tags:
         - PosInvoiceItems
@@ -977,7 +977,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_invoice_items/upsert:
+  /api/v1/pos/pos_invoice_items/upsert:
     post:
       tags:
         - PosInvoiceItems
@@ -1007,7 +1007,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosInvoiceItem'
 
-  /api/v1/pos_invoice_items/trash:
+  /api/v1/pos/pos_invoice_items/trash:
     get:
       tags:
         - PosInvoiceItems
@@ -1024,7 +1024,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosInvoiceItemList'
 
-  /api/v1/pos_invoice_items/{id}/restore:
+  /api/v1/pos/pos_invoice_items/{id}/restore:
     parameters:
       - $ref: '#/components/parameters/IdParam'
     post:
@@ -1042,7 +1042,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_invoice_items/empty:
+  /api/v1/pos/pos_invoice_items/empty:
     delete:
       tags:
         - PosInvoiceItems
@@ -1059,7 +1059,7 @@ paths:
                   deleted_count:
                     type: integer
 
-  /api/v1/pos_invoice_items/delete/bulk:
+  /api/v1/pos/pos_invoice_items/delete/bulk:
     post:
       tags:
         - PosInvoiceItems
@@ -1079,7 +1079,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_invoice_items/restore/bulk:
+  /api/v1/pos/pos_invoice_items/restore/bulk:
     post:
       tags:
         - PosInvoiceItems
@@ -1097,7 +1097,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_invoice_items/restore/all:
+  /api/v1/pos/pos_invoice_items/restore/all:
     post:
       tags:
         - PosInvoiceItems
@@ -1113,7 +1113,7 @@ paths:
                 properties:
                   restored: { type: integer }
 
-  /api/v1/pos_invoice_items/trash/bulk:
+  /api/v1/pos/pos_invoice_items/trash/bulk:
     delete:
       tags:
         - PosInvoiceItems
@@ -1133,7 +1133,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_payments:
+  /api/v1/pos/pos_payments:
     get:
       tags:
         - PosPayments
@@ -1179,7 +1179,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /api/v1/pos_payments/{id}:
+  /api/v1/pos/pos_payments/{id}:
     parameters:
       - $ref: '#/components/parameters/IdParam'
 
@@ -1251,7 +1251,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_payments/bulk:
+  /api/v1/pos/pos_payments/bulk:
     post:
       tags:
         - PosPayments
@@ -1343,7 +1343,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_payments/upsert:
+  /api/v1/pos/pos_payments/upsert:
     post:
       tags:
         - PosPayments
@@ -1373,7 +1373,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosPayment'
 
-  /api/v1/pos_payments/trash:
+  /api/v1/pos/pos_payments/trash:
     get:
       tags:
         - PosPayments
@@ -1390,7 +1390,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosPaymentList'
 
-  /api/v1/pos_payments/{id}/restore:
+  /api/v1/pos/pos_payments/{id}/restore:
     parameters:
       - $ref: '#/components/parameters/IdParam'
     post:
@@ -1408,7 +1408,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_payments/empty:
+  /api/v1/pos/pos_payments/empty:
     delete:
       tags:
         - PosPayments
@@ -1425,7 +1425,7 @@ paths:
                   deleted_count:
                     type: integer
 
-  /api/v1/pos_payments/delete/bulk:
+  /api/v1/pos/pos_payments/delete/bulk:
     post:
       tags:
         - PosPayments
@@ -1445,7 +1445,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_payments/restore/bulk:
+  /api/v1/pos/pos_payments/restore/bulk:
     post:
       tags:
         - PosPayments
@@ -1463,7 +1463,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_payments/restore/all:
+  /api/v1/pos/pos_payments/restore/all:
     post:
       tags:
         - PosPayments
@@ -1479,7 +1479,7 @@ paths:
                 properties:
                   restored: { type: integer }
 
-  /api/v1/pos_payments/trash/bulk:
+  /api/v1/pos/pos_payments/trash/bulk:
     delete:
       tags:
         - PosPayments
@@ -1499,7 +1499,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_profiles:
+  /api/v1/pos/pos_profiles:
     get:
       tags:
         - PosProfiles
@@ -1545,7 +1545,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /api/v1/pos_profiles/{id}:
+  /api/v1/pos/pos_profiles/{id}:
     parameters:
       - $ref: '#/components/parameters/IdParam'
 
@@ -1617,7 +1617,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_profiles/bulk:
+  /api/v1/pos/pos_profiles/bulk:
     post:
       tags:
         - PosProfiles
@@ -1709,7 +1709,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_profiles/upsert:
+  /api/v1/pos/pos_profiles/upsert:
     post:
       tags:
         - PosProfiles
@@ -1739,7 +1739,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosProfile'
 
-  /api/v1/pos_profiles/trash:
+  /api/v1/pos/pos_profiles/trash:
     get:
       tags:
         - PosProfiles
@@ -1756,7 +1756,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosProfileList'
 
-  /api/v1/pos_profiles/{id}/restore:
+  /api/v1/pos/pos_profiles/{id}/restore:
     parameters:
       - $ref: '#/components/parameters/IdParam'
     post:
@@ -1774,7 +1774,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_profiles/empty:
+  /api/v1/pos/pos_profiles/empty:
     delete:
       tags:
         - PosProfiles
@@ -1791,7 +1791,7 @@ paths:
                   deleted_count:
                     type: integer
 
-  /api/v1/pos_profiles/delete/bulk:
+  /api/v1/pos/pos_profiles/delete/bulk:
     post:
       tags:
         - PosProfiles
@@ -1811,7 +1811,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_profiles/restore/bulk:
+  /api/v1/pos/pos_profiles/restore/bulk:
     post:
       tags:
         - PosProfiles
@@ -1829,7 +1829,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_profiles/restore/all:
+  /api/v1/pos/pos_profiles/restore/all:
     post:
       tags:
         - PosProfiles
@@ -1845,7 +1845,7 @@ paths:
                 properties:
                   restored: { type: integer }
 
-  /api/v1/pos_profiles/trash/bulk:
+  /api/v1/pos/pos_profiles/trash/bulk:
     delete:
       tags:
         - PosProfiles
@@ -1865,7 +1865,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_opening_entries:
+  /api/v1/pos/pos_opening_entries:
     get:
       tags:
         - PosOpeningEntries
@@ -1911,7 +1911,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /api/v1/pos_opening_entries/{id}:
+  /api/v1/pos/pos_opening_entries/{id}:
     parameters:
       - $ref: '#/components/parameters/IdParam'
 
@@ -1983,7 +1983,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_opening_entries/bulk:
+  /api/v1/pos/pos_opening_entries/bulk:
     post:
       tags:
         - PosOpeningEntries
@@ -2075,7 +2075,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_opening_entries/upsert:
+  /api/v1/pos/pos_opening_entries/upsert:
     post:
       tags:
         - PosOpeningEntries
@@ -2105,7 +2105,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosOpeningEntry'
 
-  /api/v1/pos_opening_entries/trash:
+  /api/v1/pos/pos_opening_entries/trash:
     get:
       tags:
         - PosOpeningEntries
@@ -2122,7 +2122,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosOpeningEntryList'
 
-  /api/v1/pos_opening_entries/{id}/restore:
+  /api/v1/pos/pos_opening_entries/{id}/restore:
     parameters:
       - $ref: '#/components/parameters/IdParam'
     post:
@@ -2140,7 +2140,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_opening_entries/empty:
+  /api/v1/pos/pos_opening_entries/empty:
     delete:
       tags:
         - PosOpeningEntries
@@ -2157,7 +2157,7 @@ paths:
                   deleted_count:
                     type: integer
 
-  /api/v1/pos_opening_entries/delete/bulk:
+  /api/v1/pos/pos_opening_entries/delete/bulk:
     post:
       tags:
         - PosOpeningEntries
@@ -2177,7 +2177,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_opening_entries/restore/bulk:
+  /api/v1/pos/pos_opening_entries/restore/bulk:
     post:
       tags:
         - PosOpeningEntries
@@ -2195,7 +2195,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_opening_entries/restore/all:
+  /api/v1/pos/pos_opening_entries/restore/all:
     post:
       tags:
         - PosOpeningEntries
@@ -2211,7 +2211,7 @@ paths:
                 properties:
                   restored: { type: integer }
 
-  /api/v1/pos_opening_entries/trash/bulk:
+  /api/v1/pos/pos_opening_entries/trash/bulk:
     delete:
       tags:
         - PosOpeningEntries
@@ -2231,7 +2231,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_cash_movements:
+  /api/v1/pos/pos_cash_movements:
     get:
       tags:
         - PosCashMovements
@@ -2277,7 +2277,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /api/v1/pos_cash_movements/{id}:
+  /api/v1/pos/pos_cash_movements/{id}:
     parameters:
       - $ref: '#/components/parameters/IdParam'
 
@@ -2349,7 +2349,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_cash_movements/bulk:
+  /api/v1/pos/pos_cash_movements/bulk:
     post:
       tags:
         - PosCashMovements
@@ -2441,7 +2441,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_cash_movements/upsert:
+  /api/v1/pos/pos_cash_movements/upsert:
     post:
       tags:
         - PosCashMovements
@@ -2471,7 +2471,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosCashMovement'
 
-  /api/v1/pos_cash_movements/trash:
+  /api/v1/pos/pos_cash_movements/trash:
     get:
       tags:
         - PosCashMovements
@@ -2488,7 +2488,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosCashMovementList'
 
-  /api/v1/pos_cash_movements/{id}/restore:
+  /api/v1/pos/pos_cash_movements/{id}/restore:
     parameters:
       - $ref: '#/components/parameters/IdParam'
     post:
@@ -2506,7 +2506,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_cash_movements/empty:
+  /api/v1/pos/pos_cash_movements/empty:
     delete:
       tags:
         - PosCashMovements
@@ -2523,7 +2523,7 @@ paths:
                   deleted_count:
                     type: integer
 
-  /api/v1/pos_cash_movements/delete/bulk:
+  /api/v1/pos/pos_cash_movements/delete/bulk:
     post:
       tags:
         - PosCashMovements
@@ -2543,7 +2543,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_cash_movements/restore/bulk:
+  /api/v1/pos/pos_cash_movements/restore/bulk:
     post:
       tags:
         - PosCashMovements
@@ -2561,7 +2561,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_cash_movements/restore/all:
+  /api/v1/pos/pos_cash_movements/restore/all:
     post:
       tags:
         - PosCashMovements
@@ -2577,7 +2577,7 @@ paths:
                 properties:
                   restored: { type: integer }
 
-  /api/v1/pos_cash_movements/trash/bulk:
+  /api/v1/pos/pos_cash_movements/trash/bulk:
     delete:
       tags:
         - PosCashMovements
@@ -2597,7 +2597,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_discounts:
+  /api/v1/pos/pos_discounts:
     get:
       tags:
         - PosDiscounts
@@ -2643,7 +2643,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /api/v1/pos_discounts/{id}:
+  /api/v1/pos/pos_discounts/{id}:
     parameters:
       - $ref: '#/components/parameters/IdParam'
 
@@ -2715,7 +2715,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_discounts/bulk:
+  /api/v1/pos/pos_discounts/bulk:
     post:
       tags:
         - PosDiscounts
@@ -2807,7 +2807,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_discounts/upsert:
+  /api/v1/pos/pos_discounts/upsert:
     post:
       tags:
         - PosDiscounts
@@ -2837,7 +2837,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosDiscount'
 
-  /api/v1/pos_discounts/trash:
+  /api/v1/pos/pos_discounts/trash:
     get:
       tags:
         - PosDiscounts
@@ -2854,7 +2854,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosDiscountList'
 
-  /api/v1/pos_discounts/{id}/restore:
+  /api/v1/pos/pos_discounts/{id}/restore:
     parameters:
       - $ref: '#/components/parameters/IdParam'
     post:
@@ -2872,7 +2872,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_discounts/empty:
+  /api/v1/pos/pos_discounts/empty:
     delete:
       tags:
         - PosDiscounts
@@ -2889,7 +2889,7 @@ paths:
                   deleted_count:
                     type: integer
 
-  /api/v1/pos_discounts/delete/bulk:
+  /api/v1/pos/pos_discounts/delete/bulk:
     post:
       tags:
         - PosDiscounts
@@ -2909,7 +2909,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_discounts/restore/bulk:
+  /api/v1/pos/pos_discounts/restore/bulk:
     post:
       tags:
         - PosDiscounts
@@ -2927,7 +2927,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_discounts/restore/all:
+  /api/v1/pos/pos_discounts/restore/all:
     post:
       tags:
         - PosDiscounts
@@ -2943,7 +2943,7 @@ paths:
                 properties:
                   restored: { type: integer }
 
-  /api/v1/pos_discounts/trash/bulk:
+  /api/v1/pos/pos_discounts/trash/bulk:
     delete:
       tags:
         - PosDiscounts
@@ -2963,7 +2963,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_manager_pins:
+  /api/v1/pos/pos_manager_pins:
     get:
       tags:
         - PosManagerPins
@@ -3009,7 +3009,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /api/v1/pos_manager_pins/{id}:
+  /api/v1/pos/pos_manager_pins/{id}:
     parameters:
       - $ref: '#/components/parameters/IdParam'
 
@@ -3081,7 +3081,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_manager_pins/bulk:
+  /api/v1/pos/pos_manager_pins/bulk:
     post:
       tags:
         - PosManagerPins
@@ -3173,7 +3173,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_manager_pins/upsert:
+  /api/v1/pos/pos_manager_pins/upsert:
     post:
       tags:
         - PosManagerPins
@@ -3203,7 +3203,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosManagerPin'
 
-  /api/v1/pos_manager_pins/trash:
+  /api/v1/pos/pos_manager_pins/trash:
     get:
       tags:
         - PosManagerPins
@@ -3220,7 +3220,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosManagerPinList'
 
-  /api/v1/pos_manager_pins/{id}/restore:
+  /api/v1/pos/pos_manager_pins/{id}/restore:
     parameters:
       - $ref: '#/components/parameters/IdParam'
     post:
@@ -3238,7 +3238,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_manager_pins/empty:
+  /api/v1/pos/pos_manager_pins/empty:
     delete:
       tags:
         - PosManagerPins
@@ -3255,7 +3255,7 @@ paths:
                   deleted_count:
                     type: integer
 
-  /api/v1/pos_manager_pins/delete/bulk:
+  /api/v1/pos/pos_manager_pins/delete/bulk:
     post:
       tags:
         - PosManagerPins
@@ -3275,7 +3275,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_manager_pins/restore/bulk:
+  /api/v1/pos/pos_manager_pins/restore/bulk:
     post:
       tags:
         - PosManagerPins
@@ -3293,7 +3293,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_manager_pins/restore/all:
+  /api/v1/pos/pos_manager_pins/restore/all:
     post:
       tags:
         - PosManagerPins
@@ -3309,7 +3309,7 @@ paths:
                 properties:
                   restored: { type: integer }
 
-  /api/v1/pos_manager_pins/trash/bulk:
+  /api/v1/pos/pos_manager_pins/trash/bulk:
     delete:
       tags:
         - PosManagerPins
@@ -3329,7 +3329,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_floor_plans:
+  /api/v1/pos/pos_floor_plans:
     get:
       tags:
         - PosFloorPlans
@@ -3375,7 +3375,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /api/v1/pos_floor_plans/{id}:
+  /api/v1/pos/pos_floor_plans/{id}:
     parameters:
       - $ref: '#/components/parameters/IdParam'
 
@@ -3447,7 +3447,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_floor_plans/bulk:
+  /api/v1/pos/pos_floor_plans/bulk:
     post:
       tags:
         - PosFloorPlans
@@ -3539,7 +3539,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_floor_plans/upsert:
+  /api/v1/pos/pos_floor_plans/upsert:
     post:
       tags:
         - PosFloorPlans
@@ -3569,7 +3569,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosFloorPlan'
 
-  /api/v1/pos_floor_plans/trash:
+  /api/v1/pos/pos_floor_plans/trash:
     get:
       tags:
         - PosFloorPlans
@@ -3586,7 +3586,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosFloorPlanList'
 
-  /api/v1/pos_floor_plans/{id}/restore:
+  /api/v1/pos/pos_floor_plans/{id}/restore:
     parameters:
       - $ref: '#/components/parameters/IdParam'
     post:
@@ -3604,7 +3604,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_floor_plans/empty:
+  /api/v1/pos/pos_floor_plans/empty:
     delete:
       tags:
         - PosFloorPlans
@@ -3621,7 +3621,7 @@ paths:
                   deleted_count:
                     type: integer
 
-  /api/v1/pos_floor_plans/delete/bulk:
+  /api/v1/pos/pos_floor_plans/delete/bulk:
     post:
       tags:
         - PosFloorPlans
@@ -3641,7 +3641,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_floor_plans/restore/bulk:
+  /api/v1/pos/pos_floor_plans/restore/bulk:
     post:
       tags:
         - PosFloorPlans
@@ -3659,7 +3659,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_floor_plans/restore/all:
+  /api/v1/pos/pos_floor_plans/restore/all:
     post:
       tags:
         - PosFloorPlans
@@ -3675,7 +3675,7 @@ paths:
                 properties:
                   restored: { type: integer }
 
-  /api/v1/pos_floor_plans/trash/bulk:
+  /api/v1/pos/pos_floor_plans/trash/bulk:
     delete:
       tags:
         - PosFloorPlans
@@ -3695,7 +3695,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_tables:
+  /api/v1/pos/pos_tables:
     get:
       tags:
         - PosTables
@@ -3741,7 +3741,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /api/v1/pos_tables/{id}:
+  /api/v1/pos/pos_tables/{id}:
     parameters:
       - $ref: '#/components/parameters/IdParam'
 
@@ -3813,7 +3813,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_tables/bulk:
+  /api/v1/pos/pos_tables/bulk:
     post:
       tags:
         - PosTables
@@ -3905,7 +3905,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_tables/upsert:
+  /api/v1/pos/pos_tables/upsert:
     post:
       tags:
         - PosTables
@@ -3935,7 +3935,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosTable'
 
-  /api/v1/pos_tables/trash:
+  /api/v1/pos/pos_tables/trash:
     get:
       tags:
         - PosTables
@@ -3952,7 +3952,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PosTableList'
 
-  /api/v1/pos_tables/{id}/restore:
+  /api/v1/pos/pos_tables/{id}/restore:
     parameters:
       - $ref: '#/components/parameters/IdParam'
     post:
@@ -3970,7 +3970,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/pos_tables/empty:
+  /api/v1/pos/pos_tables/empty:
     delete:
       tags:
         - PosTables
@@ -3987,7 +3987,7 @@ paths:
                   deleted_count:
                     type: integer
 
-  /api/v1/pos_tables/delete/bulk:
+  /api/v1/pos/pos_tables/delete/bulk:
     post:
       tags:
         - PosTables
@@ -4007,7 +4007,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_tables/restore/bulk:
+  /api/v1/pos/pos_tables/restore/bulk:
     post:
       tags:
         - PosTables
@@ -4025,7 +4025,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/pos_tables/restore/all:
+  /api/v1/pos/pos_tables/restore/all:
     post:
       tags:
         - PosTables
@@ -4041,7 +4041,7 @@ paths:
                 properties:
                   restored: { type: integer }
 
-  /api/v1/pos_tables/trash/bulk:
+  /api/v1/pos/pos_tables/trash/bulk:
     delete:
       tags:
         - PosTables
