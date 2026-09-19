@@ -67,6 +67,7 @@ rules:
     assert: "the opening entry exists, belongs to the caller's scope, and status == 'open'"
     error_code: session_not_open
     enforcement: service
+    justification: "A gate over another row, and over the caller's own scope: the ticket is refused because its session is not open and not theirs. The verb reads both at the moment of the write and answers the cashier; a foreign-key violation would say nothing they could act on."
     note: "every write path reads the session status through the org-scoped helpers (the composing service's tenancy decorator fences the lookup so an out-of-scope session is simply not found) and refuses unless open; close_session flips status inside the closing transaction so a counted drawer always closes the session"
 
   - id: R2
@@ -83,6 +84,7 @@ rules:
     assert: "count(lines) >= 1"
     error_code: empty_document
     enforcement: service
+    justification: "The header and its lines commit in ONE transaction, so at the moment the header is written there are no lines yet for a constraint to count. The verb knows the whole document before it writes any of it."
     note: "a header-only ticket is inert (totals default 0) and the guarded surface is the only creator; a deferred trigger would be needed for a DB arm — revisit if a raw writer ever creates tickets"
 
   - id: R4
@@ -99,6 +101,7 @@ rules:
     assert: "tax_total is computed server-side as net_total * register tax rate (0 for a non-PKP till); a client-supplied tax total is ignored"
     error_code: none
     enforcement: service
+    justification: "The rule is that a client-supplied total is IGNORED, not that a stored total is well-formed. Recomputing server-side is the enforcement; a CHECK comparing columns would still be checking numbers the client chose."
     note: "compute-time: the guarded route hardcodes the input to zero and ring_sale derives the tax from the register's configured rate — a merchant can neither omit nor overstate the VAT"
 
   - id: R6
@@ -115,6 +118,7 @@ rules:
     assert: "ticket.status == 'draft'"
     error_code: not_draft
     enforcement: service
+    justification: "A state gate on the ticket the tender is paid against. The verb takes it as a predicate on the same statement that records the tender, so a tender against a paid ticket loses the race rather than being rejected afterwards."
     note: "the header is read before the tender insert; recognition's flip is itself a gated UPDATE (WHERE status='draft') so a racing tender cannot land on a paid ticket"
 
   - id: R8
@@ -139,6 +143,7 @@ rules:
     assert: "paid_total >= rounded_total"
     error_code: not_fully_tendered
     enforcement: service
+    justification: "The comparison is between the tenders taken so far and the ticket's rounded total, which is an aggregate over other rows. The verb has both in hand at the moment it decides to recognise revenue."
     note: "checked on the freshly-read ticket before driving billing/payment; recognition is replay-safe so a retry after a late tender succeeds"
 
   - id: R11
@@ -147,6 +152,7 @@ rules:
     assert: "tax_total > 0 => register tax account; always: receivable + cash accounts; customer on the ticket or the profile default; every line a revenue account (line or profile income)"
     error_code: missing_account
     enforcement: service
+    justification: "Conditional presence of GL accounts across the register, the profile and each line's product. Which accounts are required depends on the ticket's own tax posture, and the rows live in another module's schema."
     note: "the handoff needs the GL seats it debits/credits; POS posts no GL itself, so refusing early keeps billing/payment from receiving an unbookable request"
 
   - id: R12
@@ -155,6 +161,7 @@ rules:
     assert: "a retry reuses the raised billing invoice (billing_invoice_id persisted while still draft) and the draft->paid flip is a gated UPDATE; replay returns the persisted billing/payment ids"
     error_code: none
     enforcement: service
+    justification: "Idempotency across a boundary: a retry must reuse the invoice already raised in billing and re-flip nothing. The gated UPDATE is the lock, and the invoice it reuses is not this module's row."
     note: "procedural by construction (cross-service orchestration); a decline-then-retry at the counter must not double the revenue journal — billing does not dedup on the POS ticket"
 
   - id: R13
@@ -163,6 +170,7 @@ rules:
     assert: "original.status in ('paid','returned') AND billing_invoice_id present"
     error_code: not_returnable
     enforcement: service
+    justification: "The return is gated on the ORIGINAL ticket's state and on its invoice existing in billing. Neither is visible from the return row a constraint would be attached to."
 
   - id: R14
     name: return_exactly_once
@@ -170,6 +178,7 @@ rules:
     assert: "the return ticket + event are gated on the original's paid->returned flip; both downstream reversals (refund, credit note) are idempotent; a repeat return reuses the existing return ticket"
     error_code: none
     enforcement: service
+    justification: "The gate is the original's paid to returned flip, and both downstream reversals are idempotent. Exactly-once here is a property of the sequence of writes across three modules, not of a row."
     note: "partial returns are a declared forward seam: the line-subset input is accepted but refused (partial_returns_not_implemented) until billing's credit note honors a line subset"
 
   - id: R15
@@ -186,6 +195,7 @@ rules:
     assert: "the closing entry (per-method expected vs counted + difference_total) and the session's flip to closed commit in ONE transaction"
     error_code: none
     enforcement: service
+    justification: "The closing entry and the session's flip commit in one transaction. The rule is that boundary; a constraint can check what the transaction left behind but not that both happened together."
     note: "a drawer is never counted without the session closing; the expected-drawer computation is shared with the mid-shift x_report (compute_drawer) so the two reads cannot drift"
 
   - id: R17
@@ -194,6 +204,7 @@ rules:
     assert: "PosTenderCompleted is emitted (and outbox-staged when configured) exactly on the tender that crosses full payment — never re-emitted on extra tenders"
     error_code: none
     enforcement: service
+    justification: "The event fires on the tender that CROSSES full payment, which is known only by comparing the running total before and after that tender. Nothing in the row records that it was the crossing one."
     note: "the outbox record carries the ambient org scope's legacy company echo as its top-level fence field (ADR-0011 wire shape; the column lives in the composing service's outbox, not here — ADR-0029); double-delivery is a no-op because recognition is replay-safe"
 
   - id: R18
@@ -210,6 +221,7 @@ rules:
     assert: "a ticket naming a pos_table_id seats at a table that exists in the caller's tenant"
     error_code: table_not_found
     enforcement: service
+    justification: "The table must exist in the caller's tenant, so the check is a scoped read rather than a plain reference: a row that exists for another tenant must read as absent, which a foreign key cannot express."
     note: "a soft-deleted or out-of-scope table id is simply not found (the lookup rides the caller's relayed transaction under the composing service's fence); the seating is a UI affordance, not money — but a silent unseated ring would hide the mistake from the floor plan"
 
   - id: R20
@@ -226,6 +238,7 @@ rules:
     assert: "no POS input surface, DTO field, or table column accepts a client-authored loyalty point delta; points are out of scope for this module"
     error_code: none
     enforcement: service
+    justification: "The rule is about what the module's surface REFUSES to accept: no input, DTO field or column takes a client-authored point delta. That is a statement about the absence of a write path, which no constraint can make."
     note: "trust posture by construction (the reference lets clients author point deltas — that is the seam this port closes): the earn/redeem decisions belong to the promo seam (coupon_code in, reward_lines out) or a future loyalty consumer of PosInvoicePaid; nothing in pos mutates a points balance"
 
   - id: R22
@@ -234,6 +247,7 @@ rules:
     assert: "an open session older than the threshold (7 days default) is alerted at most once — the claim stamps metadata->'stale_session_alerted_at' in the same transaction (single_transaction commit policy) under FOR UPDATE SKIP LOCKED"
     error_code: none
     enforcement: service
+    justification: "The once-only latch is stamped in the same transaction as the claim that takes the session, so a second sweep finds nothing to alert. A constraint on the stamp could not stop two sweeps from both deciding to alert."
     note: "the latch is the durable record; events are emitted after the latch commits, so a crash between commit and emit loses one alert run (re-derivable) rather than re-alerting forever; the handler is per-unit — the composing host enumerates active org units and rides its own daily schedule (ADR-0020 host_riding)"
 
 # -----------------------------------------------------------------------------
