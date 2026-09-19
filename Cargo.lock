@@ -270,7 +270,7 @@ dependencies = [
 
 [[package]]
 name = "backbone-billing"
-version = "0.8.7"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -462,7 +462,7 @@ dependencies = [
 
 [[package]]
 name = "backbone-pos"
-version = "0.5.10"
+version = "0.5.11"
 dependencies = [
  "anyhow",
  "argon2",

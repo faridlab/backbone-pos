@@ -1,6 +1,6 @@
 [package]
 name = "backbone-pos"
-version = "0.5.10"
+version = "0.5.11"
 edition = "2021"
 description = "Point of sale — cashier session, ticket + multi-tender; orchestrates billing (revenue) + payment (settlement), posts no GL directly"
 
@@ -109,5 +109,5 @@ argon2 = "0.5"
 #     .cargo/config.toml.example. Without that file present, Cargo falls through to the git tags.
 backbone-accounting = { git = "https://github.com/faridlab/backbone-accounting", tag = "v0.9.6" }
 backbone-billing = { git = "https://github.com/faridlab/backbone-billing", tag = "v0.8.7" }
-backbone-payment = { git = "https://github.com/faridlab/backbone-payment", tag = "v0.11.7" }
-backbone-inventory = { git = "https://github.com/faridlab/backbone-inventory", tag = "v0.9.9" }
+backbone-payment = { git = "https://github.com/faridlab/backbone-payment", tag = "v0.11.8" }
+backbone-inventory = { git = "https://github.com/faridlab/backbone-inventory", tag = "v0.9.10" }
