@@ -427,7 +427,7 @@ dependencies = [
 
 [[package]]
 name = "backbone-payment"
-version = "0.11.9"
+version = "0.11.10"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -462,7 +462,7 @@ dependencies = [
 
 [[package]]
 name = "backbone-pos"
-version = "0.5.12"
+version = "0.5.13"
 dependencies = [
  "anyhow",
  "argon2",
