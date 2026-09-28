@@ -1,6 +1,6 @@
 [package]
 name = "backbone-pos"
-version = "0.5.24"
+version = "0.5.25"
 edition = "2021"
 description = "Point of sale — cashier session, ticket + multi-tender; orchestrates billing (revenue) + payment (settlement), posts no GL directly"
 
@@ -110,4 +110,4 @@ argon2 = "0.5"
 backbone-accounting = { git = "https://github.com/faridlab/backbone-accounting", tag = "v0.9.17" }
 backbone-billing = { git = "https://github.com/faridlab/backbone-billing", tag = "v0.8.19" }
 backbone-payment = { git = "https://github.com/faridlab/backbone-payment", tag = "v0.11.21" }
-backbone-inventory = { git = "https://github.com/faridlab/backbone-inventory", tag = "v0.9.20" }
+backbone-inventory = { git = "https://github.com/faridlab/backbone-inventory", tag = "v0.9.21" }
