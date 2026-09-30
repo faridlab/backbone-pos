@@ -3,6 +3,7 @@ name = "backbone-pos"
 version = "0.5.30"
 edition = "2021"
 description = "Point of sale — cashier session, ticket + multi-tender; orchestrates billing (revenue) + payment (settlement), posts no GL directly"
+license = "MIT OR Apache-2.0"
 
 [lib]
 path = "src/lib.rs"
