@@ -208,15 +208,15 @@ dependencies = [
 
 [[package]]
 name = "backbone-accounting"
-version = "0.9.6"
+version = "0.9.25"
 dependencies = [
  "anyhow",
  "async-trait",
  "axum",
- "backbone-auth",
- "backbone-core",
- "backbone-messaging",
- "backbone-orm",
+ "backbone-auth 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.34)",
+ "backbone-core 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.34)",
+ "backbone-messaging 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.34)",
+ "backbone-orm 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.34)",
  "chrono",
  "config",
  "pbjson",
@@ -244,13 +244,13 @@ dependencies = [
 [[package]]
 name = "backbone-auth"
 version = "2.0.0"
-source = "git+https://github.com/faridlab/backbone-framework?tag=v2.7.24#e3e6e80ac387834717e91c0461d361f902dcacd5"
+source = "git+https://github.com/faridlab/backbone-framework?tag=v2.7.33#797fe0c5176626ebb590bb9560216aa31ef9fb5b"
 dependencies = [
  "anyhow",
  "argon2",
  "async-trait",
  "axum",
- "backbone-orm",
+ "backbone-orm 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
  "chrono",
  "email_address",
  "jsonwebtoken",
@@ -269,17 +269,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "backbone-auth"
+version = "2.0.0"
+source = "git+https://github.com/faridlab/backbone-framework?tag=v2.7.34#38a4bacb3f186f47d2ce68bd2b03cab650b85c36"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "async-trait",
+ "chrono",
+ "email_address",
+ "jsonwebtoken",
+ "rand 0.8.7",
+ "regex",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "backbone-billing"
-version = "0.8.9"
+version = "0.8.21"
 dependencies = [
  "anyhow",
  "async-trait",
  "axum",
- "backbone-auth",
- "backbone-core",
+ "backbone-auth 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
+ "backbone-core 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
  "backbone-gl-posting",
- "backbone-messaging",
- "backbone-orm",
+ "backbone-messaging 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
+ "backbone-orm 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
  "backbone-outbox",
  "backbone-tax",
  "chrono",
@@ -307,13 +331,40 @@ dependencies = [
 [[package]]
 name = "backbone-core"
 version = "2.0.0"
-source = "git+https://github.com/faridlab/backbone-framework?tag=v2.7.24#e3e6e80ac387834717e91c0461d361f902dcacd5"
+source = "git+https://github.com/faridlab/backbone-framework?tag=v2.7.33#797fe0c5176626ebb590bb9560216aa31ef9fb5b"
 dependencies = [
  "anyhow",
  "async-trait",
  "axum",
- "backbone-messaging",
- "backbone-orm",
+ "backbone-messaging 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
+ "backbone-orm 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
+ "chrono",
+ "prost",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sqlx",
+ "thiserror 1.0.69",
+ "tokio",
+ "toml",
+ "tonic",
+ "tower 0.4.13",
+ "tower-http 0.5.2",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "backbone-core"
+version = "2.0.0"
+source = "git+https://github.com/faridlab/backbone-framework?tag=v2.7.34#38a4bacb3f186f47d2ce68bd2b03cab650b85c36"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "backbone-messaging 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.34)",
+ "backbone-orm 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.34)",
  "chrono",
  "prost",
  "regex",
@@ -334,7 +385,7 @@ dependencies = [
 [[package]]
 name = "backbone-gl-posting"
 version = "0.1.0"
-source = "git+https://github.com/faridlab/backbone-framework?tag=v2.7.24#e3e6e80ac387834717e91c0461d361f902dcacd5"
+source = "git+https://github.com/faridlab/backbone-framework?tag=v2.7.33#797fe0c5176626ebb590bb9560216aa31ef9fb5b"
 dependencies = [
  "async-trait",
  "chrono",
@@ -346,16 +397,16 @@ dependencies = [
 
 [[package]]
 name = "backbone-inventory"
-version = "0.9.10"
+version = "0.9.25"
 dependencies = [
  "anyhow",
  "async-trait",
  "axum",
- "backbone-auth",
- "backbone-core",
+ "backbone-auth 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
+ "backbone-core 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
  "backbone-gl-posting",
- "backbone-messaging",
- "backbone-orm",
+ "backbone-messaging 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
+ "backbone-orm 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
  "chrono",
  "config",
  "prost",
@@ -381,7 +432,22 @@ dependencies = [
 [[package]]
 name = "backbone-messaging"
 version = "2.0.0"
-source = "git+https://github.com/faridlab/backbone-framework?tag=v2.7.24#e3e6e80ac387834717e91c0461d361f902dcacd5"
+source = "git+https://github.com/faridlab/backbone-framework?tag=v2.7.33#797fe0c5176626ebb590bb9560216aa31ef9fb5b"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "backbone-messaging"
+version = "2.0.0"
+source = "git+https://github.com/faridlab/backbone-framework?tag=v2.7.34#38a4bacb3f186f47d2ce68bd2b03cab650b85c36"
 dependencies = [
  "async-trait",
  "chrono",
@@ -396,7 +462,26 @@ dependencies = [
 [[package]]
 name = "backbone-orm"
 version = "2.0.0"
-source = "git+https://github.com/faridlab/backbone-framework?tag=v2.7.24#e3e6e80ac387834717e91c0461d361f902dcacd5"
+source = "git+https://github.com/faridlab/backbone-framework?tag=v2.7.33#797fe0c5176626ebb590bb9560216aa31ef9fb5b"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "colored",
+ "regex",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "backbone-orm"
+version = "2.0.0"
+source = "git+https://github.com/faridlab/backbone-framework?tag=v2.7.34#38a4bacb3f186f47d2ce68bd2b03cab650b85c36"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -415,7 +500,7 @@ dependencies = [
 [[package]]
 name = "backbone-outbox"
 version = "0.2.0"
-source = "git+https://github.com/faridlab/backbone-framework?tag=v2.7.24#e3e6e80ac387834717e91c0461d361f902dcacd5"
+source = "git+https://github.com/faridlab/backbone-framework?tag=v2.7.33#797fe0c5176626ebb590bb9560216aa31ef9fb5b"
 dependencies = [
  "chrono",
  "serde",
@@ -427,16 +512,16 @@ dependencies = [
 
 [[package]]
 name = "backbone-payment"
-version = "0.11.10"
+version = "0.11.27"
 dependencies = [
  "anyhow",
  "async-trait",
  "axum",
- "backbone-auth",
- "backbone-core",
+ "backbone-auth 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
+ "backbone-core 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
  "backbone-gl-posting",
- "backbone-messaging",
- "backbone-orm",
+ "backbone-messaging 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
+ "backbone-orm 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
  "backbone-outbox",
  "chrono",
  "config",
@@ -462,19 +547,19 @@ dependencies = [
 
 [[package]]
 name = "backbone-pos"
-version = "0.5.14"
+version = "0.5.30"
 dependencies = [
  "anyhow",
  "argon2",
  "async-trait",
  "axum",
  "backbone-accounting",
- "backbone-auth",
+ "backbone-auth 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
  "backbone-billing",
- "backbone-core",
+ "backbone-core 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
  "backbone-inventory",
- "backbone-messaging",
- "backbone-orm",
+ "backbone-messaging 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
+ "backbone-orm 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
  "backbone-outbox",
  "backbone-payment",
  "chrono",
@@ -508,16 +593,16 @@ dependencies = [
 
 [[package]]
 name = "backbone-tax"
-version = "0.6.5"
-source = "git+https://github.com/faridlab/backbone-tax?tag=v0.6.5#26ed46c04675ef12cf45d828e93b1a7224480214"
+version = "0.6.17"
+source = "git+https://github.com/faridlab/backbone-tax?tag=v0.6.17#d59e93dd96be82eaf7336752bacd9d93337661ce"
 dependencies = [
  "anyhow",
  "async-trait",
  "axum",
- "backbone-auth",
- "backbone-core",
- "backbone-messaging",
- "backbone-orm",
+ "backbone-auth 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
+ "backbone-core 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
+ "backbone-messaging 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
+ "backbone-orm 2.0.0 (git+https://github.com/faridlab/backbone-framework?tag=v2.7.33)",
  "backbone-outbox",
  "chrono",
  "config",

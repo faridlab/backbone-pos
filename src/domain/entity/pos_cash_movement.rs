@@ -232,6 +232,7 @@ impl backbone_orm::EntityRepoMeta for PosCashMovement {
         m.insert("opening_entry_id".to_string(), "uuid".to_string());
         m.insert("cashier_party_id".to_string(), "uuid".to_string());
         m.insert("movement_type".to_string(), "pos_cash_movement_type".to_string());
+        m.insert("moved_at".to_string(), "timestamptz".to_string());
         m
     }
     fn search_fields() -> &'static [&'static str] {

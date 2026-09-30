@@ -342,6 +342,7 @@ impl backbone_orm::EntityRepoMeta for PosInvoice {
         m.insert("billing_invoice_id".to_string(), "uuid".to_string());
         m.insert("payment_entry_id".to_string(), "uuid".to_string());
         m.insert("status".to_string(), "pos_invoice_status".to_string());
+        m.insert("posting_at".to_string(), "timestamptz".to_string());
         m
     }
     fn search_fields() -> &'static [&'static str] {

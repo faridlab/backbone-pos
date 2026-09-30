@@ -4,12 +4,11 @@
 //!
 //! Tests the PosTable CRUD API endpoints.
 
-use chrono::Utc;
+use crate::integration::framework::ApiTest;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::crud_test_base::{CrudTestConfig, GenericCrudTest, TestDataGenerator};
-use crate::integration::framework::ApiTest;
 use crate::integration::helpers::CommonUtils;
 
 // ============================================================================
@@ -21,10 +20,8 @@ pub struct PosTableTestData;
 
 impl TestDataGenerator for PosTableTestData {
     fn generate_create_payload(&self, _utils: &CommonUtils) -> Value {
-        let now = Utc::now().to_rfc3339();
         json!({
             "id": Uuid::new_v4().to_string(),
-            "company_id": Uuid::new_v4().to_string(),
             "pos_floor_plan_id": Uuid::new_v4().to_string(),
             "name": null,
             "seats": null,
@@ -35,10 +32,8 @@ impl TestDataGenerator for PosTableTestData {
     }
 
     fn generate_update_payload(&self, id: &str, _utils: &CommonUtils) -> Value {
-        let now = Utc::now().to_rfc3339();
         json!({
             "id": id,
-            "company_id": Uuid::new_v4().to_string(),
             "pos_floor_plan_id": Uuid::new_v4().to_string(),
             "name": null,
             "seats": null,

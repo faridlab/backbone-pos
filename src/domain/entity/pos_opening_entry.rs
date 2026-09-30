@@ -237,6 +237,7 @@ impl backbone_orm::EntityRepoMeta for PosOpeningEntry {
         m.insert("branch_id".to_string(), "uuid".to_string());
         m.insert("cashier_party_id".to_string(), "uuid".to_string());
         m.insert("status".to_string(), "pos_session_status".to_string());
+        m.insert("opened_at".to_string(), "timestamptz".to_string());
         m
     }
     fn search_fields() -> &'static [&'static str] {

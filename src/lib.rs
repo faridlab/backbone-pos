@@ -48,6 +48,9 @@ pub use application::service::PosManagerPinService;
 pub use application::service::PosFloorPlanService;
 pub use application::service::PosTableService;
 
+// Re-exports - Validation
+pub use application::validator::{ValidationError, ValidationResult};
+
 use std::sync::Arc;
 use axum::Router;
 use sqlx::PgPool;

@@ -19,7 +19,6 @@ pub mod pos_floor_plan_api_test;
 pub mod pos_table_api_test;
 
 // Re-exports for convenience
-pub use crud_test_base::*;
 pub use pos_closing_entry_api_test::*;
 pub use pos_invoice_api_test::*;
 pub use pos_invoice_item_api_test::*;
