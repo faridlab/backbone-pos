@@ -111,6 +111,6 @@ argon2 = "0.5"
 #     to ../backbone-*, so uncommitted sibling edits propagate instantly. Recreate it from
 #     .cargo/config.toml.example. Without that file present, Cargo falls through to the git tags.
 backbone-accounting = { version = "0.9.27" }
-backbone-billing = { path = "../backbone-billing" }
-backbone-payment = { path = "../backbone-payment" }
+backbone-billing = { version = "0.8.25" }
+backbone-payment = { version = "0.11.29" }
 backbone-inventory = { version = "0.9.29" }
