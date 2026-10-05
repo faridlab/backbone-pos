@@ -59,7 +59,7 @@ impl PosWriteService {
         // Identity first (ambient scope): does a live ticket already carry this client uuid?
         // A uuid only namespaces inside the caller's scope — another unit's ticket carrying the
         // same uuid is simply not found.
-        if let Some(existing) = self.invoices.find_by_client_uuid(&self.db_pool, s.client_uuid).await? {
+        if let Some(existing) = self.invoices.find_by_client_uuid(&self.rpool(), s.client_uuid).await? {
             // Finalized server-side (paid/returned): the replay changes nothing. The server's
             // persisted money is the answer.
             if existing.status != "draft" {
@@ -87,7 +87,7 @@ impl PosWriteService {
             let manager = s.manager.as_ref().ok_or(PosError::ManagerAuthRequired)?;
             self.verify_manager_internal(manager, s.source_ip.as_deref()).await?;
             let parent = self.invoices
-                .find_by_client_uuid(&self.db_pool, parent_uuid)
+                .find_by_client_uuid(&self.rpool(), parent_uuid)
                 .await?
                 .ok_or(PosError::RefundParentNotFound(parent_uuid))?;
             // The replay's own totals are discarded by contract: a full refund reverses the
@@ -120,7 +120,7 @@ impl PosWriteService {
     /// The CREATE half: a fresh offline ticket, rung through the shared compute core into a draft
     /// carrying the sync identity. One scope-relayed transaction carries every read and write.
     async fn sync_create_draft(&self, s: NewSyncSale, tax: &dyn PosTaxComputePort) -> Result<SyncOutcome, PosError> {
-        let mut tx = self.db_pool.begin().await?;
+        let mut tx = self.rpool().begin().await?;
         relay_ambient_scope(&mut tx).await?;
         // Session validation (rescue-or-refuse): the session the client rang under must be open, or
         // the replay must name an open rescue session to attribute the ticket to.
@@ -206,7 +206,7 @@ impl PosWriteService {
         if let Err(e) = r {
             return Err(map_invoice_dup(
                 e, &receipt_number, Some(s.client_uuid), s.pos_table_id,
-                &self.invoices, &self.db_pool, None,
+                &self.invoices, &self.rpool(), None,
             ).await);
         }
         self.sync_write_children(&mut tx, id, &computed, &s).await?;
@@ -244,7 +244,7 @@ impl PosWriteService {
         existing: crate::infrastructure::persistence::SyncLookupRow,
         tax: &dyn PosTaxComputePort,
     ) -> Result<SyncOutcome, PosError> {
-        let mut tx = self.db_pool.begin().await?;
+        let mut tx = self.rpool().begin().await?;
         relay_ambient_scope(&mut tx).await?;
         // Partner is validated, never re-assigned silently.
         if existing.customer_id != s.customer_id {
@@ -334,7 +334,7 @@ impl PosWriteService {
             // (a transfer onto a table another draft just claimed) — map it to the typed 409.
             return Err(map_invoice_dup(
                 e, "", Some(s.client_uuid), s.pos_table_id,
-                &self.invoices, &self.db_pool, Some(id),
+                &self.invoices, &self.rpool(), Some(id),
             ).await);
         }
         self.sync_write_children(&mut tx, id, &computed, &s).await?;

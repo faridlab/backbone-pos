@@ -48,7 +48,7 @@ impl PosWriteService {
         // Tenancy (ADR-0029): the whole claim + latch runs inside the caller's ambient org scope, on
         // one connection, as one transaction — exactly the pattern the write verbs follow. Under a
         // non-bypassing role the re-bound fence is what makes the claim read anything at all.
-        let mut tx = self.db_pool.begin().await?;
+        let mut tx = self.rpool().begin().await?;
         relay_ambient_scope(&mut tx).await?;
         let claimed = self
             .openings

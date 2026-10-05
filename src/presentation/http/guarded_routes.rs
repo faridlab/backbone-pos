@@ -498,6 +498,14 @@ fn create_guarded_pos_priced_route_inner(
     Router::new()
         .route("/sales/priced", post(ring_sale_priced))
         .with_state(st)
+
+    // Bind the composer's request pool (ADR-0029 pool law) for the verbs:
+    // under a tenant mount the writes go to the tenant's database; without
+    // one the composed pool stays the fallback. Applied AFTER the routes —
+    // a Router layer only wraps what was registered before the call.
+    .layer(axum::middleware::from_fn(
+        crate::request_pool::bind_request_pool,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -637,6 +645,14 @@ fn create_guarded_pos_routes_inner(
     Router::new()
         .merge(reads)
         .merge(write_routes(write))
+
+    // Bind the composer's request pool (ADR-0029 pool law) for the verbs:
+    // under a tenant mount the writes go to the tenant's database; without
+    // one the composed pool stays the fallback. Applied AFTER the routes —
+    // a Router layer only wraps what was registered before the call.
+    .layer(axum::middleware::from_fn(
+        crate::request_pool::bind_request_pool,
+    ))
 }
 
 // --- placeholders for the priced-route-only state shape -------------------------

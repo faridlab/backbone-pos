@@ -41,7 +41,7 @@ impl PosWriteService {
         // composing service's org request scope — bound from the event's `company_id` twin (the
         // acting unit) — otherwise these reads fail closed.
         let inv = self.invoices
-            .fetch_for_recognition(&self.db_pool, pos_invoice_id).await?
+            .fetch_for_recognition(&self.rpool(), pos_invoice_id).await?
             .ok_or(PosError::InvoiceNotFound(pos_invoice_id))?;
 
         let rounded_total = inv.rounded_total;
@@ -78,7 +78,7 @@ impl PosWriteService {
             id
         } else {
             // Sale lines → invoice request (revenue = line account, else profile income).
-            let item_rows = self.items.fetch_revenue_lines(&self.db_pool, pos_invoice_id).await?;
+            let item_rows = self.items.fetch_revenue_lines(&self.rpool(), pos_invoice_id).await?;
             let mut lines = Vec::with_capacity(item_rows.len());
             for r in &item_rows {
                 let rev = r.revenue_account_id.or(income).ok_or(PosError::MissingAccount("revenue account (line or profile income)"))?;
@@ -90,7 +90,7 @@ impl PosWriteService {
                 receivable_account_id: receivable, posting_date, lines, tax_total, tax_account_id, tax_rate,
             }).await.map_err(|e| PosError::BillingRejected { code: e.code, message: e.message })?;
             // Persist the link WHILE STILL DRAFT — before settle — so any retry reuses this invoice.
-            self.invoices.link_billing_invoice(&self.db_pool, pos_invoice_id, ack.invoice_id).await?;
+            self.invoices.link_billing_invoice(&self.rpool(), pos_invoice_id, ack.invoice_id).await?;
             ack.invoice_id
         };
 
@@ -103,7 +103,7 @@ impl PosWriteService {
         // Gate the event on THIS invocation performing the draft→paid transition. Persist the settling
         // `payment_entry_id` in the same flip so a later return refunds the tender from the ticket (no
         // cross-schema lookup) and a crash-retry has a durable skip-gate (ADR-001 `settle`-idempotency).
-        let rows_affected = self.invoices.mark_paid(&self.db_pool, pos_invoice_id, invoice_id, sack.payment_id).await?;
+        let rows_affected = self.invoices.mark_paid(&self.rpool(), pos_invoice_id, invoice_id, sack.payment_id).await?;
         if rows_affected == 1 {
             self.sink.publish(PosEvent::PosInvoicePaid(PosInvoicePaid {
                 pos_invoice_id, company_id: company_echo, grand_total: inv.grand_total, rounded_total,
@@ -118,7 +118,7 @@ impl PosWriteService {
                 inv.cogs_account_id,
                 inv.inventory_account_id,
             ) {
-                let qty_rows = self.items.fetch_quantity_lines(&self.db_pool, pos_invoice_id).await?;
+                let qty_rows = self.items.fetch_quantity_lines(&self.rpool(), pos_invoice_id).await?;
                 let lines: Vec<StockIssueLine> = qty_rows.iter()
                     .map(|r| StockIssueLine { item_id: r.item_id, quantity: r.quantity })
                     .filter(|l| l.quantity > Decimal::ZERO)
@@ -137,7 +137,7 @@ impl PosWriteService {
 
     async fn short_circuit_paid(&self, pos_invoice_id: Uuid) -> Result<Option<RecognizeOutcome>, PosError> {
         let row = self.invoices
-            .fetch_paid_state(&self.db_pool, pos_invoice_id).await?
+            .fetch_paid_state(&self.rpool(), pos_invoice_id).await?
             .ok_or(PosError::InvoiceNotFound(pos_invoice_id))?;
         if row.status == "paid" {
             if let Some(bid) = row.billing_invoice_id {
@@ -166,7 +166,7 @@ impl PosWriteService {
         // Tenancy (ADR-0029), ID-only pattern — see `recognize_sale`: the lookup rides the ambient
         // org scope, so another unit's ticket is simply not found.
         let o = self.invoices
-            .fetch_return_source(&self.db_pool, original_pos_invoice_id).await?
+            .fetch_return_source(&self.rpool(), original_pos_invoice_id).await?
             .ok_or(PosError::InvoiceNotFound(original_pos_invoice_id))?;
         let status = o.status.clone();
         if status != "paid" && status != "returned" {
@@ -185,10 +185,10 @@ impl PosWriteService {
             .await.map_err(|e| PosError::BillingRejected { code: e.code, message: e.message })?;
 
         // Gate the return ticket + event on the original's paid→returned transition (exactly-once).
-        let rows_affected = self.invoices.mark_returned(&self.db_pool, original_pos_invoice_id).await?;
+        let rows_affected = self.invoices.mark_returned(&self.rpool(), original_pos_invoice_id).await?;
         let return_ticket_id = if rows_affected == 1 {
             let rt = Uuid::new_v4();
-            self.invoices.insert_return_ticket(&self.db_pool, &NewReturnInvoiceRow {
+            self.invoices.insert_return_ticket(&self.rpool(), &NewReturnInvoiceRow {
                 id: rt,
                 pos_profile_id: o.pos_profile_id,
                 opening_entry_id: o.opening_entry_id,
@@ -211,7 +211,7 @@ impl PosWriteService {
         } else {
             // Already returned — reuse the existing return ticket (idempotent replay).
             self.invoices
-                .find_return_ticket(&self.db_pool, original_pos_invoice_id).await?
+                .find_return_ticket(&self.rpool(), original_pos_invoice_id).await?
                 .unwrap_or(original_pos_invoice_id)
         };
         Ok(ReturnOutcome { pos_invoice_id: original_pos_invoice_id, return_ticket_id, billing_invoice_id })

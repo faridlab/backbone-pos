@@ -25,7 +25,7 @@ impl PosWriteService {
         // transaction, re-binds the caller's ambient org scope onto it, and runs the header read on
         // that same connection: under a composed fence another unit's ticket simply isn't found
         // (fail-closed), and the tender insert rides exactly the fence it read through.
-        let mut tx = self.db_pool.begin().await?;
+        let mut tx = self.rpool().begin().await?;
         relay_ambient_scope(&mut tx).await?;
         let hdr = self.invoices
             .fetch_tender_header(&mut *tx, pos_invoice_id).await?

@@ -29,6 +29,13 @@ pub mod integration;
 // END CUSTOM
 pub mod exports;
 
+// <<< CUSTOM
+// The hand-owned request-pool shim (the composing service's tenant pool
+// resolution): a generated-tree declaration the regenerator drops, so it
+// lives in the preserved block (#447 cause-2 class).
+pub mod request_pool;
+// END CUSTOM
+
 // Re-exports for convenience - Domain entities
 pub use domain::entity::*;
 

@@ -54,7 +54,7 @@ impl PosWriteService {
         validate_pin_strength(&s.new_pin, &self.pin_policy)?;
         // One scope-relayed transaction (ADR-0029): the bootstrap read, the authority proof, and the
         // credential write all see through the same fence.
-        let mut tx = self.db_pool.begin().await?;
+        let mut tx = self.rpool().begin().await?;
         relay_ambient_scope(&mut tx).await?;
         // Authority: once ANY credential exists in the caller's scope, changing one requires proof —
         // the manager's own current PIN, or another live manager's.
@@ -108,7 +108,7 @@ impl PosWriteService {
             }
         }
         let cred = self.pins
-            .fetch_credential(&self.db_pool, auth.employee_party_id)
+            .fetch_credential(&self.rpool(), auth.employee_party_id)
             .await?
             .ok_or(PosError::PinNotFound)?;
         let now = chrono::Utc::now();
@@ -125,12 +125,12 @@ impl PosWriteService {
             Err(_) => return Err(PosError::PinInvalid),
         };
         if Argon2::default().verify_password(auth.pin.as_bytes(), &parsed).is_ok() {
-            self.pins.record_success(&self.db_pool, cred.id, now, source_ip).await?;
+            self.pins.record_success(&self.rpool(), cred.id, now, source_ip).await?;
             Ok(())
         } else {
             let lockout_until = now + chrono::Duration::seconds(self.pin_policy.lockout_secs);
             self.pins
-                .record_failure(&self.db_pool, cred.id, self.pin_policy.max_attempts, lockout_until, now, source_ip)
+                .record_failure(&self.rpool(), cred.id, self.pin_policy.max_attempts, lockout_until, now, source_ip)
                 .await?;
             // Report the lock when THIS failure crossed the threshold — the manager sees the
             // unlock instant instead of a bare "wrong PIN" they cannot recover from.

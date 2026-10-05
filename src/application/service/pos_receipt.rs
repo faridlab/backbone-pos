@@ -19,10 +19,10 @@ impl PosWriteService {
     pub async fn receipt(&self, pos_invoice_id: Uuid) -> Result<Receipt, PosError> {
         // Read-only, ambient scope: every read rides the request-dedicated connection.
         let hdr = self.invoices
-            .fetch_receipt_header(&self.db_pool, pos_invoice_id).await?
+            .fetch_receipt_header(&self.rpool(), pos_invoice_id).await?
             .ok_or(PosError::InvoiceNotFound(pos_invoice_id))?;
 
-        let line_rows = self.items.fetch_receipt_lines(&self.db_pool, pos_invoice_id).await?;
+        let line_rows = self.items.fetch_receipt_lines(&self.rpool(), pos_invoice_id).await?;
         let lines = line_rows.into_iter().map(|r| {
             let desc = r.description.unwrap_or_else(|| r.item_id.to_string());
             ReceiptLine {
@@ -31,7 +31,7 @@ impl PosWriteService {
             }
         }).collect();
 
-        let tender_rows = self.payments.fetch_receipt_tenders(&self.db_pool, pos_invoice_id).await?;
+        let tender_rows = self.payments.fetch_receipt_tenders(&self.rpool(), pos_invoice_id).await?;
         let tenders = tender_rows.into_iter().map(|r| ReceiptTender { method: r.method, amount: r.amount }).collect();
 
         Ok(Receipt {

@@ -88,6 +88,13 @@ impl PostgresEventStore {
     pub fn pool(&self) -> &PgPool {
         &self.pool
     }
+
+    /// The database this call runs on: the composer's request pool when one
+    /// is bound (a tenant mount, or a relay consumer wrapped by the host),
+    /// else the composed pool (ADR-0029 pool law).
+    fn rpool(&self) -> PgPool {
+        crate::request_pool::current().unwrap_or_else(|| self.pool.clone())
+    }
 }
 
 #[async_trait]
@@ -107,7 +114,7 @@ impl EventStore for PostgresEventStore {
             }
         }
 
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.rpool().begin().await?;
         let mut last_sequence = 0i64;
 
         for event in events {
@@ -143,7 +150,7 @@ impl EventStore for PostgresEventStore {
 
         let events = sqlx::query_as::<_, StoredEvent>(&query)
             .bind(aggregate_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&self.rpool())
             .await?;
 
         Ok(events)
@@ -158,7 +165,7 @@ impl EventStore for PostgresEventStore {
         let events = sqlx::query_as::<_, StoredEvent>(&query)
             .bind(aggregate_id)
             .bind(from_version)
-            .fetch_all(&self.pool)
+            .fetch_all(&self.rpool())
             .await?;
 
         Ok(events)
@@ -172,7 +179,7 @@ impl EventStore for PostgresEventStore {
 
         let version = sqlx::query_scalar::<_, i64>(&query)
             .bind(aggregate_id)
-            .fetch_one(&self.pool)
+            .fetch_one(&self.rpool())
             .await?;
 
         Ok(version)
@@ -186,7 +193,7 @@ impl EventStore for PostgresEventStore {
 
         let rows = sqlx::query_as::<_, StoredEvent>(&query)
             .bind(from_position)
-            .fetch_all(&self.pool)
+            .fetch_all(&self.rpool())
             .await?;
 
         Ok(Box::pin(futures::stream::iter(rows)))
@@ -201,7 +208,7 @@ impl EventStore for PostgresEventStore {
         let rows = sqlx::query_as::<_, StoredEvent>(&query)
             .bind(event_type)
             .bind(from_position)
-            .fetch_all(&self.pool)
+            .fetch_all(&self.rpool())
             .await?;
 
         Ok(Box::pin(futures::stream::iter(rows)))
@@ -216,7 +223,7 @@ impl EventStore for PostgresEventStore {
         let rows = sqlx::query_as::<_, StoredEvent>(&query)
             .bind(aggregate_type)
             .bind(from_position)
-            .fetch_all(&self.pool)
+            .fetch_all(&self.rpool())
             .await?;
 
         Ok(Box::pin(futures::stream::iter(rows)))
@@ -230,7 +237,7 @@ impl EventStore for PostgresEventStore {
 
         let position = sqlx::query_scalar::<_, i64>(query)
             .bind(projector_name)
-            .fetch_one(&self.pool)
+            .fetch_one(&self.rpool())
             .await?;
 
         Ok(position)
@@ -246,7 +253,7 @@ impl EventStore for PostgresEventStore {
         sqlx::query(query)
             .bind(projector_name)
             .bind(position)
-            .execute(&self.pool)
+            .execute(&self.rpool())
             .await?;
 
         Ok(())

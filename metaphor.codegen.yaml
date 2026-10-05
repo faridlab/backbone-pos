@@ -60,6 +60,14 @@ user_owned:
   - "src/infrastructure/persistence/pos_discount_repository_custom.rs"
   - "src/presentation/dto/pos_manager_pin_dto.rs"
   - "src/presentation/http/guarded_routes.rs"
+  # The composer-installed request-pool shim the write service and event stores resolve
+  # their database through (ADR-0029 pool law): hand-written, never schema-derived.
+  - "src/request_pool.rs"
+  # The event-store and snapshot-store implementations carry hand-edited pool resolution
+  # (rpool, ADR-0029 pool law) outside their marker blocks, so the generator must skip
+  # them wholesale.
+  - "src/infrastructure/event_store/event_store.rs"
+  - "src/infrastructure/event_store/snapshot_store.rs"
   - "tests/pos_golden_cases.rs"
   - "tests/integrity_probes.rs"
   - "tests/retail_sale_seam.rs"

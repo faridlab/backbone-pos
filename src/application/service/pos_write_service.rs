@@ -791,6 +791,13 @@ impl PosWriteService {
         }
     }
 
+    /// The database this call runs on: the composer's request pool when one
+    /// is bound (a tenant mount, or a relay consumer wrapped by the host),
+    /// else the composed pool (ADR-0029 pool law).
+    pub(super) fn rpool(&self) -> PgPool {
+        crate::request_pool::current().unwrap_or_else(|| self.db_pool.clone())
+    }
+
     /// Opt into durable, outbox-backed `PosTenderCompleted` staging: `add_tender` will insert the
     /// event into `{schema}.outbox_events` inside the tender transaction (so it commits atomically
     /// with the tender). A composing service runs `backbone_outbox::runner` to drain the queue and
@@ -818,7 +825,7 @@ impl PosWriteService {
         // trigger stamps the acting unit and the fence admits the row — while a standalone
         // deployment (no scope bound) runs plain, exactly as before. Every read below rides the
         // same transaction, so the validation sees what the insert will see.
-        let mut tx = self.db_pool.begin().await?;
+        let mut tx = self.rpool().begin().await?;
         relay_ambient_scope(&mut tx).await?;
 
         // The register must exist before anything is written: without the check a session opens

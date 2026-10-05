@@ -35,7 +35,7 @@ impl PosWriteService {
         if sale.lines.is_empty() {
             return Err(PosError::EmptyDocument);
         }
-        let mut tx = self.db_pool.begin().await?;
+        let mut tx = self.rpool().begin().await?;
         relay_ambient_scope(&mut tx).await?;
         // Session must be open. Under a composed fence a session another unit owns reads as
         // plain absence — the refusal cannot distinguish whose it is, and must not.
@@ -122,7 +122,7 @@ impl PosWriteService {
         if let Err(e) = r {
             return Err(map_invoice_dup(
                 e, &sale.receipt_number, None, sale.pos_table_id,
-                &self.invoices, &self.db_pool, None,
+                &self.invoices, &self.rpool(), None,
             ).await);
         }
         for l in &computed.lines {

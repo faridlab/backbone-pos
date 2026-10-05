@@ -45,7 +45,7 @@ impl PosWriteService {
         // Tenancy (ADR-0029): own transaction + ambient scope relay — the session-status read and the
         // movement insert ride the same connection, so the open-guard sees exactly the fence the
         // insert writes under. Another unit's session reads as plain absence (fail-closed).
-        let mut tx = self.db_pool.begin().await?;
+        let mut tx = self.rpool().begin().await?;
         relay_ambient_scope(&mut tx).await?;
         let st = self.openings.fetch_status_on(&mut *tx, m.opening_entry_id).await?;
         if st.as_deref() != Some("open") { return Err(PosError::SessionNotOpen); }
@@ -75,7 +75,7 @@ impl PosWriteService {
         // Read-only: every read below rides the ambient org scope on the request-dedicated
         // connection (ADR-0029) — a session another unit owns reads as plain absence.
         let opening_json = self.openings
-            .fetch_opening_balances(&self.db_pool, opening_entry_id).await?
+            .fetch_opening_balances(&self.rpool(), opening_entry_id).await?
             .ok_or(PosError::SessionNotFound(opening_entry_id))?;
         let mut expected: BTreeMap<String, Decimal> = BTreeMap::new();
         // A session with a NULL `opening_balances` (opened with no float) leaves `expected` empty —
@@ -88,22 +88,22 @@ impl PosWriteService {
             }
         }
         // Σ tenders per method for recognised (paid) tickets in the session.
-        let tender_rows = self.payments.sum_by_method_for_session(&self.db_pool, opening_entry_id).await?;
+        let tender_rows = self.payments.sum_by_method_for_session(&self.rpool(), opening_entry_id).await?;
         for r in &tender_rows {
             *expected.entry(r.method.clone()).or_insert(Decimal::ZERO) += r.total;
         }
         // Cash change reduces the drawer.
-        let cash_change = self.invoices.sum_change_due_for_session(&self.db_pool, opening_entry_id).await?;
+        let cash_change = self.invoices.sum_change_due_for_session(&self.rpool(), opening_entry_id).await?;
         if cash_change > Decimal::ZERO {
             *expected.entry("cash".to_string()).or_insert(Decimal::ZERO) -= cash_change;
         }
         // Non-sale cash movements: pay-ins add to the drawer, pay-outs and drops remove from it
         // (no_sale has no cash effect). Folding the net in here means these no longer read as variance.
-        let cash_movement_net = self.movements.net_for_session(&self.db_pool, opening_entry_id).await?;
+        let cash_movement_net = self.movements.net_for_session(&self.rpool(), opening_entry_id).await?;
         if cash_movement_net != Decimal::ZERO {
             *expected.entry("cash".to_string()).or_insert(Decimal::ZERO) += cash_movement_net;
         }
-        let (grand_total, invoice_count) = self.invoices.session_totals(&self.db_pool, opening_entry_id).await?;
+        let (grand_total, invoice_count) = self.invoices.session_totals(&self.rpool(), opening_entry_id).await?;
         Ok((expected, grand_total, invoice_count))
     }
 
@@ -112,7 +112,7 @@ impl PosWriteService {
     /// can pull it any number of times during the shift. Requires an OPEN session in the caller's scope.
     pub async fn x_report(&self, opening_entry_id: Uuid) -> Result<XReport, PosError> {
         // Read-only, ambient scope (ADR-0029).
-        let st = self.openings.fetch_status(&self.db_pool, opening_entry_id).await?;
+        let st = self.openings.fetch_status(&self.rpool(), opening_entry_id).await?;
         match st.as_deref() {
             None => return Err(PosError::SessionNotFound(opening_entry_id)),
             Some("open") => {}
@@ -158,20 +158,20 @@ impl PosWriteService {
         // below open their own connection and re-bind that scope onto it.
         // Guard: the session must exist and be open (this is also what makes close effectively-once —
         // a retried close of an already-closed session refuses here).
-        let st = self.openings.fetch_status(&self.db_pool, c.opening_entry_id).await?;
+        let st = self.openings.fetch_status(&self.rpool(), c.opening_entry_id).await?;
         match st.as_deref() {
             None => return Err(PosError::SessionNotFound(c.opening_entry_id)),
             Some("open") => {}
             Some(_) => return Err(PosError::SessionNotOpen),
         }
         // Guard: no DRAFT sale tickets may remain — a draft has no GL and would orphan the drawer.
-        let drafts = self.invoices.count_draft_orders_for_session(&self.db_pool, c.opening_entry_id).await?;
+        let drafts = self.invoices.count_draft_orders_for_session(&self.rpool(), c.opening_entry_id).await?;
         if drafts > 0 {
             return Err(PosError::SessionHasDraftOrders(drafts));
         }
         // Guard: no half-recognised tickets — billing raised but the settle never landed. Closing
         // over them would strand a posted invoice against an unclosed drawer.
-        let unposted = self.invoices.count_linked_unposted_for_session(&self.db_pool, c.opening_entry_id).await?;
+        let unposted = self.invoices.count_linked_unposted_for_session(&self.rpool(), c.opening_entry_id).await?;
         if unposted > 0 {
             return Err(PosError::SessionHasUnpostedInvoices(unposted));
         }
@@ -203,7 +203,7 @@ impl PosWriteService {
         // account must be configured when the drawer did not balance.
         let mut booked: Option<super::pos_write_service::VarianceBooking> = None;
         if difference_total != Decimal::ZERO {
-            let mut tx = self.db_pool.begin().await?;
+            let mut tx = self.rpool().begin().await?;
             relay_ambient_scope(&mut tx).await?;
             let (cash_account, write_off_account, currency) = self
                 .openings
@@ -261,7 +261,7 @@ impl PosWriteService {
         by_method: Vec<MethodRecon>,
         booked: Option<super::pos_write_service::VarianceBooking>,
     ) -> Result<CloseOutcome, PosError> {
-        let mut tx = self.db_pool.begin().await?;
+        let mut tx = self.rpool().begin().await?;
         relay_ambient_scope(&mut tx).await?;
         let profile_id = self
             .openings

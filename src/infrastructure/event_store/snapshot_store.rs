@@ -64,6 +64,13 @@ impl PostgresSnapshotStore {
             table_name: table_name.into(),
         }
     }
+
+    /// The database this call runs on: the composer's request pool when one
+    /// is bound (a tenant mount, or a relay consumer wrapped by the host),
+    /// else the composed pool (ADR-0029 pool law).
+    fn rpool(&self) -> PgPool {
+        crate::request_pool::current().unwrap_or_else(|| self.pool.clone())
+    }
 }
 
 #[async_trait]
@@ -83,7 +90,7 @@ impl SnapshotStore for PostgresSnapshotStore {
             .bind(snapshot.version)
             .bind(&snapshot.state)
             .bind(snapshot.created_at)
-            .execute(&self.pool)
+            .execute(&self.rpool())
             .await?;
 
         Ok(())
@@ -97,7 +104,7 @@ impl SnapshotStore for PostgresSnapshotStore {
 
         let snapshot = sqlx::query_as::<_, Snapshot>(&query)
             .bind(aggregate_id)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&self.rpool())
             .await?;
 
         Ok(snapshot)
@@ -111,7 +118,7 @@ impl SnapshotStore for PostgresSnapshotStore {
 
         sqlx::query(&query)
             .bind(aggregate_id)
-            .execute(&self.pool)
+            .execute(&self.rpool())
             .await?;
 
         Ok(())
