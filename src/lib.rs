@@ -23,13 +23,10 @@ pub mod infrastructure;
 pub mod application;
 pub mod presentation;
 pub mod seeders;
-// <<< CUSTOM
+pub mod exports;
+// <<< CUSTOM MODULES
 /// Stable integration surface for composing services (the deliberate public API consumers depend on).
 pub mod integration;
-// END CUSTOM
-pub mod exports;
-
-// <<< CUSTOM
 // The hand-owned request-pool shim (the composing service's tenant pool
 // resolution): a generated-tree declaration the regenerator drops, so it
 // lives in the preserved block (#447 cause-2 class).
@@ -181,6 +178,8 @@ impl PosModule {
 /// Builder for PosModule
 pub struct PosModuleBuilder {
     db_pool: Option<PgPool>,
+    // <<< CUSTOM BUILDER FIELDS
+    // END CUSTOM
 }
 
 impl PosModuleBuilder {
@@ -188,6 +187,8 @@ impl PosModuleBuilder {
     pub fn new() -> Self {
         Self {
             db_pool: None,
+            // <<< CUSTOM BUILDER DEFAULTS
+            // END CUSTOM
         }
     }
 

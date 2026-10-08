@@ -203,6 +203,9 @@ impl super::Entity for PosPayment {
 }
 
 impl backbone_core::PersistentEntity for PosPayment {
+    fn write_protected_fields() -> &'static [&'static str] {
+        &["client_uuid", "payment_entry_id"]
+    }
     fn entity_id(&self) -> String {
         self.id.to_string()
     }

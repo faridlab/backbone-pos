@@ -302,6 +302,9 @@ impl super::Entity for PosInvoice {
 }
 
 impl backbone_core::PersistentEntity for PosInvoice {
+    fn write_protected_fields() -> &'static [&'static str] {
+        &["client_uuid", "net_total", "tax_total", "grand_total", "rounding_adjustment", "rounded_total", "paid_total", "change_due", "billing_invoice_id", "payment_entry_id", "is_return", "return_against", "status"]
+    }
     fn entity_id(&self) -> String {
         self.id.to_string()
     }

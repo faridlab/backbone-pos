@@ -36,7 +36,7 @@ impl Seeder for SeedPosClosingEntrySeeder {
     }
 
     fn order(&self) -> i32 {
-        1
+        3
     }
 
     async fn should_run(&self, pool: &PgPool) -> Result<bool> {

@@ -227,6 +227,9 @@ impl super::Entity for PosInvoiceItem {
 }
 
 impl backbone_core::PersistentEntity for PosInvoiceItem {
+    fn write_protected_fields() -> &'static [&'static str] {
+        &["client_uuid", "net_amount"]
+    }
     fn entity_id(&self) -> String {
         self.id.to_string()
     }
