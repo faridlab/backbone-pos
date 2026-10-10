@@ -105,7 +105,6 @@ impl ReconcileSink for AccountingReconcileSink {
             reversing: l.reversing,
         };
         match self.svc.reconcile_pair_on(conn, &PairRequest {
-            company_id: req.company_id,
             debit: to_loc(&req.debit),
             credit: to_loc(&req.credit),
             amount: req.amount,
@@ -123,7 +122,7 @@ impl ReconcileSink for AccountingReconcileSink {
             account_id: l.account_id,
             reversing: l.reversing,
         };
-        self.svc.unreconcile_pair_on(conn, req.company_id, &to_loc(&req.debit), &to_loc(&req.credit)).await
+        self.svc.unreconcile_pair_on(conn, &to_loc(&req.debit), &to_loc(&req.credit)).await
             .map_err(|e| ReconcileRejected { code: e.code().to_string(), message: e.to_string() })
     }
 }
@@ -135,7 +134,7 @@ struct InventoryAdapter { inv: InventoryWriteService, gl: Arc<GlAdapter> }
 impl InventoryPort for InventoryAdapter {
     async fn issue(&self, req: &StockIssueRequest) -> Result<StockIssueAck, PosRejected> {
         let id = self.inv.create_delivery_note(NewDelivery {
-            delivery_number: uq("DN"), company_id: req.company_id, branch_id: req.branch_id, customer_id: req.customer_id,
+            delivery_number: uq("DN"), branch_id: req.branch_id, customer_id: req.customer_id,
             source_so_id: Some(req.source_pos_id), warehouse_id: req.warehouse_id, posting_date: req.posting_date,
             currency: "IDR".into(),
             cogs_account_id: req.cogs_account_id, inventory_account_id: req.inventory_account_id,
@@ -211,7 +210,7 @@ impl PaymentPort for PaymentAdapter {
             withholding_amount: rust_decimal::Decimal::ZERO, withholding_account_id: None, withholding_tax_type: "none".into(),
         }).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
         let out = self.payment.post_payment(pay, &*self.gl).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
-        self.billing.apply_settlement(legacy_twin(), req.invoice_ref, "sales", req.amount, pay, self.reconcile.as_ref()).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
+        self.billing.apply_settlement(req.invoice_ref, "sales", req.amount, pay, self.reconcile.as_ref()).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
         Ok(SettlementAck { payment_id: pay, journal_id: out.journal_id })
     }
     async fn refund(&self, req: &RefundRequest) -> Result<ReversalAck, PosRejected> {
@@ -219,7 +218,7 @@ impl PaymentPort for PaymentAdapter {
         // from the request (POS persisted it on the ticket at recognition) — no cross-schema read into
         // payment.payment_allocations, so this refund is satisfiable with payment on its own database.
         let out = self.payment.reverse_payment(req.payment_id, &*self.gl).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
-        self.billing.reverse_settlement(legacy_twin(), req.invoice_ref, "sales", req.amount, req.payment_id, self.reconcile.as_ref()).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
+        self.billing.reverse_settlement(req.invoice_ref, "sales", req.amount, req.payment_id, self.reconcile.as_ref()).await.map_err(|e| PosRejected { code: e.code(), message: e.to_string() })?;
         Ok(ReversalAck { journal_id: out.journal_id })
     }
 }
@@ -509,10 +508,10 @@ async fn retail_sale_decrements_stock_and_books_cogs() {
     // own company axis (its strip lands in a later batch), so every inventory row is seeded under
     // the scoped unit's legacy id — the same value POS's stock-issue request carries inside the
     // org request scope.
-    let wh = inv.create_warehouse(NewWarehouse { company_id: company, code: uq("WH"), name: uq("Toko"), warehouse_type: None, parent_warehouse_id: None, is_group: false }).await.unwrap();
-    inv.create_stock_item(NewStockItem { item_id: item, company_id: company, stock_uom: "PCS".into(), valuation_method: None, reorder_level: Decimal::ZERO }).await.unwrap();
+    let wh = inv.create_warehouse(NewWarehouse { code: uq("WH"), name: uq("Toko"), warehouse_type: None, parent_warehouse_id: None, is_group: false }).await.unwrap();
+    inv.create_stock_item(NewStockItem { item_id: item, stock_uom: "PCS".into(), valuation_method: None, reorder_level: Decimal::ZERO }).await.unwrap();
     let receipt = inv.create_purchase_receipt(NewReceipt {
-        receipt_number: uq("PR"), company_id: company, branch_id: None, supplier_id: Uuid::new_v4(), source_po_id: None,
+        receipt_number: uq("PR"), branch_id: None, supplier_id: Uuid::new_v4(), source_po_id: None,
         warehouse_id: wh, posting_date: at().date(), inventory_account_id: inv_acct, grir_account_id: grir_acct,
         currency: "IDR".into(),
         lines: vec![InvReceiptLine { item_id: item, quantity: d("10"), rate: d("60000"), is_landed_costs_line: false }],
