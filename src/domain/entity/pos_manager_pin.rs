@@ -200,6 +200,9 @@ impl super::Entity for PosManagerPin {
 }
 
 impl backbone_core::PersistentEntity for PosManagerPin {
+    fn write_protected_fields() -> &'static [&'static str] {
+        &["pin_hash"]
+    }
     fn entity_id(&self) -> String {
         self.id.to_string()
     }
@@ -238,7 +241,10 @@ impl backbone_orm::EntityRepoMeta for PosManagerPin {
         m
     }
     fn search_fields() -> &'static [&'static str] {
-        &["pin_hash"]
+        &[]
+    }
+    fn secret_fields() -> &'static [&'static str] {
+        &["pinHash"]
     }
 }
 

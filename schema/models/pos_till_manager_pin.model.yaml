@@ -35,7 +35,7 @@ models:
         description: "The manager this PIN authenticates # logical FK to party.Party.id"
       pin_hash:
         type: string
-        attributes: ["@required", "@max(200)"]
+        attributes: ["@required", "@max(200)", "@sensitive", "@immutable"]
         description: "argon2id encoded hash of the PIN; the raw PIN is never stored or returned"
       failed_attempts:
         type: int
