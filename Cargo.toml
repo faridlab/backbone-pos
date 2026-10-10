@@ -1,6 +1,6 @@
 [package]
 name = "backbone-pos"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
 description = "Point of sale — cashier session, ticket + multi-tender; orchestrates billing (revenue) + payment (settlement), posts no GL directly"
 license = "MIT OR Apache-2.0"
@@ -110,7 +110,7 @@ argon2 = "0.5"
 #   • Local dev (full workspace)   → .cargo/config.toml (gitignored) [patch]es each git source back
 #     to ../backbone-*, so uncommitted sibling edits propagate instantly. Recreate it from
 #     .cargo/config.toml.example. Without that file present, Cargo falls through to the git tags.
-backbone-accounting = { version = "0.10.0" }
+backbone-accounting = { version = "0.11.0" }
 backbone-billing = { version = "0.9.0" }
 backbone-payment = { version = "0.12.0" }
 backbone-inventory = { version = "0.10.0" }
