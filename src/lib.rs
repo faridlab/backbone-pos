@@ -25,12 +25,6 @@ pub mod presentation;
 pub mod seeders;
 pub mod exports;
 // <<< CUSTOM MODULES
-/// Stable integration surface for composing services (the deliberate public API consumers depend on).
-pub mod integration;
-// The hand-owned request-pool shim (the composing service's tenant pool
-// resolution): a generated-tree declaration the regenerator drops, so it
-// lives in the preserved block (#447 cause-2 class).
-pub mod request_pool;
 // END CUSTOM
 
 // Re-exports for convenience - Domain entities
@@ -276,3 +270,6 @@ impl Default for PosModuleBuilder {
         Self::new()
     }
 }
+
+// This directory's extension (hand-written; ADR-0031).
+include!("mod.ext.rs");

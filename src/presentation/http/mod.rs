@@ -18,7 +18,6 @@ pub mod pos_floor_plan_handler;
 pub mod pos_table_handler;
 
 // <<< CUSTOM
-pub mod guarded_routes;
 // END CUSTOM
 
 // Re-exports
@@ -34,14 +33,7 @@ pub use pos_manager_pin_handler::{create_pos_manager_pin_routes, create_pos_mana
 pub use pos_floor_plan_handler::{create_pos_floor_plan_routes, create_pos_floor_plan_read_routes, create_pos_floor_plan_write_routes};
 pub use pos_table_handler::{create_pos_table_routes, create_pos_table_read_routes, create_pos_table_write_routes};
 // <<< CUSTOM
-pub use guarded_routes::{create_guarded_pos_priced_route, create_guarded_pos_priced_route_with_outbox, create_guarded_pos_routes, create_guarded_pos_routes_with_outbox};
-// The company guard now lives in the framework (`backbone_auth::company`, feature `axum`) — POS proved
-// the pattern, and it was promoted once a second guarded module needed it. Re-exported here so the
-// composing service and the TG-* tests keep importing it from this module.
-pub use backbone_auth::company::{company_auth, CompanyClaims, CompanyContext, CompanyVerifier};
-// Deprecated Tenant* aliases: a composing service pinned to `main` (e.g. serpa-posman-service)
-// references `TenantVerifier` etc. through this module. Keep it compiling on sync; migrate to the
-// Company* names (ADR-0005) and then drop these.
-#[allow(deprecated)]
-pub use backbone_auth::{TenantClaims, TenantContext, TenantVerifier, tenant_auth};
 // END CUSTOM
+
+// This directory's extension (hand-written; ADR-0031).
+include!("mod.ext.rs");
