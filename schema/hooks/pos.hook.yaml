@@ -115,6 +115,7 @@ rules:
   - id: R7
     name: tender_draft_only
     when: adding_tender
+    enforced_by: "src/application/service/pos_tender.rs::add_tender"
     assert: "ticket.status == 'draft'"
     error_code: not_draft
     enforcement: service
@@ -124,6 +125,7 @@ rules:
   - id: R8
     name: tender_positive
     when: adding_tender
+    enforced_by: "src/application/service/pos_tender.rs::add_tender, src/application/service/pos_sync.rs::sync_write_children"
     assert: "amount > 0"
     error_code: negative_amount
     enforcement: both
@@ -140,6 +142,7 @@ rules:
   - id: R10
     name: recognize_fully_tendered
     when: recognizing
+    enforced_by: "src/application/service/pos_recognition.rs::recognize_sale"
     assert: "paid_total >= rounded_total"
     error_code: not_fully_tendered
     enforcement: service
