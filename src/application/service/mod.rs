@@ -31,6 +31,9 @@ pub use pos_discount_service::PosDiscountService;
 pub use pos_manager_pin_service::PosManagerPinService;
 pub use pos_floor_plan_service::PosFloorPlanService;
 pub use pos_table_service::PosTableService;
+pub use pos_invoice_service::PosInvoiceRowRules;
+pub use pos_profile_service::PosProfileRowRules;
+pub use pos_opening_entry_service::PosOpeningEntryRowRules;
 
 // This directory's extension (hand-written; ADR-0031).
 include!("mod.ext.rs");

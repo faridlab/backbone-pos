@@ -1,6 +1,6 @@
 [package]
 name = "backbone-pos"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
 description = "Point of sale — cashier session, ticket + multi-tender; orchestrates billing (revenue) + payment (settlement), posts no GL directly"
 license = "MIT OR Apache-2.0"
@@ -20,7 +20,7 @@ path = "src/lib.rs"
 # or `rev = "<commit-sha>"`. Cargo dedupes the git fetch — the repo is only
 # cloned once even though four crates reference it.
 # -----------------------------------------------------------------------------
-backbone-core = { version = "3.1.0", features = ["postgres"] }
+backbone-core = { version = "3.7.0", features = ["postgres"] }
 backbone-orm = { version = "3.1.0" }
 backbone-outbox = { version = "3.0.0", features = ["multi_tenant"] }
 backbone-auth = { version = "3.0.0", features = ["axum"] }

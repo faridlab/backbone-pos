@@ -194,7 +194,7 @@ impl PosModuleBuilder {
 
         // PosInvoice service
         let pos_invoice_repository = Arc::new(PosInvoiceRepository::new(db_pool.clone()));
-        let pos_invoice_service = Arc::new(PosInvoiceService::with_repository(pos_invoice_repository.clone()));
+        let pos_invoice_service = Arc::new(PosInvoiceService::with_repository(pos_invoice_repository.clone()).with_guard(Arc::new(crate::application::service::PosInvoiceRowRules)));
 
         // PosInvoiceItem service
         let pos_invoice_item_repository = Arc::new(PosInvoiceItemRepository::new(db_pool.clone()));
@@ -206,11 +206,11 @@ impl PosModuleBuilder {
 
         // PosProfile service
         let pos_profile_repository = Arc::new(PosProfileRepository::new(db_pool.clone()));
-        let pos_profile_service = Arc::new(PosProfileService::with_repository(pos_profile_repository.clone()));
+        let pos_profile_service = Arc::new(PosProfileService::with_repository(pos_profile_repository.clone()).with_guard(Arc::new(crate::application::service::PosProfileRowRules)));
 
         // PosOpeningEntry service
         let pos_opening_entry_repository = Arc::new(PosOpeningEntryRepository::new(db_pool.clone()));
-        let pos_opening_entry_service = Arc::new(PosOpeningEntryService::with_repository(pos_opening_entry_repository.clone()));
+        let pos_opening_entry_service = Arc::new(PosOpeningEntryService::with_repository(pos_opening_entry_repository.clone()).with_guard(Arc::new(crate::application::service::PosOpeningEntryRowRules)));
 
         // PosCashMovement service
         let pos_cash_movement_repository = Arc::new(PosCashMovementRepository::new(db_pool.clone()));

@@ -27,6 +27,7 @@ state_machines:
   # path (ring, tender, cash movement, x-report) re-checks status='open' first.
   - entity: PosOpeningEntry
     field: status
+    verbs: hand
     initial: open
     states: [open, closed]
     transitions:
@@ -41,6 +42,7 @@ state_machines:
   # on record matches pos_invoice_status.
   - entity: PosInvoice
     field: status
+    verbs: hand
     initial: draft
     states: [draft, paid, consolidated, returned, void]
     transitions:
@@ -50,6 +52,7 @@ state_machines:
   # Register configuration lifecycle (status replaced the active boolean).
   - entity: PosProfile
     field: status
+    verbs: hand
     initial: active
     states: [active, inactive]
     transitions:
