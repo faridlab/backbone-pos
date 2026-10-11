@@ -14,10 +14,6 @@ pub type PosOpeningEntryValidator = EntityValidator<PosOpeningEntry>;
 /// Build a validator for PosOpeningEntry with all schema-defined field rules.
 pub fn pos_opening_entry_validator() -> PosOpeningEntryValidator {
     EntityValidator::new()
-    // <<< CUSTOM RULES
-    // END CUSTOM RULES
         // No schema-derived rules — add custom rules above.
 }
 
-// <<< CUSTOM
-// END CUSTOM

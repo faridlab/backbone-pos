@@ -18,5 +18,3 @@ use crate::domain::entity::PosFloorPlan;
 /// service. `PermitAllPolicy` is the safe default until then.
 pub type PosFloorPlanDomainPolicy = PermitAllPolicy<PosFloorPlan>;
 
-// <<< CUSTOM
-// END CUSTOM

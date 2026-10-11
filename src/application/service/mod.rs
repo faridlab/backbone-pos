@@ -19,8 +19,6 @@ pub mod pos_manager_pin_service;
 pub mod pos_floor_plan_service;
 pub mod pos_table_service;
 
-// <<< CUSTOM
-// END CUSTOM
 
 pub use pos_closing_entry_service::PosClosingEntryService;
 pub use pos_invoice_service::PosInvoiceService;
@@ -33,8 +31,6 @@ pub use pos_discount_service::PosDiscountService;
 pub use pos_manager_pin_service::PosManagerPinService;
 pub use pos_floor_plan_service::PosFloorPlanService;
 pub use pos_table_service::PosTableService;
-// <<< CUSTOM
-// END CUSTOM
 
 // This directory's extension (hand-written; ADR-0031).
 include!("mod.ext.rs");

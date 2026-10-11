@@ -273,7 +273,7 @@ impl backbone_core::ApplyUpdateDto<UpdatePosTableDto> for PosTable {
 // Custom DTOs
 // =============================================================================
 
-// <<< CUSTOM DTOs
 // Add custom DTOs specific to PosTable here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
+

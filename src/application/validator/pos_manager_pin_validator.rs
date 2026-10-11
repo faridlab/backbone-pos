@@ -18,9 +18,5 @@ pub fn pos_manager_pin_validator() -> PosManagerPinValidator {
         .rule(RequiredString::new("pin_hash", |e: &PosManagerPin| &e.pin_hash))
         .rule(NonNegative::new("failed_attempts", |e: &PosManagerPin| e.failed_attempts as i64))
         .rule(OptionalNotBlank::new("last_attempt_ip", |e: &PosManagerPin| e.last_attempt_ip.as_deref()))
-    // <<< CUSTOM RULES
-    // END CUSTOM RULES
 }
 
-// <<< CUSTOM
-// END CUSTOM

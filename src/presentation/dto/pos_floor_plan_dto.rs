@@ -246,7 +246,7 @@ impl backbone_core::ApplyUpdateDto<UpdatePosFloorPlanDto> for PosFloorPlan {
 // Custom DTOs
 // =============================================================================
 
-// <<< CUSTOM DTOs
 // Add custom DTOs specific to PosFloorPlan here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
+

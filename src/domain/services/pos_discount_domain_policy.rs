@@ -18,5 +18,3 @@ use crate::domain::entity::PosDiscount;
 /// service. `PermitAllPolicy` is the safe default until then.
 pub type PosDiscountDomainPolicy = PermitAllPolicy<PosDiscount>;
 
-// <<< CUSTOM
-// END CUSTOM

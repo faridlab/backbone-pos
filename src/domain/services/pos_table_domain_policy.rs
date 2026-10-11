@@ -18,5 +18,3 @@ use crate::domain::entity::PosTable;
 /// service. `PermitAllPolicy` is the safe default until then.
 pub type PosTableDomainPolicy = PermitAllPolicy<PosTable>;
 
-// <<< CUSTOM
-// END CUSTOM

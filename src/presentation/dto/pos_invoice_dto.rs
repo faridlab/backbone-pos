@@ -385,7 +385,7 @@ impl backbone_core::ApplyUpdateDto<UpdatePosInvoiceDto> for PosInvoice {
 // Custom DTOs
 // =============================================================================
 
-// <<< CUSTOM DTOs
 // Add custom DTOs specific to PosInvoice here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
+

@@ -32,5 +32,3 @@ pub type PosFloorPlanService = GenericCrudService<
     PosFloorPlanRepository,
 >;
 
-// <<< CUSTOM
-// END CUSTOM

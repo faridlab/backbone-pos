@@ -157,8 +157,6 @@ impl PosDiscount {
         }
     }
 
-    // <<< CUSTOM METHODS START >>>
-    // <<< CUSTOM METHODS END >>>
 }
 
 impl super::Entity for PosDiscount {

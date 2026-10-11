@@ -18,5 +18,3 @@ use crate::domain::entity::PosInvoiceItem;
 /// service. `PermitAllPolicy` is the safe default until then.
 pub type PosInvoiceItemDomainPolicy = PermitAllPolicy<PosInvoiceItem>;
 
-// <<< CUSTOM
-// END CUSTOM

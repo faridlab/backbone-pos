@@ -186,8 +186,6 @@ impl PosPayment {
         }
     }
 
-    // <<< CUSTOM METHODS START >>>
-    // <<< CUSTOM METHODS END >>>
 }
 
 impl super::Entity for PosPayment {

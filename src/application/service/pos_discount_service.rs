@@ -32,5 +32,3 @@ pub type PosDiscountService = GenericCrudService<
     PosDiscountRepository,
 >;
 
-// <<< CUSTOM
-// END CUSTOM

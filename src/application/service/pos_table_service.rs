@@ -32,5 +32,3 @@ pub type PosTableService = GenericCrudService<
     PosTableRepository,
 >;
 
-// <<< CUSTOM
-// END CUSTOM

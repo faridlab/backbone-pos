@@ -16,9 +16,5 @@ pub type PosCashMovementValidator = EntityValidator<PosCashMovement>;
 pub fn pos_cash_movement_validator() -> PosCashMovementValidator {
     EntityValidator::new()
         .rule(OptionalNotBlank::new("reason", |e: &PosCashMovement| e.reason.as_deref()))
-    // <<< CUSTOM RULES
-    // END CUSTOM RULES
 }
 
-// <<< CUSTOM
-// END CUSTOM

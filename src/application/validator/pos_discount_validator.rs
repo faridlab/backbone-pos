@@ -17,9 +17,5 @@ pub fn pos_discount_validator() -> PosDiscountValidator {
     EntityValidator::new()
         .rule(RequiredString::new("name", |e: &PosDiscount| &e.name))
         .rule(OptionalNotBlank::new("description", |e: &PosDiscount| e.description.as_deref()))
-    // <<< CUSTOM RULES
-    // END CUSTOM RULES
 }
 
-// <<< CUSTOM
-// END CUSTOM

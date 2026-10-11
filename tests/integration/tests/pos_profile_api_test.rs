@@ -131,6 +131,4 @@ mod tests {
 // CUSTOM TESTS
 // ============================================================================
 
-// <<< CUSTOM TESTS START >>>
 // Add PosProfile specific tests here
-// <<< CUSTOM TESTS END >>>

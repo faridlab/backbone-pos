@@ -32,5 +32,3 @@ pub type PosClosingEntryService = GenericCrudService<
     PosClosingEntryRepository,
 >;
 
-// <<< CUSTOM
-// END CUSTOM

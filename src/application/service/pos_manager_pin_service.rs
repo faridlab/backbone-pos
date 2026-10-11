@@ -32,5 +32,3 @@ pub type PosManagerPinService = GenericCrudService<
     PosManagerPinRepository,
 >;
 
-// <<< CUSTOM
-// END CUSTOM

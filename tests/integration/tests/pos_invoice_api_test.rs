@@ -147,6 +147,4 @@ mod tests {
 // CUSTOM TESTS
 // ============================================================================
 
-// <<< CUSTOM TESTS START >>>
 // Add PosInvoice specific tests here
-// <<< CUSTOM TESTS END >>>

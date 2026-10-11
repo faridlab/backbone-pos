@@ -32,5 +32,3 @@ pub type PosPaymentService = GenericCrudService<
     PosPaymentRepository,
 >;
 
-// <<< CUSTOM
-// END CUSTOM

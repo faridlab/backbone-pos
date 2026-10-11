@@ -186,3 +186,4 @@ pub fn create_protected_pos_floor_plan_routes<A: AuthMiddleware + Send + Sync + 
             }
         }))
 }
+

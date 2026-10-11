@@ -119,6 +119,4 @@ mod tests {
 // CUSTOM TESTS
 // ============================================================================
 
-// <<< CUSTOM TESTS START >>>
 // Add PosOpeningEntry specific tests here
-// <<< CUSTOM TESTS END >>>

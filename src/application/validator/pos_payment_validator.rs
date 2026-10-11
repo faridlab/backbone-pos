@@ -16,9 +16,5 @@ pub type PosPaymentValidator = EntityValidator<PosPayment>;
 pub fn pos_payment_validator() -> PosPaymentValidator {
     EntityValidator::new()
         .rule(OptionalNotBlank::new("reference_no", |e: &PosPayment| e.reference_no.as_deref()))
-    // <<< CUSTOM RULES
-    // END CUSTOM RULES
 }
 
-// <<< CUSTOM
-// END CUSTOM

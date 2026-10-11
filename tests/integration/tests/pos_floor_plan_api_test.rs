@@ -101,6 +101,4 @@ mod tests {
 // CUSTOM TESTS
 // ============================================================================
 
-// <<< CUSTOM TESTS START >>>
 // Add PosFloorPlan specific tests here
-// <<< CUSTOM TESTS END >>>

@@ -32,5 +32,3 @@ pub type PosCashMovementService = GenericCrudService<
     PosCashMovementRepository,
 >;
 
-// <<< CUSTOM
-// END CUSTOM

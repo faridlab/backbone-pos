@@ -187,3 +187,4 @@ pub fn create_protected_pos_discount_routes<A: AuthMiddleware + Send + Sync + 's
             }
         }))
 }
+

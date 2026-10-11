@@ -101,6 +101,4 @@ mod tests {
 // CUSTOM TESTS
 // ============================================================================
 
-// <<< CUSTOM TESTS START >>>
 // Add PosDiscount specific tests here
-// <<< CUSTOM TESTS END >>>

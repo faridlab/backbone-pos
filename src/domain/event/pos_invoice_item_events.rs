@@ -11,8 +11,6 @@ use crate::domain::entity::PosInvoiceItem;
 /// enum containing a `Crud(CrudEvent<PosInvoiceItem>)` variant.
 pub type PosInvoiceItemEvent = CrudEvent<PosInvoiceItem>;
 
-// <<< CUSTOM
-// END CUSTOM
 
 use backbone_messaging::{CrudEventPublisher, NoOpCrudEventPublisher};
 use std::sync::Arc;

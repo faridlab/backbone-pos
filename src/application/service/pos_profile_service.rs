@@ -32,5 +32,3 @@ pub type PosProfileService = GenericCrudService<
     PosProfileRepository,
 >;
 
-// <<< CUSTOM
-// END CUSTOM

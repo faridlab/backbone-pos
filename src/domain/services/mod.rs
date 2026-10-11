@@ -26,5 +26,3 @@ pub use pos_manager_pin_domain_policy::PosManagerPinDomainPolicy;
 pub use pos_floor_plan_domain_policy::PosFloorPlanDomainPolicy;
 pub use pos_table_domain_policy::PosTableDomainPolicy;
 
-// <<< CUSTOM
-// END CUSTOM

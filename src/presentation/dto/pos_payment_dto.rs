@@ -271,7 +271,7 @@ impl backbone_core::ApplyUpdateDto<UpdatePosPaymentDto> for PosPayment {
 // Custom DTOs
 // =============================================================================
 
-// <<< CUSTOM DTOs
 // Add custom DTOs specific to PosPayment here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
+

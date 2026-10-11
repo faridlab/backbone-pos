@@ -183,8 +183,6 @@ impl PosManagerPin {
         }
     }
 
-    // <<< CUSTOM METHODS START >>>
-    // <<< CUSTOM METHODS END >>>
 }
 
 impl super::Entity for PosManagerPin {

@@ -285,7 +285,7 @@ impl backbone_core::ApplyUpdateDto<UpdatePosOpeningEntryDto> for PosOpeningEntry
 // Custom DTOs
 // =============================================================================
 
-// <<< CUSTOM DTOs
 // Add custom DTOs specific to PosOpeningEntry here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
+

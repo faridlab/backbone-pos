@@ -248,7 +248,7 @@ impl backbone_core::ApplyUpdateDto<UpdatePosDiscountDto> for PosDiscount {
 // Custom DTOs
 // =============================================================================
 
-// <<< CUSTOM DTOs
 // Add custom DTOs specific to PosDiscount here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
+

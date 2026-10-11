@@ -32,5 +32,3 @@ pub type PosInvoiceService = GenericCrudService<
     PosInvoiceRepository,
 >;
 
-// <<< CUSTOM
-// END CUSTOM

@@ -370,6 +370,4 @@ impl Default for PosEventMetadata {
 // CUSTOM EVENTS
 // ============================================================================
 
-// <<< CUSTOM EVENTS START >>>
 // Add custom public events here
-// <<< CUSTOM EVENTS END >>>

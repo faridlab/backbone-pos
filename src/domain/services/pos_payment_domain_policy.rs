@@ -18,5 +18,3 @@ use crate::domain::entity::PosPayment;
 /// service. `PermitAllPolicy` is the safe default until then.
 pub type PosPaymentDomainPolicy = PermitAllPolicy<PosPayment>;
 
-// <<< CUSTOM
-// END CUSTOM

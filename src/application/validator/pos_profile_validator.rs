@@ -17,9 +17,5 @@ pub fn pos_profile_validator() -> PosProfileValidator {
     EntityValidator::new()
         .rule(RequiredString::new("name", |e: &PosProfile| &e.name))
         .rule(RequiredString::new("currency", |e: &PosProfile| &e.currency))
-    // <<< CUSTOM RULES
-    // END CUSTOM RULES
 }
 
-// <<< CUSTOM
-// END CUSTOM

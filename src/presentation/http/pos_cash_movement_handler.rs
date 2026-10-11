@@ -188,3 +188,4 @@ pub fn create_protected_pos_cash_movement_routes<A: AuthMiddleware + Send + Sync
             }
         }))
 }
+

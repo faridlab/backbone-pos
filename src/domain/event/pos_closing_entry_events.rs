@@ -11,8 +11,6 @@ use crate::domain::entity::PosClosingEntry;
 /// enum containing a `Crud(CrudEvent<PosClosingEntry>)` variant.
 pub type PosClosingEntryEvent = CrudEvent<PosClosingEntry>;
 
-// <<< CUSTOM
-// END CUSTOM
 
 use backbone_messaging::{CrudEventPublisher, NoOpCrudEventPublisher};
 use std::sync::Arc;

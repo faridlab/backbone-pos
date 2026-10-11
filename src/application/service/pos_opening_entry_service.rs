@@ -32,5 +32,3 @@ pub type PosOpeningEntryService = GenericCrudService<
     PosOpeningEntryRepository,
 >;
 
-// <<< CUSTOM
-// END CUSTOM

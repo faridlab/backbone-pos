@@ -17,8 +17,6 @@ pub mod pos_manager_pin_handler;
 pub mod pos_floor_plan_handler;
 pub mod pos_table_handler;
 
-// <<< CUSTOM
-// END CUSTOM
 
 // Re-exports
 pub use pos_closing_entry_handler::{create_pos_closing_entry_routes, create_pos_closing_entry_read_routes, create_pos_closing_entry_write_routes};
@@ -32,8 +30,6 @@ pub use pos_discount_handler::{create_pos_discount_routes, create_pos_discount_r
 pub use pos_manager_pin_handler::{create_pos_manager_pin_routes, create_pos_manager_pin_read_routes, create_pos_manager_pin_write_routes};
 pub use pos_floor_plan_handler::{create_pos_floor_plan_routes, create_pos_floor_plan_read_routes, create_pos_floor_plan_write_routes};
 pub use pos_table_handler::{create_pos_table_routes, create_pos_table_read_routes, create_pos_table_write_routes};
-// <<< CUSTOM
-// END CUSTOM
 
 // This directory's extension (hand-written; ADR-0031).
 include!("mod.ext.rs");

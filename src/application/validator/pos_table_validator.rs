@@ -17,9 +17,5 @@ pub fn pos_table_validator() -> PosTableValidator {
     EntityValidator::new()
         .rule(OptionalNotBlank::new("name", |e: &PosTable| e.name.as_deref()))
         .rule(OptionalNotBlank::new("shape", |e: &PosTable| e.shape.as_deref()))
-    // <<< CUSTOM RULES
-    // END CUSTOM RULES
 }
 
-// <<< CUSTOM
-// END CUSTOM

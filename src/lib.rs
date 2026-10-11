@@ -24,8 +24,6 @@ pub mod application;
 pub mod presentation;
 pub mod seeders;
 pub mod exports;
-// <<< CUSTOM MODULES
-// END CUSTOM
 
 // Re-exports for convenience - Domain entities
 pub use domain::entity::*;
@@ -77,8 +75,6 @@ pub struct PosModule {
     pub(crate) pos_manager_pin_service: Arc<PosManagerPinService>,
     pub(crate) pos_floor_plan_service: Arc<PosFloorPlanService>,
     pub(crate) pos_table_service: Arc<PosTableService>,
-    // <<< CUSTOM FIELDS
-    // END CUSTOM
 }
 
 impl PosModule {
@@ -165,15 +161,11 @@ impl PosModule {
             .merge(create_pos_table_read_routes(self.pos_table_service.clone()))
     }
 
-    // <<< CUSTOM METHODS
-    // END CUSTOM
 }
 
 /// Builder for PosModule
 pub struct PosModuleBuilder {
     db_pool: Option<PgPool>,
-    // <<< CUSTOM BUILDER FIELDS
-    // END CUSTOM
 }
 
 impl PosModuleBuilder {
@@ -181,8 +173,6 @@ impl PosModuleBuilder {
     pub fn new() -> Self {
         Self {
             db_pool: None,
-            // <<< CUSTOM BUILDER DEFAULTS
-            // END CUSTOM
         }
     }
 
@@ -192,8 +182,6 @@ impl PosModuleBuilder {
         self
     }
 
-    // <<< CUSTOM - custom builder methods
-    // END CUSTOM
 
     /// Build the module with configured dependencies
     pub fn build(self) -> anyhow::Result<PosModule> {
@@ -244,8 +232,6 @@ impl PosModuleBuilder {
         let pos_table_repository = Arc::new(PosTableRepository::new(db_pool.clone()));
         let pos_table_service = Arc::new(PosTableService::with_repository(pos_table_repository.clone()));
 
-        // <<< CUSTOM
-        // END CUSTOM
 
         Ok(PosModule {
             pos_closing_entry_service,
@@ -259,8 +245,6 @@ impl PosModuleBuilder {
             pos_manager_pin_service,
             pos_floor_plan_service,
             pos_table_service,
-            // <<< CUSTOM
-            // END CUSTOM
         })
     }
 }

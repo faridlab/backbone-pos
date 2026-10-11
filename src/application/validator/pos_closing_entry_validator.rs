@@ -15,10 +15,6 @@ pub type PosClosingEntryValidator = EntityValidator<PosClosingEntry>;
 /// Build a validator for PosClosingEntry with all schema-defined field rules.
 pub fn pos_closing_entry_validator() -> PosClosingEntryValidator {
     EntityValidator::new()
-    // <<< CUSTOM RULES
-    // END CUSTOM RULES
         // No schema-derived rules — add custom rules above.
 }
 
-// <<< CUSTOM
-// END CUSTOM

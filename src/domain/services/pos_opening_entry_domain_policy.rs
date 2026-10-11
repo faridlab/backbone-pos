@@ -18,5 +18,3 @@ use crate::domain::entity::PosOpeningEntry;
 /// service. `PermitAllPolicy` is the safe default until then.
 pub type PosOpeningEntryDomainPolicy = PermitAllPolicy<PosOpeningEntry>;
 
-// <<< CUSTOM
-// END CUSTOM

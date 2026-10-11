@@ -11,8 +11,6 @@ use crate::domain::entity::PosManagerPin;
 /// enum containing a `Crud(CrudEvent<PosManagerPin>)` variant.
 pub type PosManagerPinEvent = CrudEvent<PosManagerPin>;
 
-// <<< CUSTOM
-// END CUSTOM
 
 use backbone_messaging::{CrudEventPublisher, NoOpCrudEventPublisher};
 use std::sync::Arc;

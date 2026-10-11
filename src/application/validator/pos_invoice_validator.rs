@@ -16,9 +16,5 @@ pub type PosInvoiceValidator = EntityValidator<PosInvoice>;
 pub fn pos_invoice_validator() -> PosInvoiceValidator {
     EntityValidator::new()
         .rule(RequiredString::new("receipt_number", |e: &PosInvoice| &e.receipt_number))
-    // <<< CUSTOM RULES
-    // END CUSTOM RULES
 }
 
-// <<< CUSTOM
-// END CUSTOM

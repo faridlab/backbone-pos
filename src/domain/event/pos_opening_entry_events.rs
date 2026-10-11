@@ -11,8 +11,6 @@ use crate::domain::entity::PosOpeningEntry;
 /// enum containing a `Crud(CrudEvent<PosOpeningEntry>)` variant.
 pub type PosOpeningEntryEvent = CrudEvent<PosOpeningEntry>;
 
-// <<< CUSTOM
-// END CUSTOM
 
 use backbone_messaging::{CrudEventPublisher, NoOpCrudEventPublisher};
 use std::sync::Arc;

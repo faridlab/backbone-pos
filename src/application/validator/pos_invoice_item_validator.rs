@@ -16,9 +16,5 @@ pub type PosInvoiceItemValidator = EntityValidator<PosInvoiceItem>;
 pub fn pos_invoice_item_validator() -> PosInvoiceItemValidator {
     EntityValidator::new()
         .rule(OptionalNotBlank::new("description", |e: &PosInvoiceItem| e.description.as_deref()))
-    // <<< CUSTOM RULES
-    // END CUSTOM RULES
 }
 
-// <<< CUSTOM
-// END CUSTOM

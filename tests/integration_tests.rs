@@ -163,3 +163,4 @@ async fn test_pos_table_api() {
         panic!("{} tests failed", failed.len());
     }
 }
+

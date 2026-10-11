@@ -18,5 +18,3 @@ use crate::domain::entity::PosClosingEntry;
 /// service. `PermitAllPolicy` is the safe default until then.
 pub type PosClosingEntryDomainPolicy = PermitAllPolicy<PosClosingEntry>;
 
-// <<< CUSTOM
-// END CUSTOM

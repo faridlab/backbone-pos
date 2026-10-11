@@ -187,3 +187,4 @@ pub fn create_protected_pos_manager_pin_routes<A: AuthMiddleware + Send + Sync +
             }
         }))
 }
+

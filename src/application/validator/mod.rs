@@ -29,5 +29,3 @@ pub use pos_manager_pin_validator::{PosManagerPinValidator, pos_manager_pin_vali
 pub use pos_floor_plan_validator::{PosFloorPlanValidator, pos_floor_plan_validator};
 pub use pos_table_validator::{PosTableValidator, pos_table_validator};
 
-// <<< CUSTOM
-// END CUSTOM

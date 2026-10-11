@@ -16,9 +16,5 @@ pub type PosFloorPlanValidator = EntityValidator<PosFloorPlan>;
 pub fn pos_floor_plan_validator() -> PosFloorPlanValidator {
     EntityValidator::new()
         .rule(RequiredString::new("name", |e: &PosFloorPlan| &e.name))
-    // <<< CUSTOM RULES
-    // END CUSTOM RULES
 }
 
-// <<< CUSTOM
-// END CUSTOM

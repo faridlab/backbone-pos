@@ -18,5 +18,3 @@ use crate::domain::entity::PosProfile;
 /// service. `PermitAllPolicy` is the safe default until then.
 pub type PosProfileDomainPolicy = PermitAllPolicy<PosProfile>;
 
-// <<< CUSTOM
-// END CUSTOM

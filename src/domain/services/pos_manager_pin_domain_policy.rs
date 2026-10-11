@@ -18,5 +18,3 @@ use crate::domain::entity::PosManagerPin;
 /// service. `PermitAllPolicy` is the safe default until then.
 pub type PosManagerPinDomainPolicy = PermitAllPolicy<PosManagerPin>;
 
-// <<< CUSTOM
-// END CUSTOM
