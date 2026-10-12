@@ -1,0 +1,26 @@
+# The rule ratchet (schema doctor): these counts may only go down. Regenerate with
+# `metaphor schema rules . --update-baseline` after enforcing a rule.
+unenforced: 19
+warnings: 22
+machines_without_verbs: 0
+untested_rule_ids: 22
+unenforced_rules:
+- 'pos.hook.yaml: accounts_present_when_needed'
+- 'pos.hook.yaml: cash_movement_kind_and_amount'
+- 'pos.hook.yaml: change_only_overpayment'
+- 'pos.hook.yaml: close_persists_reconciliation'
+- 'pos.hook.yaml: loyalty_point_deltas_not_accepted'
+- 'pos.hook.yaml: named_table_must_exist'
+- 'pos.hook.yaml: non_empty_basket'
+- 'pos.hook.yaml: non_negative_line_money'
+- 'pos.hook.yaml: one_draft_per_table'
+- 'pos.hook.yaml: one_open_session_per_config'
+- 'pos.hook.yaml: order_discount_server_priced'
+- 'pos.hook.yaml: receipt_number_unique'
+- 'pos.hook.yaml: recognition_at_most_once'
+- 'pos.hook.yaml: return_exactly_once'
+- 'pos.hook.yaml: return_from_paid'
+- 'pos.hook.yaml: server_owned_tax'
+- 'pos.hook.yaml: session_must_be_open'
+- 'pos.hook.yaml: stale_session_alert_once'
+- 'pos.hook.yaml: tender_event_once_on_crossing'
