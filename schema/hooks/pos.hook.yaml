@@ -133,9 +133,10 @@ rules:
     when: adding_tender
     assert: "ticket.status == 'draft'"
     error_code: not_draft
+    enforced_by: "src/application/service/pos_tender.rs::add_tender, src/infrastructure/persistence/pos_invoice_repository.rs::fetch_tender_header, src/application/service/pos_sync.rs::sync_update_draft, src/infrastructure/persistence/pos_invoice_repository.rs::lock_for_sync_on"
     enforcement: service
-    justification: "PARTLY: add_tender refuses a non-draft ticket, but on a separate unlocked read: the tender insert and the total update carry no status predicate, and a sync replay rewrites a ticket's tenders without reading its status at all."
-    note: "the header is read before the tender insert; recognition's flip is itself a gated UPDATE (WHERE status='draft') so a racing tender cannot land on a paid ticket"
+    justification: "A state gate on the ticket the tender is paid against, read under the ticket's row lock: a tender and the paid flip queue on that row, so a tender after the flip sees paid and is refused, and a sync replay locks the ticket before it rewrites anything."
+    note: "the header is read FOR UPDATE before the tender insert; recognition's flip is itself a gated UPDATE (WHERE status='draft') on the same row, so a racing tender cannot land on a paid ticket"
 
   - id: R8
     name: tender_positive
@@ -153,8 +154,9 @@ rules:
     when: adding_tender
     assert: "change_due == max(paid_total - rounded_total, 0), cash only"
     error_code: none
+    enforced_by: "src/application/service/pos_tender.rs::add_tender, src/application/service/pos_tender.rs::check_change_is_cash, src/application/service/pos_sync.rs::check_replay_change_is_cash"
     enforcement: both
-    justification: "PARTLY: change is paid total less rounded total, floored at zero, but the method is ignored, so a card overpayment produces change that the drawer then takes out of expected cash; the paid total is re-summed in each tender's own transaction without a lock, so two parallel tenders can each write a total that misses the other."
+    justification: "Change is the overpayment, and only cash may overpay: a tender other than cash covers at most what is still due, on the online tender and on the replay, so the change the drawer hands back is always cash it took."
     note: "DB arm: pos_invoices.change_due CHECK (change_due >= 0); the re-sum (sum_paid_total_on) and the change computation commit in the tender's own transaction"
 
   - id: R10
@@ -165,7 +167,7 @@ rules:
     assert: "paid_total >= rounded_total"
     error_code: not_fully_tendered
     enforcement: service
-    justification: "The comparison holds on the header read at recognition; the header's paid total can understate the tenders when two are taken in parallel (see change_only_overpayment)."
+    justification: "The comparison holds on the header read at recognition; tenders re-sum under the ticket's row lock, so the paid total it reads includes every tender taken."
     note: "checked on the freshly-read ticket before driving billing/payment; recognition is replay-safe so a retry after a late tender succeeds"
 
   - id: R11
@@ -185,8 +187,9 @@ rules:
     when: recognizing
     assert: "a retry reuses the raised billing invoice (billing_invoice_id persisted while still draft) and the draft->paid flip is a gated UPDATE; replay returns the persisted billing/payment ids"
     error_code: none
+    enforced_by: "src/application/service/pos_recognition.rs::recognize_sale, src/infrastructure/persistence/pos_invoice_repository.rs::link_billing_invoice, src/infrastructure/persistence/pos_invoice_repository.rs::mark_paid, src/application/service/pos_recognition.rs::relieve_stock_once"
     enforcement: service
-    justification: "PARTLY: the draft-to-paid flip is gated, but recognize_sale reads the ticket without a lock and raises a billing invoice whenever none is linked yet, and link_billing_invoice neither requires an empty link nor reads its result, so two parallel deliveries raise two invoices. A failed stock relief after the flip is skipped on retry, because the retry finds the ticket paid."
+    justification: "Idempotency across a boundary. Recognition of one ticket runs under a transaction-scoped advisory lock on its id, so a second delivery waits and then reuses the linked invoice or finds the ticket paid; the link only takes on a draft with none; the stock relief is driven by the ticket's own record of its delivery note, so a refused relief is retried and a recorded one never repeats."
     note: "procedural by construction (cross-service orchestration); a decline-then-retry at the counter must not double the revenue journal — billing does not dedup on the POS ticket"
 
   - id: R13
@@ -236,8 +239,9 @@ rules:
     when: adding_tender
     assert: "PosTenderCompleted is emitted (and outbox-staged when configured) exactly on the tender that crosses full payment — never re-emitted on extra tenders"
     error_code: none
+    enforced_by: "src/application/service/pos_tender.rs::add_tender, src/application/service/pos_sync.rs::crosses_full_payment"
     enforcement: service
-    justification: "PARTLY: add_tender emits only on the crossing tender, but the sync path emits and stages PosTenderCompleted on every replay of a fully paid draft, with no crossing test."
+    justification: "The event fires on the tender that CROSSES full payment, known by comparing the paid total before and after under the ticket's row lock; a replay fires only when the ticket was not paid up before it."
     note: "the outbox record carries the ambient org scope's legacy company echo as its top-level fence field (ADR-0011 wire shape; the column lives in the composing service's outbox, not here — ADR-0029); double-delivery is a no-op because recognition is replay-safe"
 
   - id: R18
