@@ -252,12 +252,10 @@ impl PosEventSink for Recorder {
 
 /// Give a fresh manager a PIN and return the auth a privileged verb carries.
 ///
-/// Seeds the credential row DIRECTLY rather than calling `set_pin`: the proof-free bootstrap only
-/// applies while no live credential exists anywhere in scope, and undecorated on the shared scratch
-/// DB that scope is the whole table — leftovers from earlier test binaries (or this one's parallel
-/// siblings) would refuse it. The hash is produced exactly as the service produces it (Argon2id
+/// Seeds the credential row DIRECTLY rather than calling `set_pin`, which needs a manager's proof
+/// or an administrator. The hash is produced exactly as the service produces it (Argon2id
 /// defaults; the PHC string carries its parameters, so the real verify path accepts it). `set_pin`'s
-/// own bootstrap/rotation semantics are covered by the manager-PIN behavior tests.
+/// own authority and rotation semantics are covered by the manager-PIN behavior tests.
 pub async fn manager_with_pin(pool: &PgPool, pin: &str) -> ManagerAuth {
     let employee = Uuid::new_v4();
     let salt = argon2::password_hash::SaltString::generate(&mut argon2::password_hash::rand_core::OsRng);

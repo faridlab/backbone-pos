@@ -176,7 +176,7 @@ impl PosWriteService {
             return Err(PosError::SessionHasUnpostedInvoices(unposted));
         }
         // Guard: privileged — verify the manager's PIN (server-side, against the stored hash, with the
-        // caller's source address feeding the per-address throttle ring).
+        // authenticated caller feeding the per-caller throttle ring).
         self.verify_manager_internal(&c.manager, c.source_ip.as_deref()).await?;
 
         let (expected, grand_total, invoice_count) = self.compute_drawer(c.opening_entry_id).await?;

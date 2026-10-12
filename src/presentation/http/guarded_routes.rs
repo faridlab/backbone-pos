@@ -23,7 +23,7 @@
 
 use std::sync::Arc;
 
-use axum::{extract::{Path, State}, http::StatusCode, response::IntoResponse, routing::{get, post}, Json, Router};
+use axum::{extract::{Path, State}, http::StatusCode, response::IntoResponse, routing::{get, post}, Extension, Json, Router};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -54,53 +54,21 @@ fn err(e: PosError) -> axum::response::Response {
     (s, Json(ErrorBody { error: e.code(), message: e.to_string() })).into_response()
 }
 
-/// The best-effort source address of a privileged request — feeds the PIN throttle ring. Reads the
-/// proxy hop list first (the guarded surface sits behind one in production), then the direct peer.
-/// `None` skips the per-address budget (service-to-service callers have no address).
-fn source_ip(headers: &axum::http::HeaderMap) -> Option<String> {
-    headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.split(',').next())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .or_else(|| {
-            headers
-                .get(axum::http::header::USER_AGENT)
-                .and_then(|v| v.to_str().ok())
-                .map(|s| format!("ua:{}", utf8_prefix(s, 60)))
-        })
+/// Who a privileged attempt is counted against — the PIN throttle ring's key and the attempt
+/// trail. The authenticated caller the composing service's org guard proved, never a header the
+/// request sets about itself: a forwarded-for or user-agent value is the client's to change, and
+/// changing it would reset the budget.
+fn caller_key(org: &OrgContext) -> Option<String> {
+    Some(format!("user:{}", org.user_id))
 }
 
-/// Longest prefix of `s` no longer than `max` bytes that stops on a char boundary — a raw byte
-/// slice panics when a multi-byte character straddles the cap, and this feeds the privileged
-/// throttle path.
-fn utf8_prefix(s: &str, max: usize) -> &str {
-    let mut cut = s.len().min(max);
-    while !s.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    &s[..cut]
-}
-
-#[cfg(test)]
-mod tests {
-    use super::utf8_prefix;
-
-    #[test]
-    fn utf8_prefix_never_splits_a_character() {
-        // 16 four-byte emoji = 64 bytes: a 60-byte cap lands exactly on a boundary.
-        let emoji = "😀".repeat(16);
-        assert_eq!(utf8_prefix(&emoji, 60).len(), 60);
-        // A cap one byte past the boundary backs off to it instead of splitting an emoji.
-        assert_eq!(utf8_prefix(&emoji, 61).len(), 60);
-        // A two-byte character straddling the cap backs off whole.
-        let tailed = "a".repeat(59) + "é";
-        assert_eq!(utf8_prefix(&tailed, 60), "a".repeat(59).as_str());
-        assert_eq!(utf8_prefix("short", 60), "short");
-        assert_eq!(utf8_prefix("", 60), "");
-    }
-}
+/// Marks a request whose caller administers manager credentials.
+///
+/// The composing service decides who that is and inserts this extension on `POST /manager-pins`
+/// for those callers. With it, a PIN may be set without a manager's proof — the first PIN of a
+/// unit, or a reset; without it, setting a PIN needs a manager's verified PIN.
+#[derive(Debug, Clone, Copy)]
+pub struct PosCredentialAdmin;
 
 /// The write surface's shared state: the write service plus the port implementations the guarded
 /// verbs drive (tax on every ring, variance at close, billing+payment on offline refund replays).
@@ -231,14 +199,14 @@ struct CloseBody {
     /// written (the close is the one POS verb that books a GL correction on its own account).
     manager: ManagerBody,
 }
-async fn close_session(State(st): State<WriteState>, headers: axum::http::HeaderMap, Json(b): Json<CloseBody>) -> axum::response::Response {
+async fn close_session(State(st): State<WriteState>, org: OrgContext, Json(b): Json<CloseBody>) -> axum::response::Response {
     // Tenancy is composition-installed (ADR-0029): the composing service's org scope middleware
     // fences the opening-entry lookup; no company field rides the verb.
     let c = NewClose {
         opening_entry_id: b.opening_entry_id, cashier_party_id: b.cashier_party_id,
         closed_at: b.closed_at, counted: b.counted.into_iter().map(|x| (x.method, x.amount)).collect(),
         manager: ManagerAuth { employee_party_id: b.manager.employee_party_id, pin: b.manager.pin },
-        source_ip: source_ip(&headers),
+        source_ip: caller_key(&org),
     };
     match st.svc.close_session(c, &*st.variance).await {
         Ok(o) => (StatusCode::OK, Json(serde_json::json!({
@@ -303,7 +271,7 @@ struct SyncSaleBody {
     #[serde(default)] refund_of_client_uuid: Option<Uuid>,
     #[serde(default)] manager: Option<ManagerBody>,
 }
-async fn sync_from_ui(State(st): State<WriteState>, headers: axum::http::HeaderMap, org: OrgContext, Json(b): Json<SyncSaleBody>) -> axum::response::Response {
+async fn sync_from_ui(State(st): State<WriteState>, org: OrgContext, Json(b): Json<SyncSaleBody>) -> axum::response::Response {
     // No total field exists on this body by design: the server recomputes every money field from the
     // lines + tenders through the same compute core the online ring uses. Tenancy is
     // composition-installed (ADR-0029): no company field — the replay namespaces inside the acting
@@ -328,7 +296,7 @@ async fn sync_from_ui(State(st): State<WriteState>, headers: axum::http::HeaderM
         }).collect(),
         refund_of_client_uuid: b.refund_of_client_uuid,
         manager: b.manager.map(|m| ManagerAuth { employee_party_id: m.employee_party_id, pin: m.pin }),
-        source_ip: source_ip(&headers),
+        source_ip: caller_key(&org),
     };
     match st.svc.sync_from_ui(s, &*st.tax, &*st.billing, &*st.payment).await {
         Ok(o) => (StatusCode::OK, Json(serde_json::json!({
@@ -356,18 +324,24 @@ async fn sync_from_ui(State(st): State<WriteState>, headers: axum::http::HeaderM
 struct SetPinBody {
     employee_party_id: Uuid,
     new_pin: String,
-    /// Authority proof when the company already has credentials: the same manager's current PIN, or
-    /// another manager's. Absent is valid only for the very first credential (bootstrap).
+    /// Authority proof: the same manager's current PIN, or another manager's. Absent is valid only
+    /// for a caller the composing service marks as a credential administrator.
     #[serde(default)] current: Option<ManagerBody>,
 }
-async fn set_pin(State(st): State<WriteState>, headers: axum::http::HeaderMap, Json(b): Json<SetPinBody>) -> axum::response::Response {
+async fn set_pin(
+    State(st): State<WriteState>,
+    org: OrgContext,
+    admin: Option<Extension<PosCredentialAdmin>>,
+    Json(b): Json<SetPinBody>,
+) -> axum::response::Response {
     // Tenancy is composition-installed (ADR-0029): the credential namespaces inside the acting
     // unit's scope; no company field rides the verb.
     let s = SetPin {
         employee_party_id: b.employee_party_id,
         new_pin: b.new_pin,
         current: b.current.map(|m| ManagerAuth { employee_party_id: m.employee_party_id, pin: m.pin }),
-        source_ip: source_ip(&headers),
+        admin: admin.is_some(),
+        source_ip: caller_key(&org),
     };
     match st.svc.set_pin(s).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -378,8 +352,8 @@ async fn set_pin(State(st): State<WriteState>, headers: axum::http::HeaderMap, J
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct VerifyPinBody { employee_party_id: Uuid, pin: String }
-async fn verify_pin(State(st): State<WriteState>, headers: axum::http::HeaderMap, Json(b): Json<VerifyPinBody>) -> axum::response::Response {
-    match st.svc.verify_pin(b.employee_party_id, &b.pin, source_ip(&headers).as_deref()).await {
+async fn verify_pin(State(st): State<WriteState>, org: OrgContext, Json(b): Json<VerifyPinBody>) -> axum::response::Response {
+    match st.svc.verify_pin(b.employee_party_id, &b.pin, caller_key(&org).as_deref()).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => err(e),
     }

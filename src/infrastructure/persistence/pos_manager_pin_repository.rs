@@ -127,67 +127,71 @@ impl PosManagerPinRepository {
         }))
     }
 
-    /// Whether ANY live PIN exists in the caller's scope — the bootstrap gate for the first
-    /// `set_pin` (before any credential exists, the first set is allowed without other proof; after
-    /// that, changing a PIN requires the current one or another verified manager). Runs on the
-    /// caller's scope-relayed transaction so the proof and the write it gates see the same world.
-    pub async fn any_live_pin_exists_on(
+    /// Read and LOCK a manager's live credential for one verification, on the caller's
+    /// scope-relayed transaction. The row lock makes the lockout check, the hash comparison and
+    /// the counter update one step per manager: parallel guesses queue behind each other, so each
+    /// one sees the failures recorded before it and a locked credential stays locked.
+    pub async fn fetch_credential_for_update_on(
         &self,
         conn: &mut sqlx::PgConnection,
-    ) -> Result<bool, sqlx::Error> {
-        let n: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM pos.pos_manager_pins WHERE (metadata->>'deleted_at') IS NULL",
+        employee_party_id: Uuid,
+    ) -> Result<Option<PinCredentialRow>, sqlx::Error> {
+        let row = sqlx::query(
+            r#"SELECT id, pin_hash, failed_attempts, locked_until FROM pos.pos_manager_pins
+               WHERE employee_party_id=$1 AND (metadata->>'deleted_at') IS NULL
+               FOR UPDATE"#,
         )
-        .fetch_one(conn)
+        .bind(employee_party_id)
+        .fetch_optional(conn)
         .await?;
-        Ok(n > 0)
+        Ok(row.map(|r| PinCredentialRow {
+            id: r.get("id"),
+            pin_hash: r.get("pin_hash"),
+            failed_attempts: r.get("failed_attempts"),
+            locked_until: r.get("locked_until"),
+        }))
     }
 
     /// Record a FAILED verification: bump the consecutive-failure counter and lock when it crosses
-    /// `max_attempts` (the service passes the computed unlock instant). Self-contained increment —
-    /// concurrent failures each land, the counter never goes backwards. ID-only: rides the ambient
-    /// org scope.
-    pub async fn record_failure(
+    /// `max_attempts` (the service passes the computed unlock instant). Runs on the transaction
+    /// that locked the credential.
+    pub async fn record_failure_on(
         &self,
-        pool: &PgPool,
+        conn: &mut sqlx::PgConnection,
         id: Uuid,
         max_attempts: u32,
         lockout_until: chrono::DateTime<chrono::Utc>,
         now: chrono::DateTime<chrono::Utc>,
         source_ip: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        org_scope::execute_scoped(
-            pool,
-            sqlx::query(
-                r#"UPDATE pos.pos_manager_pins SET
-                     failed_attempts = failed_attempts + 1,
-                     locked_until = CASE WHEN failed_attempts + 1 >= $2 THEN $3 ELSE locked_until END,
-                     last_attempt_at = $4,
-                     last_attempt_ip = $5
-                   WHERE id=$1"#,
-            )
-            .bind(id).bind(max_attempts as i32).bind(lockout_until).bind(now).bind(source_ip),
+        sqlx::query(
+            r#"UPDATE pos.pos_manager_pins SET
+                 failed_attempts = failed_attempts + 1,
+                 locked_until = CASE WHEN failed_attempts + 1 >= $2 THEN $3 ELSE locked_until END,
+                 last_attempt_at = $4,
+                 last_attempt_ip = $5
+               WHERE id=$1"#,
         )
+        .bind(id).bind(max_attempts as i32).bind(lockout_until).bind(now).bind(source_ip)
+        .execute(conn)
         .await?;
         Ok(())
     }
 
-    /// Record a SUCCESSFUL verification: clear the failure counter and any lockout. ID-only: rides
-    /// the ambient org scope.
-    pub async fn record_success(
+    /// Record a SUCCESSFUL verification: clear the failure counter and any lockout. Runs on the
+    /// transaction that locked the credential.
+    pub async fn record_success_on(
         &self,
-        pool: &PgPool,
+        conn: &mut sqlx::PgConnection,
         id: Uuid,
         now: chrono::DateTime<chrono::Utc>,
         source_ip: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        org_scope::execute_scoped(
-            pool,
-            sqlx::query(
-                "UPDATE pos.pos_manager_pins SET failed_attempts=0, locked_until=NULL, last_attempt_at=$2, last_attempt_ip=$3 WHERE id=$1",
-            )
-            .bind(id).bind(now).bind(source_ip),
+        sqlx::query(
+            "UPDATE pos.pos_manager_pins SET failed_attempts=0, locked_until=NULL, last_attempt_at=$2, last_attempt_ip=$3 WHERE id=$1",
         )
+        .bind(id).bind(now).bind(source_ip)
+        .execute(conn)
         .await?;
         Ok(())
     }

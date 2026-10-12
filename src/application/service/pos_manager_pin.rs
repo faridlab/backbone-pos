@@ -18,7 +18,14 @@
 //!
 //! Anti-abuse is two-layered and entirely CONFIG-DRIVEN ([`PinPolicy`] — env overrides, short
 //! defaults): a per-manager consecutive-failure counter with lockout (persisted, so a restart does
-//! not reset an attack), and a per-source-address throttle ring in front of it (process-local).
+//! not reset an attack, and checked under a row lock, so parallel guesses cannot all slip past
+//! it), and a per-caller throttle ring in front of it (process-local), keyed on the authenticated
+//! caller rather than on anything the request says about itself.
+//!
+//! **Who may hold a PIN.** The PIN holders are the register's managers. A PIN is set with a
+//! manager's verified PIN as proof, or by a caller the composing service vouches for as a
+//! credential administrator (`SetPin::admin`) — the only way to set the first PIN, and the
+//! recovery path for a manager nobody can vouch for.
 //!
 //! Per the module's 4-layer rule this file holds no SQL — the credential statements live on
 //! `PosManagerPinRepository`.
@@ -39,10 +46,14 @@ pub struct SetPin {
     pub employee_party_id: Uuid,
     /// Digits only; length must fall inside the policy window.
     pub new_pin: String,
-    /// Proof of authority to set: the SAME manager's current PIN (self-change), ANOTHER manager's
-    /// verified PIN (supervised change), or `None` — allowed only while the caller's scope holds no
-    /// live PIN at all (the bootstrap: the very first credential cannot demand a credential).
+    /// Proof of authority to set: the SAME manager's current PIN (self-change) or ANOTHER
+    /// manager's verified PIN (supervised change). `None` is accepted only from a credential
+    /// administrator (`admin`).
     pub current: Option<ManagerAuth>,
+    /// The composing service vouches that the caller administers credentials: it may set a PIN
+    /// without a manager's proof — the first PIN of a unit, or a reset.
+    pub admin: bool,
+    /// Who is attempting, for the throttle ring and the attempt trail: the authenticated caller.
     pub source_ip: Option<String>,
 }
 
@@ -52,16 +63,16 @@ impl PosWriteService {
     pub async fn set_pin(&self, s: SetPin) -> Result<(), PosError> {
         // Strength first — a weak PIN never reaches the hash (and never burns the authority proof).
         validate_pin_strength(&s.new_pin, &self.pin_policy)?;
-        // One scope-relayed transaction (ADR-0029): the bootstrap read, the authority proof, and the
-        // credential write all see through the same fence.
+        // The credential write rides one scope-relayed transaction (ADR-0029), fenced like the
+        // proof's own verification.
         let mut tx = self.rpool().begin().await?;
         relay_ambient_scope(&mut tx).await?;
-        // Authority: once ANY credential exists in the caller's scope, changing one requires proof —
-        // the manager's own current PIN, or another live manager's.
-        let bootstrapping = !self.pins.any_live_pin_exists_on(&mut *tx).await?;
-        if !bootstrapping {
-            let proof = s.current.as_ref().ok_or(PosError::ManagerAuthRequired)?;
-            self.verify_manager_internal(proof, s.source_ip.as_deref()).await?;
+        // Authority: a manager's verified PIN, or the composing service's word that the caller
+        // administers credentials. Nothing else — a unit with no PIN yet is not an open door.
+        match s.current.as_ref() {
+            Some(proof) => self.verify_manager_internal(proof, s.source_ip.as_deref()).await?,
+            None if s.admin => {}
+            None => return Err(PosError::ManagerAuthRequired),
         }
         let salt = SaltString::generate(&mut OsRng);
         let hash = Argon2::default()
@@ -99,16 +110,20 @@ impl PosWriteService {
         auth: &ManagerAuth,
         source_ip: Option<&str>,
     ) -> Result<(), PosError> {
-        // Per-source throttle FIRST — a throttled source does not get to touch the manager's
-        // counter at all (the counter is per-manager; the ring is per-address, so one address
+        // Per-caller throttle FIRST — a throttled caller does not get to touch the manager's
+        // counter at all (the counter is per-manager; the ring is per-caller, so one caller
         // hammering different managers still gets fenced).
         if let Some(ip) = source_ip {
             if !self.take_ip_budget(ip) {
                 return Err(PosError::PinThrottled);
             }
         }
+        // One locked step per manager: the lockout check, the comparison and the counter update
+        // see each other's effects, so parallel guesses cannot all pass a lock that one of them sets.
+        let mut tx = self.rpool().begin().await?;
+        relay_ambient_scope(&mut tx).await?;
         let cred = self.pins
-            .fetch_credential(&self.rpool(), auth.employee_party_id)
+            .fetch_credential_for_update_on(&mut tx, auth.employee_party_id)
             .await?
             .ok_or(PosError::PinNotFound)?;
         let now = chrono::Utc::now();
@@ -125,13 +140,15 @@ impl PosWriteService {
             Err(_) => return Err(PosError::PinInvalid),
         };
         if Argon2::default().verify_password(auth.pin.as_bytes(), &parsed).is_ok() {
-            self.pins.record_success(&self.rpool(), cred.id, now, source_ip).await?;
+            self.pins.record_success_on(&mut tx, cred.id, now, source_ip).await?;
+            tx.commit().await?;
             Ok(())
         } else {
             let lockout_until = now + chrono::Duration::seconds(self.pin_policy.lockout_secs);
             self.pins
-                .record_failure(&self.rpool(), cred.id, self.pin_policy.max_attempts, lockout_until, now, source_ip)
+                .record_failure_on(&mut tx, cred.id, self.pin_policy.max_attempts, lockout_until, now, source_ip)
                 .await?;
+            tx.commit().await?;
             // Report the lock when THIS failure crossed the threshold — the manager sees the
             // unlock instant instead of a bare "wrong PIN" they cannot recover from.
             if cred.failed_attempts + 1 >= self.pin_policy.max_attempts as i32 {
@@ -142,7 +159,7 @@ impl PosWriteService {
         }
     }
 
-    /// Consume one verification attempt from a source address's rolling budget. `false` = over
+    /// Consume one verification attempt from a caller's rolling budget. `false` = over
     /// budget inside the window. Pure sync (Mutex never held across an `.await`).
     fn take_ip_budget(&self, ip: &str) -> bool {
         let key = format!("pin:{ip}");

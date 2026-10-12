@@ -1,6 +1,6 @@
 //! Manager-PIN credentials (PSX-4): argon2-hashed server-side, verified on every privileged
-//! mutation, persisted failure counters + lockout, config-driven windows, and a per-source throttle
-//! ring. Also proves the credential-blind CRUD surface can never mint a working credential.
+//! mutation, persisted failure counters + lockout checked under a row lock, config-driven windows,
+//! a per-caller throttle ring, and no PIN without a manager's proof or an administrator. Also proves the credential-blind CRUD surface can never mint a working credential.
 //! Requires DATABASE_URL (:5433/backbone_pos).
 
 mod support;
@@ -18,32 +18,32 @@ fn pin(employee: Uuid, code: &str) -> ManagerAuth {
 }
 
 fn set(employee: Uuid, code: &str, current: Option<ManagerAuth>) -> SetPin {
-    SetPin { employee_party_id: employee, new_pin: code.to_string(), current, source_ip: None }
+    SetPin { employee_party_id: employee, new_pin: code.to_string(), current, admin: false, source_ip: None }
 }
 
-/// The bootstrap gate reads every live credential in the table once undecorated — the per-org
-/// fence that used to isolate these probes is composition-installed (ADR-0029) — so the tests
-/// that mint or clear credentials serialize against the shared scratch DB.
-static PIN_TABLE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// A set by a caller the composing service vouches for as a credential administrator.
+fn admin_set(employee: Uuid, code: &str) -> SetPin {
+    SetPin { employee_party_id: employee, new_pin: code.to_string(), current: None, admin: true, source_ip: None }
+}
 
-/// MP-1: the FIRST credential bootstraps without proof; every later change demands proof.
+/// MP-1: a PIN is set only with a manager's verified PIN or by an administrator. A unit with no PIN
+/// yet is not an open door: the first PIN needs the administrator too.
 #[tokio::test]
-async fn bootstrap_then_proof_required() {
-    let _serial = PIN_TABLE_LOCK.lock().await;
+async fn a_pin_needs_a_manager_or_an_administrator() {
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
     let a = Uuid::new_v4();
     let b = Uuid::new_v4();
 
-    // Undecorated, the bootstrap gate reads the whole credential table, so the fixture clears the
-    // rows to make its "nothing exists yet" precondition actually hold.
-    sqlx::query("DELETE FROM pos.pos_manager_pins").execute(&pool).await.unwrap();
+    // No proof and no administrator → refused, whatever else the table holds.
+    let e = w.set_pin(set(a, "4321", None)).await.unwrap_err();
+    assert!(matches!(e, PosError::ManagerAuthRequired));
 
-    // Bootstrap: no credential exists yet.
-    w.set_pin(set(a, "4321", None)).await.unwrap();
+    // The administrator sets the first PIN.
+    w.set_pin(admin_set(a, "4321")).await.unwrap();
     w.verify_pin(a, "4321", None).await.unwrap();
 
-    // A second manager's first PIN now requires proof — none given → refused.
+    // A second manager's PIN without proof → refused.
     let e = w.set_pin(set(b, "5678", None)).await.unwrap_err();
     assert!(matches!(e, PosError::ManagerAuthRequired));
 
@@ -58,6 +58,10 @@ async fn bootstrap_then_proof_required() {
     // Self-change: the manager's own current PIN is proof.
     w.set_pin(set(a, "6789", Some(pin(a, "4321")))).await.unwrap();
     w.verify_pin(a, "6789", None).await.unwrap();
+
+    // The administrator resets a manager's PIN without knowing it.
+    w.set_pin(admin_set(b, "2468")).await.unwrap();
+    w.verify_pin(b, "2468", None).await.unwrap();
 }
 
 /// MP-2: strength — digits only, policy length window.
@@ -79,16 +83,12 @@ async fn weak_pins_never_reach_the_hash() {
 /// window passes.
 #[tokio::test]
 async fn failures_lock_the_credential() {
-    let _serial = PIN_TABLE_LOCK.lock().await;
     let pool = pool().await;
-    // The proof-free bootstrap needs the credential namespace empty — on the undecorated shared
-    // scratch DB that is the whole table (scope-bounded only once the decorator composes).
-    sqlx::query("DELETE FROM pos.pos_manager_pins").execute(&pool).await.unwrap();
     let w = PosWriteService::new(pool.clone()).with_pin_policy(PinPolicy {
         max_attempts: 3, lockout_secs: 3600, min_digits: 4, max_digits: 8, ip_window_secs: 60, ip_max_attempts: 100,
     });
     let m = Uuid::new_v4();
-    w.set_pin(set(m, "4321", None)).await.unwrap();
+    w.set_pin(admin_set(m, "4321")).await.unwrap();
 
     assert!(matches!(w.verify_pin(m, "1111", None).await.unwrap_err(), PosError::PinInvalid));
     assert!(matches!(w.verify_pin(m, "2222", None).await.unwrap_err(), PosError::PinInvalid));
@@ -115,22 +115,19 @@ async fn failures_lock_the_credential() {
     assert_eq!(fails, 0);
 }
 
-/// MP-4: the per-source throttle ring — a source over its attempt budget is fenced BEFORE it can
+/// MP-4: the per-caller throttle ring — a caller over its attempt budget is fenced BEFORE it can
 /// touch any manager's counter (config-driven window, no production sleep needed to prove it).
 #[tokio::test]
-async fn per_source_throttle_fences_the_source() {
-    let _serial = PIN_TABLE_LOCK.lock().await;
+async fn per_caller_throttle_fences_the_caller() {
     let pool = pool().await;
-    // Same empty-namespace precondition as above: the first proof-free set_pin.
-    sqlx::query("DELETE FROM pos.pos_manager_pins").execute(&pool).await.unwrap();
     let w = PosWriteService::with_sink(pool.clone(), std::sync::Arc::new(backbone_pos::application::service::LoggingSink))
         .with_pin_policy(PinPolicy { max_attempts: 50, lockout_secs: 3600, min_digits: 4, max_digits: 8, ip_window_secs: 60, ip_max_attempts: 3 });
     let a = Uuid::new_v4();
     let b = Uuid::new_v4();
-    w.set_pin(set(a, "4321", None)).await.unwrap();
+    w.set_pin(admin_set(a, "4321")).await.unwrap();
     w.set_pin(set(b, "5678", Some(pin(a, "4321")))).await.unwrap();
 
-    let ip = "203.0.113.9";
+    let ip = "user:cashier-1";
     // Three attempts from the source are inside the budget (ip_max_attempts = 3)...
     let _ = w.verify_pin(a, "4321", Some(ip)).await.unwrap();
     let _ = w.verify_pin(b, "5678", Some(ip)).await.unwrap();
@@ -138,8 +135,8 @@ async fn per_source_throttle_fences_the_source() {
     // ...the fourth is over budget and fenced, even for a DIFFERENT manager + the CORRECT pin.
     let e = w.verify_pin(a, "4321", Some(ip)).await.unwrap_err();
     assert!(matches!(e, PosError::PinThrottled));
-    // Another source is unaffected.
-    w.verify_pin(a, "4321", Some("198.51.100.4")).await.unwrap();
+    // Another caller is unaffected.
+    w.verify_pin(a, "4321", Some("user:cashier-2")).await.unwrap();
     // The fenced manager's counter was never touched by the throttled call.
     let fails: i32 = sqlx::query_scalar("SELECT failed_attempts FROM pos.pos_manager_pins WHERE employee_party_id=$1")
         .bind(a).fetch_one(&pool).await.unwrap();
@@ -151,7 +148,6 @@ async fn per_source_throttle_fences_the_source() {
 /// not a server error.
 #[tokio::test]
 async fn crud_created_rows_never_authenticate() {
-    let _serial = PIN_TABLE_LOCK.lock().await;
     let pool = pool().await;
     let w = PosWriteService::new(pool.clone());
     let m = Uuid::new_v4();
@@ -216,4 +212,36 @@ async fn close_without_any_credential_refuses() {
     let st: String = sqlx::query_scalar("SELECT status::text FROM pos.pos_opening_entries WHERE id=$1")
         .bind(session).fetch_one(&pool).await.unwrap();
     assert_eq!(st, "open");
+}
+
+/// MP-8: parallel wrong guesses stop at the lockout. Each verification locks the credential row, so
+/// the guesses queue: once the threshold is crossed every later one sees the lock and is refused
+/// before its PIN is compared, and the counter stops at the threshold instead of counting them all.
+#[tokio::test]
+async fn parallel_guesses_stop_at_the_lockout() {
+    let pool = pool().await;
+    let w = std::sync::Arc::new(PosWriteService::new(pool.clone()).with_pin_policy(PinPolicy {
+        max_attempts: 3, lockout_secs: 3600, min_digits: 4, max_digits: 8, ip_window_secs: 60, ip_max_attempts: 1000,
+    }));
+    let m = Uuid::new_v4();
+    w.set_pin(admin_set(m, "4321")).await.unwrap();
+
+    let guesses: Vec<_> = (0..12)
+        .map(|i| {
+            let w = w.clone();
+            tokio::spawn(async move { w.verify_pin(m, &format!("{:04}", 1000 + i), None).await })
+        })
+        .collect();
+    let mut compared = 0;
+    for g in guesses {
+        match g.await.unwrap().unwrap_err() {
+            PosError::PinInvalid => compared += 1,
+            PosError::PinLocked { .. } => {}
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    let fails: i32 = sqlx::query_scalar("SELECT failed_attempts FROM pos.pos_manager_pins WHERE employee_party_id=$1")
+        .bind(m).fetch_one(&pool).await.unwrap();
+    assert_eq!(fails, 3, "only the guesses before the lock were compared and counted");
+    assert_eq!(compared, 2, "two wrong answers, then the third reports the lock");
 }

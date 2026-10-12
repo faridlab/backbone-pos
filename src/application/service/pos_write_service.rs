@@ -176,7 +176,7 @@ pub struct NewClose {
     /// Closing the till is a privileged mutation: the manager's PIN is verified server-side before
     /// anything is written (variance is booked to the GL through the register's write-off account).
     pub manager: ManagerAuth,
-    /// Best-effort source address feeding the PIN throttle ring (`None` = service-to-service caller).
+    /// The authenticated caller feeding the PIN throttle ring (`None` = service-to-service caller).
     pub source_ip: Option<String>,
 }
 
@@ -241,7 +241,7 @@ pub struct NewSyncSale {
     /// Manager authorization — required iff `refund_of_client_uuid` is set.
     pub manager: Option<ManagerAuth>,
     /// Where the replay claims to come from — feeds the PIN throttle ring on privileged replays.
-    /// Optional: a service-to-service caller (no address) skips the per-address budget.
+    /// Optional: a service-to-service caller (no caller key) skips the per-caller budget.
     pub source_ip: Option<String>,
 }
 
@@ -528,7 +528,7 @@ pub enum PosError {
     PinInvalid,
     /// The manager's PIN is locked: too many consecutive failures. Carries the unlock instant.
     PinLocked { until: chrono::DateTime<chrono::Utc> },
-    /// Too many verification attempts from one source address inside the throttle window.
+    /// Too many verification attempts from one caller inside the throttle window.
     PinThrottled,
     /// The chosen PIN does not satisfy the policy (digits + length window).
     WeakPin(&'static str),
@@ -697,7 +697,7 @@ pub struct PinPolicy {
     pub max_digits: usize,
     /// Per-source-address verification window, in seconds.
     pub ip_window_secs: i64,
-    /// Verifications allowed per source address inside `ip_window_secs` (successful or not).
+    /// Verifications allowed per caller inside `ip_window_secs` (successful or not).
     pub ip_max_attempts: u32,
 }
 
@@ -762,7 +762,7 @@ pub struct PosWriteService {
     pub(super) discounts: Arc<PosDiscountRepository>,
     /// The PIN windows above; [`Self::with_pin_policy`] overrides the defaults.
     pub(super) pin_policy: PinPolicy,
-    /// Rolling per-source-address verification ring: `ip -> (window_start_unix, attempts)`. A process
+    /// Rolling per-caller verification ring: `caller -> (window_start_unix, attempts)`. A process
     /// -local guard in front of the persisted counters (which key on the manager identity).
     pub(super) ip_attempts: Arc<Mutex<HashMap<String, (i64, u32)>>>,
 }
