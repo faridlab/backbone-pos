@@ -86,6 +86,10 @@ models:
         type: uuid?
         attributes: ["@exclude_from_foreign_key_check", "@immutable"]
         description: "The PaymentEntry that settled this ticket, persisted at recognition so a return can refund the tender without a cross-schema lookup # logical FK to payment.PaymentEntry.id"
+      stock_delivery_note_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check", "@immutable"]
+        description: "The delivery note that relieved this ticket's stock, recorded once the relief lands so a retried recognition issues it exactly once # logical FK to inventory.DeliveryNote.id"
       is_return:
         type: bool
         attributes: ["@default(false)", "@immutable"]

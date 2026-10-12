@@ -73,6 +73,8 @@ pub struct CreatePosInvoiceDto {
     pub billing_invoice_id: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "payment_entry_id")]
     pub payment_entry_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "stock_delivery_note_id")]
+    pub stock_delivery_note_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = true))]
     #[serde(alias = "is_return")]
     pub is_return: bool,
@@ -191,6 +193,7 @@ pub struct PosInvoiceResponseDto {
     pub change_due: Decimal,
     pub billing_invoice_id: Option<Uuid>,
     pub payment_entry_id: Option<Uuid>,
+    pub stock_delivery_note_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = true))]
     pub is_return: bool,
     pub return_against: Option<Uuid>,
@@ -283,6 +286,7 @@ impl From<PosInvoice> for PosInvoiceResponseDto {
             change_due: entity.change_due,
             billing_invoice_id: entity.billing_invoice_id,
             payment_entry_id: entity.payment_entry_id,
+            stock_delivery_note_id: entity.stock_delivery_note_id,
             is_return: entity.is_return,
             return_against: entity.return_against,
             status: entity.status,
@@ -325,6 +329,7 @@ impl From<CreatePosInvoiceDto> for PosInvoice {
             change_due: dto.change_due,
             billing_invoice_id: dto.billing_invoice_id,
             payment_entry_id: dto.payment_entry_id,
+            stock_delivery_note_id: dto.stock_delivery_note_id,
             is_return: dto.is_return,
             return_against: dto.return_against,
             status: dto.status,
@@ -354,6 +359,7 @@ impl From<&PosInvoice> for PosInvoiceResponseDto {
             change_due: entity.change_due.clone(),
             billing_invoice_id: entity.billing_invoice_id.clone(),
             payment_entry_id: entity.payment_entry_id.clone(),
+            stock_delivery_note_id: entity.stock_delivery_note_id.clone(),
             is_return: entity.is_return.clone(),
             return_against: entity.return_against.clone(),
             status: entity.status.clone(),

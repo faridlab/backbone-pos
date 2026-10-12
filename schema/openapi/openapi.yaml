@@ -4312,6 +4312,10 @@ components:
           nullable: true
           type: string
           format: uuid
+        stock_delivery_note_id:
+          nullable: true
+          type: string
+          format: uuid
         is_return:
           type: boolean
         return_against:
@@ -4404,6 +4408,10 @@ components:
           nullable: true
           type: string
           format: uuid
+        stock_delivery_note_id:
+          nullable: true
+          type: string
+          format: uuid
         is_return:
           type: boolean
         return_against:
@@ -4483,6 +4491,10 @@ components:
           nullable: true
           type: string
           format: uuid
+        stock_delivery_note_id:
+          nullable: true
+          type: string
+          format: uuid
         is_return:
           type: boolean
         return_against:
@@ -4544,6 +4556,10 @@ components:
           type: string
           format: uuid
         payment_entry_id:
+          nullable: true
+          type: string
+          format: uuid
+        stock_delivery_note_id:
           nullable: true
           type: string
           format: uuid

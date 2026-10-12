@@ -68,6 +68,7 @@ pub struct PosInvoice {
     pub change_due: Decimal,
     pub billing_invoice_id: Option<Uuid>,
     pub payment_entry_id: Option<Uuid>,
+    pub stock_delivery_note_id: Option<Uuid>,
     pub is_return: bool,
     pub return_against: Option<Uuid>,
     pub status: PosInvoiceStatus,
@@ -103,6 +104,7 @@ impl PosInvoice {
             change_due,
             billing_invoice_id: None,
             payment_entry_id: None,
+            stock_delivery_note_id: None,
             is_return,
             return_against: None,
             status,
@@ -206,6 +208,12 @@ impl PosInvoice {
         self
     }
 
+    /// Set the stock_delivery_note_id field (chainable)
+    pub fn with_stock_delivery_note_id(mut self, value: Uuid) -> Self {
+        self.stock_delivery_note_id = Some(value);
+        self
+    }
+
     /// Set the return_against field (chainable)
     pub fn with_return_against(mut self, value: Uuid) -> Self {
         self.return_against = Some(value);
@@ -271,6 +279,9 @@ impl PosInvoice {
                 "payment_entry_id" => {
                     if let Ok(v) = serde_json::from_value(value) { self.payment_entry_id = v; }
                 }
+                "stock_delivery_note_id" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.stock_delivery_note_id = v; }
+                }
                 "is_return" => {
                     if let Ok(v) = serde_json::from_value(value) { self.is_return = v; }
                 }
@@ -301,7 +312,7 @@ impl super::Entity for PosInvoice {
 
 impl backbone_core::PersistentEntity for PosInvoice {
     fn write_protected_fields() -> &'static [&'static str] {
-        &["client_uuid", "net_total", "tax_total", "grand_total", "rounding_adjustment", "rounded_total", "paid_total", "change_due", "billing_invoice_id", "payment_entry_id", "is_return", "return_against", "status"]
+        &["client_uuid", "net_total", "tax_total", "grand_total", "rounding_adjustment", "rounded_total", "paid_total", "change_due", "billing_invoice_id", "payment_entry_id", "stock_delivery_note_id", "is_return", "return_against", "status"]
     }
     fn entity_id(&self) -> String {
         self.id.to_string()
@@ -342,6 +353,7 @@ impl backbone_orm::EntityRepoMeta for PosInvoice {
         m.insert("pos_table_id".to_string(), "uuid".to_string());
         m.insert("billing_invoice_id".to_string(), "uuid".to_string());
         m.insert("payment_entry_id".to_string(), "uuid".to_string());
+        m.insert("stock_delivery_note_id".to_string(), "uuid".to_string());
         m.insert("status".to_string(), "pos_invoice_status".to_string());
         m.insert("posting_at".to_string(), "timestamptz".to_string());
         m
@@ -374,6 +386,7 @@ pub struct PosInvoiceBuilder {
     change_due: Option<Decimal>,
     billing_invoice_id: Option<Uuid>,
     payment_entry_id: Option<Uuid>,
+    stock_delivery_note_id: Option<Uuid>,
     is_return: Option<bool>,
     return_against: Option<Uuid>,
     status: Option<PosInvoiceStatus>,
@@ -482,6 +495,12 @@ impl PosInvoiceBuilder {
         self
     }
 
+    /// Set the stock_delivery_note_id field (optional)
+    pub fn stock_delivery_note_id(mut self, value: Uuid) -> Self {
+        self.stock_delivery_note_id = Some(value);
+        self
+    }
+
     /// Set the is_return field (default: `false`)
     pub fn is_return(mut self, value: bool) -> Self {
         self.is_return = Some(value);
@@ -528,6 +547,7 @@ impl PosInvoiceBuilder {
             change_due: self.change_due.unwrap_or(Decimal::from(0)),
             billing_invoice_id: self.billing_invoice_id,
             payment_entry_id: self.payment_entry_id,
+            stock_delivery_note_id: self.stock_delivery_note_id,
             is_return: self.is_return.unwrap_or(false),
             return_against: self.return_against,
             status: self.status.unwrap_or_default(),

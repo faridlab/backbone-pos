@@ -53,6 +53,7 @@ pub struct PosInvoiceFilter {
     pub client_uuid: Option<Uuid>,
     pub billing_invoice_id: Option<Uuid>,
     pub payment_entry_id: Option<Uuid>,
+    pub stock_delivery_note_id: Option<Uuid>,
     pub is_return: Option<bool>,
     pub return_against: Option<Uuid>,
     pub status: Option<PosInvoiceStatus>,
@@ -61,7 +62,7 @@ pub struct PosInvoiceFilter {
 impl PosInvoiceFilter {
     /// Check if any filter is set
     pub fn has_filters(&self) -> bool {
-        self.pos_profile_id.is_some() || self.opening_entry_id.is_some() || self.branch_id.is_some() || self.customer_id.is_some() || self.pos_table_id.is_some() || self.receipt_number.is_some() || self.client_uuid.is_some() || self.billing_invoice_id.is_some() || self.payment_entry_id.is_some() || self.is_return.is_some() || self.return_against.is_some() || self.status.is_some()
+        self.pos_profile_id.is_some() || self.opening_entry_id.is_some() || self.branch_id.is_some() || self.customer_id.is_some() || self.pos_table_id.is_some() || self.receipt_number.is_some() || self.client_uuid.is_some() || self.billing_invoice_id.is_some() || self.payment_entry_id.is_some() || self.stock_delivery_note_id.is_some() || self.is_return.is_some() || self.return_against.is_some() || self.status.is_some()
     }
 }
 
