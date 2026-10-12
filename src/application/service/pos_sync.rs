@@ -63,19 +63,7 @@ impl PosWriteService {
             // Finalized server-side (paid/returned): the replay changes nothing. The server's
             // persisted money is the answer.
             if existing.status != "draft" {
-                return Ok(SyncOutcome {
-                    pos_invoice_id: existing.id,
-                    action: SyncAction::ReplayFinalized,
-                    totals: TicketTotals {
-                        net_total: existing.net_total,
-                        tax_total: existing.tax_total,
-                        grand_total: existing.grand_total,
-                        rounding_adjustment: existing.rounding_adjustment,
-                        rounded_total: existing.rounded_total,
-                        paid_total: existing.paid_total,
-                        change_due: existing.change_due,
-                    },
-                });
+                return Ok(finalized(&existing));
             }
             return self.sync_update_draft(s, existing, tax).await;
         }
@@ -209,6 +197,7 @@ impl PosWriteService {
                 &self.invoices, &self.rpool(), None,
             ).await);
         }
+        check_replay_change_is_cash(&s, computed.rounded_total)?;
         self.sync_write_children(&mut tx, id, &computed, &s).await?;
         // The replay can carry tenders from the first moment (the offline client already took
         // payment). Re-sum what was just written onto the header so paid/change can never disagree
@@ -224,9 +213,15 @@ impl PosWriteService {
         // the ticket, the same contract the online `add_tender` path holds. A staging failure
         // fails the replay: a silently lost event would leave the ticket draft forever with no
         // trace of why.
-        self.stage_tender_completed_in_tx(&mut tx, id, computed.rounded_total, paid_total).await?;
+        // A fresh ticket was paid nothing before this replay.
+        let crossed = crosses_full_payment(false, computed.rounded_total, paid_total);
+        if crossed {
+            self.stage_tender_completed_in_tx(&mut tx, id).await?;
+        }
         tx.commit().await?;
-        self.emit_sync_events(id, totals.rounded_total, paid_total).await;
+        if crossed {
+            self.emit_tender_completed(id);
+        }
         Ok(SyncOutcome {
             pos_invoice_id: id,
             action: SyncAction::Created,
@@ -246,6 +241,20 @@ impl PosWriteService {
     ) -> Result<SyncOutcome, PosError> {
         let mut tx = self.rpool().begin().await?;
         relay_ambient_scope(&mut tx).await?;
+        // Lock the ticket before anything else: recognition cannot flip it to paid between this
+        // check and the rewrite below. A ticket that left draft since the identity read is
+        // finalized, and the replay changes nothing.
+        let held = self.invoices
+            .lock_for_sync_on(&mut tx, existing.id).await?
+            .ok_or(PosError::InvoiceNotFound(existing.id))?;
+        if held.status != "draft" {
+            drop(tx);
+            let now = self.invoices
+                .find_by_client_uuid(&self.rpool(), s.client_uuid).await?
+                .ok_or(PosError::InvoiceNotFound(existing.id))?;
+            return Ok(finalized(&now));
+        }
+        let was_full = held.rounded_total > Decimal::ZERO && held.paid_total >= held.rounded_total;
         // Partner is validated, never re-assigned silently.
         if existing.customer_id != s.customer_id {
             return Err(PosError::SyncPartnerMismatch);
@@ -314,6 +323,7 @@ impl PosWriteService {
             .await?;
         let paid = s.tenders.iter().map(|t| t.amount).sum::<Decimal>();
         let totals = Self::totals_with_tenders(&computed, paid);
+        check_replay_change_is_cash(&s, computed.rounded_total)?;
 
         let id = existing.id;
         let now = chrono::Utc::now();
@@ -329,22 +339,36 @@ impl PosWriteService {
                 totals.paid_total, totals.change_due,
             )
             .await;
-        if let Err(e) = r {
-            // A unique violation here is the table partial unique racing the occupancy pre-check
-            // (a transfer onto a table another draft just claimed) — map it to the typed 409.
-            return Err(map_invoice_dup(
-                e, "", Some(s.client_uuid), s.pos_table_id,
-                &self.invoices, &self.rpool(), Some(id),
-            ).await);
+        match r {
+            Ok(1) => {}
+            // Unreachable under the row lock taken above; refused rather than writing children
+            // onto a ticket the header update did not take.
+            Ok(_) => return Err(PosError::NotDraft),
+            Err(e) => {
+                // A unique violation here is the table partial unique racing the occupancy
+                // pre-check (a transfer onto a table another draft just claimed) — map it to the
+                // typed 409.
+                return Err(map_invoice_dup(
+                    e, "", Some(s.client_uuid), s.pos_table_id,
+                    &self.invoices, &self.rpool(), Some(id),
+                ).await);
+            }
         }
         self.sync_write_children(&mut tx, id, &computed, &s).await?;
         // Durable recognition event, staged INSIDE this (scope-relayed) transaction — atomic with
         // the rewrite, the same contract the online `add_tender` path holds. A staging failure
         // fails the replay: a silently lost event would leave the ticket draft forever with no
         // trace of why.
-        self.stage_tender_completed_in_tx(&mut tx, id, computed.rounded_total, totals.paid_total).await?;
+        // Only the replay that completes the payment triggers recognition; a replay of a ticket
+        // that was already paid up re-emits nothing.
+        let crossed = crosses_full_payment(was_full, computed.rounded_total, totals.paid_total);
+        if crossed {
+            self.stage_tender_completed_in_tx(&mut tx, id).await?;
+        }
         tx.commit().await?;
-        self.emit_sync_events(id, totals.rounded_total, totals.paid_total).await;
+        if crossed {
+            self.emit_tender_completed(id);
+        }
         Ok(SyncOutcome { pos_invoice_id: id, action: SyncAction::Updated, totals })
     }
 
@@ -402,16 +426,12 @@ impl PosWriteService {
         &self,
         tx: &mut sqlx::PgConnection,
         pos_invoice_id: Uuid,
-        rounded_total: Decimal,
-        paid_total: Decimal,
     ) -> Result<(), PosError> {
-        if paid_total >= rounded_total && rounded_total > Decimal::ZERO {
-            if let Some(schema) = &self.outbox_schema {
-                let rec = super::pos_tender::tender_completed_outbox_record(pos_invoice_id, legacy_company_echo(), chrono::Utc::now());
-                backbone_outbox::outbox::stage(&mut *tx, schema, &rec)
-                    .await
-                    .map_err(|e| PosError::Db(sqlx::Error::Protocol(e.to_string())))?;
-            }
+        if let Some(schema) = &self.outbox_schema {
+            let rec = super::pos_tender::tender_completed_outbox_record(pos_invoice_id, legacy_company_echo(), chrono::Utc::now());
+            backbone_outbox::outbox::stage(&mut *tx, schema, &rec)
+                .await
+                .map_err(|e| PosError::Db(sqlx::Error::Protocol(e.to_string())))?;
         }
         Ok(())
     }
@@ -421,12 +441,10 @@ impl PosWriteService {
     /// the replay's transaction, before its commit — see [`Self::stage_tender_completed_in_tx`]),
     /// fire-and-forget sink second. Double delivery is safe: recognition is replay-safe end to end.
     /// The `company_id` field is the documented legacy twin (ADR-0029).
-    async fn emit_sync_events(&self, pos_invoice_id: Uuid, rounded_total: Decimal, paid_total: Decimal) {
-        if paid_total >= rounded_total && rounded_total > Decimal::ZERO {
-            self.sink.publish(PosEvent::PosTenderCompleted(PosTenderCompleted {
-                pos_invoice_id, company_id: legacy_company_echo(),
-            }));
-        }
+    fn emit_tender_completed(&self, pos_invoice_id: Uuid) {
+        self.sink.publish(PosEvent::PosTenderCompleted(PosTenderCompleted {
+            pos_invoice_id, company_id: legacy_company_echo(),
+        }));
     }
 
     /// CREATE-session resolution: the named session must be open, or closed WITH an open rescue.
@@ -522,5 +540,54 @@ impl PosWriteService {
             }
         }
         Ok(())
+    }
+}
+
+/// The answer to a replay of a ticket the server already finalized: its persisted money.
+fn finalized(t: &crate::infrastructure::persistence::SyncLookupRow) -> SyncOutcome {
+    SyncOutcome {
+        pos_invoice_id: t.id,
+        action: SyncAction::ReplayFinalized,
+        totals: TicketTotals {
+            net_total: t.net_total,
+            tax_total: t.tax_total,
+            grand_total: t.grand_total,
+            rounding_adjustment: t.rounding_adjustment,
+            rounded_total: t.rounded_total,
+            paid_total: t.paid_total,
+            change_due: t.change_due,
+        },
+    }
+}
+
+/// Whether a replay is the one that completes the payment: the ticket was not paid up before it
+/// and is now. Only that replay triggers recognition.
+fn crosses_full_payment(was_full: bool, rounded_total: Decimal, paid_total: Decimal) -> bool {
+    !was_full && rounded_total > Decimal::ZERO && paid_total >= rounded_total
+}
+
+/// A replay's tenders may overpay only in cash: the change the drawer hands back must be cash it
+/// took. Equivalently, the tenders other than cash cover at most the rounded total.
+fn check_replay_change_is_cash(s: &NewSyncSale, rounded_total: Decimal) -> Result<(), PosError> {
+    let non_cash = s.tenders.iter().filter(|t| t.method != "cash").map(|t| money(t.amount)).sum::<Decimal>();
+    if non_cash > rounded_total.max(Decimal::ZERO) {
+        let method = s.tenders.iter().find(|t| t.method != "cash").map(|t| t.method.clone()).unwrap_or_default();
+        return Err(PosError::NonCashOverpayment { method, remaining: rounded_total.max(Decimal::ZERO) });
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod crossing_tests {
+    use super::crosses_full_payment;
+    use rust_decimal::Decimal;
+
+    #[test]
+    fn only_the_replay_that_completes_payment_triggers_recognition() {
+        let d = |s: &str| s.parse::<Decimal>().unwrap();
+        assert!(crosses_full_payment(false, d("100"), d("100")));
+        assert!(!crosses_full_payment(true, d("100"), d("120")), "already paid up: no re-trigger");
+        assert!(!crosses_full_payment(false, d("100"), d("99.99")));
+        assert!(!crosses_full_payment(false, d("0"), d("0")), "a zero ticket is not a sale to recognise");
     }
 }

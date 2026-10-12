@@ -32,6 +32,10 @@ impl PosWriteService {
             .ok_or(PosError::InvoiceNotFound(pos_invoice_id))?;
         if hdr.status != "draft" { return Err(PosError::NotDraft); }
         let rounded_total = hdr.rounded_total;
+        // Change is only ever given in cash: any other method may cover at most what is still due.
+        // The header lock above makes this sum the one the tender lands on.
+        let paid_before = self.payments.sum_paid_total_on(&mut tx, pos_invoice_id).await?;
+        check_change_is_cash(method, money(amount), rounded_total - paid_before)?;
         self.payments.insert_tender(&mut tx, &NewTenderRow {
             id: Uuid::new_v4(),
             pos_invoice_id,
@@ -76,6 +80,17 @@ impl PosWriteService {
     }
 }
 
+/// Refuse a tender other than cash that would pay more than `remaining`. Change comes out of the
+/// cash drawer, so only cash may overpay; a card overpayment would have the drawer hand back cash it
+/// never took.
+pub(super) fn check_change_is_cash(method: &str, amount: Decimal, remaining: Decimal) -> Result<(), PosError> {
+    let remaining = remaining.max(Decimal::ZERO);
+    if method != "cash" && amount > remaining {
+        return Err(PosError::NonCashOverpayment { method: method.to_string(), remaining });
+    }
+    Ok(())
+}
+
 /// The fenced outbox record for a just-completed tender (ADR-0011, mirrored from backbone-payment).
 ///
 /// `company_id` is what backbone-outbox v2.7.4's `multi_tenant` feature fences
@@ -106,6 +121,21 @@ pub(super) fn tender_completed_outbox_record(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_cash_may_pay_past_what_is_due() {
+        let d = |s: &str| s.parse::<Decimal>().unwrap();
+        assert!(check_change_is_cash("cash", d("150"), d("100")).is_ok(), "cash overpays and takes change");
+        assert!(check_change_is_cash("card", d("100"), d("100")).is_ok(), "a card may cover exactly what is due");
+        assert!(matches!(
+            check_change_is_cash("card", d("100.01"), d("100")),
+            Err(PosError::NonCashOverpayment { .. })
+        ));
+        assert!(matches!(
+            check_change_is_cash("qris", d("1"), d("-5")),
+            Err(PosError::NonCashOverpayment { .. })
+        ), "nothing is due on an already paid-up ticket");
+    }
 
     /// Regression guard for the ADR-0011 outbox fence (mirrored from backbone-payment): the staged
     /// `PosTenderCompleted` record MUST carry the owning tenant as its top-level `company_id` — the

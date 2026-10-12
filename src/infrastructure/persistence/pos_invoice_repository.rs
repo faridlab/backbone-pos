@@ -150,6 +150,24 @@ pub struct RecognitionRow {
     pub default_customer_id: Option<Uuid>,
 }
 
+/// A ticket's state and money as a sync replay found it, under its row lock.
+pub struct SyncLockRow {
+    pub status: String,
+    pub paid_total: Decimal,
+    pub rounded_total: Decimal,
+}
+
+/// What a paid ticket's stock relief reads (see `fetch_for_stock_relief`).
+pub struct StockReliefRow {
+    pub stock_delivery_note_id: Option<Uuid>,
+    pub branch_id: Option<Uuid>,
+    pub customer_id: Option<Uuid>,
+    pub posting_at: chrono::DateTime<chrono::Utc>,
+    pub warehouse_id: Option<Uuid>,
+    pub cogs_account_id: Option<Uuid>,
+    pub inventory_account_id: Option<Uuid>,
+}
+
 /// The original ticket as the returns path reads it — the source of every field the return ticket
 /// copies, plus the tender/invoice refs to reverse.
 pub struct ReturnSourceRow {
@@ -268,8 +286,8 @@ impl PosInvoiceRepository {
         rounded_total: Decimal,
         paid_total: Decimal,
         change_due: Decimal,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+    ) -> Result<u64, sqlx::Error> {
+        let res = sqlx::query(
             r#"UPDATE pos.pos_invoices SET
                  opening_entry_id=$2, branch_id=$3, customer_id=$4, pos_table_id=$5,
                  net_total=$6, tax_total=$7, grand_total=$8, rounding_adjustment=$9,
@@ -281,7 +299,27 @@ impl PosInvoiceRepository {
         .bind(rounded_total).bind(paid_total).bind(change_due)
         .execute(conn)
         .await?;
-        Ok(())
+        Ok(res.rows_affected())
+    }
+
+    /// Read and LOCK a ticket a sync replay is about to rewrite: its state and the money it held
+    /// before the replay. Taken first in the replay's transaction, so recognition cannot flip the
+    /// ticket to paid between the replay's check and its rewrite, and the replay knows whether it
+    /// is the one that completes the payment.
+    pub async fn lock_for_sync_on(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        pos_invoice_id: Uuid,
+    ) -> Result<Option<SyncLockRow>, sqlx::Error> {
+        let row = sqlx::query(
+            "SELECT status::text AS st, paid_total, rounded_total FROM pos.pos_invoices WHERE id=$1 AND (metadata->>'deleted_at') IS NULL FOR UPDATE",
+        )
+        .bind(pos_invoice_id)
+        .fetch_optional(conn)
+        .await?;
+        Ok(row.map(|r| SyncLockRow {
+            status: r.get("st"), paid_total: r.get("paid_total"), rounded_total: r.get("rounded_total"),
+        }))
     }
 
     /// The draft ticket currently seated at a dining table — the friendly half of the
@@ -387,7 +425,11 @@ impl PosInvoiceRepository {
         .await
     }
 
-    /// Read the header `add_tender` gates on.
+    /// Read and LOCK the header `add_tender` gates on.
+    ///
+    /// The row lock is what makes a tender one step: two tenders on the same ticket queue, so the
+    /// second re-sums with the first one's row in it, and the paid flip (an UPDATE of this row)
+    /// waits for a tender in flight, after which the next tender sees `paid` and is refused.
     ///
     /// ID-only: rides the ambient org scope's request-dedicated connection, so a ticket the scope
     /// cannot see simply is not found. The caller runs this on its own scope-relayed transaction
@@ -398,7 +440,7 @@ impl PosInvoiceRepository {
         pos_invoice_id: Uuid,
     ) -> Result<Option<TenderHeaderRow>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT status::text AS st, rounded_total FROM pos.pos_invoices WHERE id=$1 AND (metadata->>'deleted_at') IS NULL",
+            "SELECT status::text AS st, rounded_total FROM pos.pos_invoices WHERE id=$1 AND (metadata->>'deleted_at') IS NULL FOR UPDATE",
         )
         .bind(pos_invoice_id)
         .fetch_optional(conn)
@@ -491,26 +533,71 @@ impl PosInvoiceRepository {
     /// This is billing's at-most-once gate (council 2026-07-05): writing the link the instant
     /// `raise_and_post` returns makes a retry after a settle failure (declined card / closed period)
     /// REUSE the invoice instead of raising a second one — otherwise the counter's ordinary
-    /// decline-then-retry doubles the revenue journal. State-guarded on `draft`. Rides the ambient
-    /// org scope.
+    /// decline-then-retry doubles the revenue journal. State-guarded on `draft` and on no invoice
+    /// being linked yet; returns the rows affected, so a caller that finds 0 knows another
+    /// recognition linked first. Rides the ambient org scope.
     pub async fn link_billing_invoice(
         &self,
         pool: &PgPool,
         pos_invoice_id: Uuid,
         billing_invoice_id: Uuid,
-    ) -> Result<(), sqlx::Error> {
-        org_scope::execute_scoped(
+    ) -> Result<u64, sqlx::Error> {
+        let res = org_scope::execute_scoped(
             pool,
-            sqlx::query("UPDATE pos.pos_invoices SET billing_invoice_id=$2 WHERE id=$1 AND status='draft'::pos_invoice_status")
+            sqlx::query("UPDATE pos.pos_invoices SET billing_invoice_id=$2 WHERE id=$1 AND status='draft'::pos_invoice_status AND billing_invoice_id IS NULL")
                 .bind(pos_invoice_id).bind(billing_invoice_id),
         )
         .await?;
-        Ok(())
+        Ok(res.rows_affected())
+    }
+
+    /// What a paid ticket's stock relief needs: the register's stock seats, the ticket's
+    /// counterparty and date, and the delivery note already recorded, if any. `Ok(None)` = the
+    /// ticket is not paid (or not visible to the scope). Rides the ambient org scope.
+    pub async fn fetch_for_stock_relief(
+        &self,
+        pool: &PgPool,
+        pos_invoice_id: Uuid,
+    ) -> Result<Option<StockReliefRow>, sqlx::Error> {
+        let row = org_scope::fetch_optional_row_scoped(
+            pool,
+            sqlx::query(
+                r#"SELECT i.stock_delivery_note_id, i.branch_id, COALESCE(i.customer_id, p.default_customer_id) AS customer_id,
+                          i.posting_at, p.warehouse_id, p.cogs_account_id, p.inventory_account_id
+                   FROM pos.pos_invoices i JOIN pos.pos_profiles p ON p.id = i.pos_profile_id
+                   WHERE i.id=$1 AND i.status='paid'::pos_invoice_status AND (i.metadata->>'deleted_at') IS NULL"#,
+            )
+            .bind(pos_invoice_id),
+        )
+        .await?;
+        Ok(row.map(|r| StockReliefRow {
+            stock_delivery_note_id: r.get("stock_delivery_note_id"), branch_id: r.get("branch_id"),
+            customer_id: r.get("customer_id"), posting_at: r.get("posting_at"),
+            warehouse_id: r.get("warehouse_id"), cogs_account_id: r.get("cogs_account_id"),
+            inventory_account_id: r.get("inventory_account_id"),
+        }))
+    }
+
+    /// Record the delivery note that relieved a paid ticket's stock. Guarded on none being
+    /// recorded yet. Rides the ambient org scope.
+    pub async fn link_stock_delivery_note(
+        &self,
+        pool: &PgPool,
+        pos_invoice_id: Uuid,
+        delivery_note_id: Uuid,
+    ) -> Result<u64, sqlx::Error> {
+        let res = org_scope::execute_scoped(
+            pool,
+            sqlx::query("UPDATE pos.pos_invoices SET stock_delivery_note_id=$2 WHERE id=$1 AND stock_delivery_note_id IS NULL")
+                .bind(pos_invoice_id).bind(delivery_note_id),
+        )
+        .await?;
+        Ok(res.rows_affected())
     }
 
     /// Flip a ticket draft→paid, persisting both downstream refs. Returns the rows affected: the caller
-    /// gates the `PosInvoicePaid` event and the stock issue on this being 1, so each happens exactly
-    /// once even if recognise is retried.
+    /// gates the `PosInvoicePaid` event on this being 1, so it is published exactly once even if
+    /// recognise is retried.
     ///
     /// Persisting `payment_entry_id` in the same flip is what lets a later return refund the tender from
     /// the ticket (no cross-schema lookup) and gives a crash-retry a durable skip-gate (ADR-001

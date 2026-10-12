@@ -76,6 +76,7 @@ user_owned:
   # Offline-sync + manager-PIN + document-grade tax behavior tests, and the shared in-test port
   # fakes + DB seeders they all use.
   - "tests/pos_sync_ui.rs"
+  - "tests/pos_tender_races.rs"
   # Tenancy posture pin (ADR-0029): armed RLS flags + zero module policies + default-deny
   # for a plain NOBYPASSRLS role + the ambient org scope driving module reads. Succeeded
   # the company-era fence tests (company_guard / open-session-rls / sync-outbox-rls),

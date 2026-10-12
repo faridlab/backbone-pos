@@ -31,10 +31,30 @@ use super::pos_write_service::{legacy_company_echo, PosError, PosWriteService, R
 impl PosWriteService {
     /// Recognise a fully-tendered sale: drive billing (raise + post the Sales Invoice → revenue) then
     /// payment (settle the `rounded_total` against it → `Dr Cash · Cr A/R`), link the results, mark the
-    /// ticket `paid`, and emit `PosInvoicePaid`. Idempotent on `status='paid'`.
+    /// ticket `paid`, emit `PosInvoicePaid`, and relieve the stock. Idempotent on `status='paid'`.
+    ///
+    /// One recognition per ticket at a time: a transaction-scoped advisory lock on the ticket id is
+    /// held for the whole call, so a second delivery of the same trigger waits, then finds the
+    /// invoice already linked or the ticket already paid, instead of raising a second invoice. A
+    /// row lock would do the same but be held across billing and payment, which write elsewhere.
     pub async fn recognize_sale(&self, pos_invoice_id: Uuid, billing: &dyn BillingPort, payment: &dyn PaymentPort, inventory: Option<&dyn InventoryPort>) -> Result<RecognizeOutcome, PosError> {
-        // Short-circuit if already recognised.
-        if let Some(o) = self.short_circuit_paid(pos_invoice_id).await? { return Ok(o); }
+        let mut guard = self.rpool().begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(format!("pos.recognize:{pos_invoice_id}"))
+            .execute(&mut *guard)
+            .await?;
+        let out = self.recognize_sale_locked(pos_invoice_id, billing, payment, inventory).await;
+        // Committing or rolling back releases the lock; neither touches a row.
+        guard.commit().await?;
+        out
+    }
+
+    async fn recognize_sale_locked(&self, pos_invoice_id: Uuid, billing: &dyn BillingPort, payment: &dyn PaymentPort, inventory: Option<&dyn InventoryPort>) -> Result<RecognizeOutcome, PosError> {
+        // Already recognised: the money is booked, and only a relief that has not landed is left.
+        if let Some(o) = self.short_circuit_paid(pos_invoice_id).await? {
+            self.relieve_stock_once(pos_invoice_id, inventory).await?;
+            return Ok(o);
+        }
         // Tenancy (ADR-0029), ID-only pattern: identified by ticket id alone. Under HTTP the
         // request-dedicated connection carries the ambient org scope. When driven by an EVENT (the
         // recognition sink subscribing to PosTenderCompleted), the caller must wrap this in the
@@ -90,7 +110,11 @@ impl PosWriteService {
                 receivable_account_id: receivable, posting_date, lines, tax_total, tax_account_id, tax_rate,
             }).await.map_err(|e| PosError::BillingRejected { code: e.code, message: e.message })?;
             // Persist the link WHILE STILL DRAFT — before settle — so any retry reuses this invoice.
-            self.invoices.link_billing_invoice(&self.rpool(), pos_invoice_id, ack.invoice_id).await?;
+            // Under the recognition lock nothing else links meanwhile; a link that does not take
+            // is refused rather than settled against an invoice the ticket does not name.
+            if self.invoices.link_billing_invoice(&self.rpool(), pos_invoice_id, ack.invoice_id).await? != 1 {
+                return Err(PosError::NotDraft);
+            }
             ack.invoice_id
         };
 
@@ -109,30 +133,45 @@ impl PosWriteService {
                 pos_invoice_id, company_id: company_echo, grand_total: inv.grand_total, rounded_total,
                 billing_invoice_id: invoice_id, payment_id: sack.payment_id,
             }));
-            // Decrement stock (an outward Delivery Note: on-hand relieved, `Dr COGS · Cr Inventory`)
-            // when the register is stock-tracking. Gated on this once-only flip, so it issues exactly
-            // once even if recognise is retried. Non-stock registers (no warehouse) skip it.
-            if let (Some(inv_port), Some(warehouse), Some(cogs), Some(inv_acct)) = (
-                inventory,
-                inv.warehouse_id,
-                inv.cogs_account_id,
-                inv.inventory_account_id,
-            ) {
-                let qty_rows = self.items.fetch_quantity_lines(&self.rpool(), pos_invoice_id).await?;
-                let lines: Vec<StockIssueLine> = qty_rows.iter()
-                    .map(|r| StockIssueLine { item_id: r.item_id, quantity: r.quantity })
-                    .filter(|l| l.quantity > Decimal::ZERO)
-                    .collect();
-                if !lines.is_empty() {
-                    inv_port.issue(&StockIssueRequest {
-                        company_id: company_echo, branch_id: inv.branch_id, customer_id: customer,
-                        source_pos_id: pos_invoice_id, warehouse_id: warehouse, cogs_account_id: cogs,
-                        inventory_account_id: inv_acct, posting_date, lines,
-                    }).await.map_err(|e| PosError::InventoryRejected { code: e.code, message: e.message })?;
-                }
-            }
         }
+        // Decrement stock (an outward Delivery Note: on-hand relieved, `Dr COGS · Cr Inventory`)
+        // when the register is stock-tracking. Driven by the ticket's own record of its relief, not
+        // by this call's flip, so a relief refused after the ticket was marked paid is retried by
+        // the next delivery instead of skipped.
+        self.relieve_stock_once(pos_invoice_id, inventory).await?;
         Ok(RecognizeOutcome { pos_invoice_id, billing_invoice_id: invoice_id, payment_id: sack.payment_id })
+    }
+
+    /// Relieve a paid ticket's stock exactly once. Issues the delivery note when the register is
+    /// stock-tracking and the ticket records none, then records it; a ticket that has one, an
+    /// unpaid ticket, a non-stock register, or a deployment without an inventory port is left as
+    /// is. A refusal propagates, so the caller's retry drives the relief again.
+    async fn relieve_stock_once(&self, pos_invoice_id: Uuid, inventory: Option<&dyn InventoryPort>) -> Result<(), PosError> {
+        let Some(inv_port) = inventory else { return Ok(()) };
+        let Some(t) = self.invoices.fetch_for_stock_relief(&self.rpool(), pos_invoice_id).await? else { return Ok(()) };
+        if t.stock_delivery_note_id.is_some() {
+            return Ok(());
+        }
+        let (Some(warehouse), Some(cogs), Some(inv_acct), Some(customer)) =
+            (t.warehouse_id, t.cogs_account_id, t.inventory_account_id, t.customer_id)
+        else {
+            return Ok(());
+        };
+        let qty_rows = self.items.fetch_quantity_lines(&self.rpool(), pos_invoice_id).await?;
+        let lines: Vec<StockIssueLine> = qty_rows.iter()
+            .map(|r| StockIssueLine { item_id: r.item_id, quantity: r.quantity })
+            .filter(|l| l.quantity > Decimal::ZERO)
+            .collect();
+        if lines.is_empty() {
+            return Ok(());
+        }
+        let ack = inv_port.issue(&StockIssueRequest {
+            company_id: legacy_company_echo(), branch_id: t.branch_id, customer_id: customer,
+            source_pos_id: pos_invoice_id, warehouse_id: warehouse, cogs_account_id: cogs,
+            inventory_account_id: inv_acct, posting_date: t.posting_at.date_naive(), lines,
+        }).await.map_err(|e| PosError::InventoryRejected { code: e.code, message: e.message })?;
+        self.invoices.link_stock_delivery_note(&self.rpool(), pos_invoice_id, ack.delivery_note_id).await?;
+        Ok(())
     }
 
     async fn short_circuit_paid(&self, pos_invoice_id: Uuid) -> Result<Option<RecognizeOutcome>, PosError> {

@@ -464,6 +464,9 @@ pub enum PosError {
     SessionRegisterMismatch,
     NotDraft,
     NotFullyTendered { rounded_total: Decimal, paid_total: Decimal },
+    /// A tender other than cash would take the ticket past its rounded total. Change is only ever
+    /// given in cash, so a card, QRIS or transfer tender may cover at most what is still due.
+    NonCashOverpayment { method: String, remaining: Decimal },
     NotReturnable(String),
     MissingAccount(&'static str),
     DuplicateNumber(String),
@@ -563,6 +566,7 @@ impl PosError {
             PosError::SessionRegisterMismatch => "session_register_mismatch".into(),
             PosError::NotDraft => "not_draft".into(),
             PosError::NotFullyTendered { .. } => "not_fully_tendered".into(),
+            PosError::NonCashOverpayment { .. } => "non_cash_overpayment".into(),
             PosError::NotReturnable(_) => "not_returnable".into(),
             PosError::MissingAccount(_) => "missing_account".into(),
             PosError::DuplicateNumber(_) => "duplicate_number".into(),
