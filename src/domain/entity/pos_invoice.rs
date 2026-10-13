@@ -361,6 +361,9 @@ impl backbone_orm::EntityRepoMeta for PosInvoice {
     fn search_fields() -> &'static [&'static str] {
         &["receipt_number"]
     }
+    fn relations() -> &'static [(&'static str, &'static str, &'static str)] {
+        &[("openingEntry", "pos_opening_entries", "openingEntryId")]
+    }
 }
 
 /// Builder for PosInvoice entity

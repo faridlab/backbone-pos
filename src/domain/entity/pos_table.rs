@@ -238,7 +238,7 @@ impl backbone_orm::EntityRepoMeta for PosTable {
         &[]
     }
     fn relations() -> &'static [(&'static str, &'static str, &'static str)] {
-        &[("floorPlan", "pos_floor_plans", "posFloorPlanId")]
+        &[("floorPlan", "pos_floor_plans", "posFloorPlanId"), ("posFloorPlan", "pos_floor_plans", "posFloorPlanId")]
     }
 }
 

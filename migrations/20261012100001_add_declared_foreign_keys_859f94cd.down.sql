@@ -1,0 +1,11 @@
+-- Down: drop the declared foreign keys for pos module
+ALTER TABLE IF EXISTS pos.pos_tables DROP CONSTRAINT IF EXISTS fk_pos_tables_pos_floor_plan_id;
+ALTER TABLE IF EXISTS pos.pos_tables DROP CONSTRAINT IF EXISTS fk_pos_tables_pos_floor_plan_id;
+ALTER TABLE IF EXISTS pos.pos_cash_movements DROP CONSTRAINT IF EXISTS fk_pos_cash_movements_opening_entry_id;
+ALTER TABLE IF EXISTS pos.pos_opening_entries DROP CONSTRAINT IF EXISTS fk_pos_opening_entries_pos_profile_id;
+ALTER TABLE IF EXISTS pos.pos_payments DROP CONSTRAINT IF EXISTS fk_pos_payments_pos_invoice_id;
+ALTER TABLE IF EXISTS pos.pos_payments DROP CONSTRAINT IF EXISTS fk_pos_payments_pos_invoice_id;
+ALTER TABLE IF EXISTS pos.pos_invoice_items DROP CONSTRAINT IF EXISTS fk_pos_invoice_items_pos_invoice_id;
+ALTER TABLE IF EXISTS pos.pos_invoice_items DROP CONSTRAINT IF EXISTS fk_pos_invoice_items_pos_invoice_id;
+ALTER TABLE IF EXISTS pos.pos_invoices DROP CONSTRAINT IF EXISTS fk_pos_invoices_opening_entry_id;
+ALTER TABLE IF EXISTS pos.pos_closing_entries DROP CONSTRAINT IF EXISTS fk_pos_closing_entries_opening_entry_id;

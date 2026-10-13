@@ -251,6 +251,9 @@ impl backbone_orm::EntityRepoMeta for PosClosingEntry {
     fn search_fields() -> &'static [&'static str] {
         &[]
     }
+    fn relations() -> &'static [(&'static str, &'static str, &'static str)] {
+        &[("openingEntry", "pos_opening_entries", "openingEntryId")]
+    }
 }
 
 /// Builder for PosClosingEntry entity

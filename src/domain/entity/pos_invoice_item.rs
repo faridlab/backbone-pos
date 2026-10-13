@@ -269,7 +269,7 @@ impl backbone_orm::EntityRepoMeta for PosInvoiceItem {
         &[]
     }
     fn relations() -> &'static [(&'static str, &'static str, &'static str)] {
-        &[("invoice", "pos_invoices", "posInvoiceId")]
+        &[("invoice", "pos_invoices", "posInvoiceId"), ("posInvoice", "pos_invoices", "posInvoiceId")]
     }
 }
 
