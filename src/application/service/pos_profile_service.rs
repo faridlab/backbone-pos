@@ -32,9 +32,10 @@ pub type PosProfileService = GenericCrudService<
     PosProfileRepository,
 >;
 
-/// The row rules the schema declares for PosProfile, checked against the row a create or
-/// update would store. The generated build attaches it to [`PosProfileService`]. Every rule
-/// runs in shadow: a break is logged under `backbone::write_guard` and the write goes ahead.
+/// The rules the schema declares for PosProfile, checked against the row a create or update
+/// would store. The generated build attaches it to [`PosProfileService`]. A refusing rule's
+/// break answers 422; a rule in shadow is logged under `backbone::write_guard` and the
+/// write goes ahead.
 pub struct PosProfileRowRules;
 
 #[async_trait::async_trait]
@@ -56,11 +57,32 @@ impl backbone_core::write_guard::WriteGuard<PosProfile> for PosProfileRowRules {
         let row = &row;
         let old = ctx.before.and_then(|b| serde_json::to_value(b).ok());
         let mut shadow = Vec::new();
+        let mut refuse = Vec::new();
         // `status` belongs to a state machine: only its verbs move it
         if update && ctx.transition.is_none() && r::changed(old.as_ref(), row, &["status"]) {
             shadow.push(Violation::new("status", "state_field_verbs_only", "the state field moves only through its verbs"));
         }
-        GuardOutcome { refuse: Vec::new(), shadow }
+        // `name_required` (@required on PosProfile.name)
+        if (create || (update && r::changed(old.as_ref(), row, &["name"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "name")), r::not(r::is_empty(r::trim(r::field(row, "name")))))) {
+            refuse.push(Violation::new("name", "required", "name is required"));
+        }
+        // `name_max_length` (@max(140) on PosProfile.name)
+        if (create || (update && r::changed(old.as_ref(), row, &["name"]))) && !r::holds(&r::le(r::length(r::field(row, "name")), r::Val::Num(140.0_f64))) {
+            shadow.push(Violation::new("name", "max_length", "name must be at most 140 characters").with_param("max", 140_i64));
+        }
+        // `currency_max_length` (@max(3) on PosProfile.currency)
+        if (create || (update && r::changed(old.as_ref(), row, &["currency"]))) && !r::holds(&r::le(r::length(r::field(row, "currency")), r::Val::Num(3.0_f64))) {
+            shadow.push(Violation::new("currency", "max_length", "currency must be at most 3 characters").with_param("max", 3_i64));
+        }
+        // `tax_rate_non_negative` (@non_negative on PosProfile.tax_rate)
+        if (create || (update && r::changed(old.as_ref(), row, &["tax_rate"]))) && !r::holds(&r::ge(r::field(row, "tax_rate"), r::Val::Num(0.0_f64))) {
+            shadow.push(Violation::new("tax_rate", "non_negative", "tax_rate must not be negative"));
+        }
+        // `cash_rounding_unit_non_negative` (@non_negative on PosProfile.cash_rounding_unit)
+        if (create || (update && r::changed(old.as_ref(), row, &["cash_rounding_unit"]))) && !r::holds(&r::ge(r::field(row, "cash_rounding_unit"), r::Val::Num(0.0_f64))) {
+            shadow.push(Violation::new("cash_rounding_unit", "non_negative", "cash_rounding_unit must not be negative"));
+        }
+        GuardOutcome { refuse, shadow }
     }
 }
 

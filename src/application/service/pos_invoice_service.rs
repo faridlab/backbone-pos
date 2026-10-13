@@ -32,9 +32,10 @@ pub type PosInvoiceService = GenericCrudService<
     PosInvoiceRepository,
 >;
 
-/// The row rules the schema declares for PosInvoice, checked against the row a create or
-/// update would store. The generated build attaches it to [`PosInvoiceService`]. Every rule
-/// runs in shadow: a break is logged under `backbone::write_guard` and the write goes ahead.
+/// The rules the schema declares for PosInvoice, checked against the row a create or update
+/// would store. The generated build attaches it to [`PosInvoiceService`]. A refusing rule's
+/// break answers 422; a rule in shadow is logged under `backbone::write_guard` and the
+/// write goes ahead.
 pub struct PosInvoiceRowRules;
 
 #[async_trait::async_trait]
@@ -56,11 +57,52 @@ impl backbone_core::write_guard::WriteGuard<PosInvoice> for PosInvoiceRowRules {
         let row = &row;
         let old = ctx.before.and_then(|b| serde_json::to_value(b).ok());
         let mut shadow = Vec::new();
+        let mut refuse = Vec::new();
         // `status` belongs to a state machine: only its verbs move it
         if update && ctx.transition.is_none() && r::changed(old.as_ref(), row, &["status"]) {
             shadow.push(Violation::new("status", "state_field_verbs_only", "the state field moves only through its verbs"));
         }
-        GuardOutcome { refuse: Vec::new(), shadow }
+        // `pos_profile_id_required` (@required on PosInvoice.pos_profile_id)
+        if (create || (update && r::changed(old.as_ref(), row, &["pos_profile_id"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "pos_profile_id")), r::not(r::is_empty(r::trim(r::field(row, "pos_profile_id")))))) {
+            refuse.push(Violation::new("pos_profile_id", "required", "pos_profile_id is required"));
+        }
+        // `opening_entry_id_required` (@required on PosInvoice.opening_entry_id)
+        if (create || (update && r::changed(old.as_ref(), row, &["opening_entry_id"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "opening_entry_id")), r::not(r::is_empty(r::trim(r::field(row, "opening_entry_id")))))) {
+            refuse.push(Violation::new("opening_entry_id", "required", "opening_entry_id is required"));
+        }
+        // `receipt_number_required` (@required on PosInvoice.receipt_number)
+        if (create || (update && r::changed(old.as_ref(), row, &["receipt_number"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "receipt_number")), r::not(r::is_empty(r::trim(r::field(row, "receipt_number")))))) {
+            refuse.push(Violation::new("receipt_number", "required", "receipt_number is required"));
+        }
+        // `receipt_number_max_length` (@max(40) on PosInvoice.receipt_number)
+        if (create || (update && r::changed(old.as_ref(), row, &["receipt_number"]))) && !r::holds(&r::le(r::length(r::field(row, "receipt_number")), r::Val::Num(40.0_f64))) {
+            shadow.push(Violation::new("receipt_number", "max_length", "receipt_number must be at most 40 characters").with_param("max", 40_i64));
+        }
+        // `net_total_non_negative` (@non_negative on PosInvoice.net_total)
+        if (create || (update && r::changed(old.as_ref(), row, &["net_total"]))) && !r::holds(&r::ge(r::field(row, "net_total"), r::Val::Num(0.0_f64))) {
+            shadow.push(Violation::new("net_total", "non_negative", "net_total must not be negative"));
+        }
+        // `tax_total_non_negative` (@non_negative on PosInvoice.tax_total)
+        if (create || (update && r::changed(old.as_ref(), row, &["tax_total"]))) && !r::holds(&r::ge(r::field(row, "tax_total"), r::Val::Num(0.0_f64))) {
+            shadow.push(Violation::new("tax_total", "non_negative", "tax_total must not be negative"));
+        }
+        // `grand_total_non_negative` (@non_negative on PosInvoice.grand_total)
+        if (create || (update && r::changed(old.as_ref(), row, &["grand_total"]))) && !r::holds(&r::ge(r::field(row, "grand_total"), r::Val::Num(0.0_f64))) {
+            shadow.push(Violation::new("grand_total", "non_negative", "grand_total must not be negative"));
+        }
+        // `rounded_total_non_negative` (@non_negative on PosInvoice.rounded_total)
+        if (create || (update && r::changed(old.as_ref(), row, &["rounded_total"]))) && !r::holds(&r::ge(r::field(row, "rounded_total"), r::Val::Num(0.0_f64))) {
+            shadow.push(Violation::new("rounded_total", "non_negative", "rounded_total must not be negative"));
+        }
+        // `paid_total_non_negative` (@non_negative on PosInvoice.paid_total)
+        if (create || (update && r::changed(old.as_ref(), row, &["paid_total"]))) && !r::holds(&r::ge(r::field(row, "paid_total"), r::Val::Num(0.0_f64))) {
+            shadow.push(Violation::new("paid_total", "non_negative", "paid_total must not be negative"));
+        }
+        // `change_due_non_negative` (@non_negative on PosInvoice.change_due)
+        if (create || (update && r::changed(old.as_ref(), row, &["change_due"]))) && !r::holds(&r::ge(r::field(row, "change_due"), r::Val::Num(0.0_f64))) {
+            shadow.push(Violation::new("change_due", "non_negative", "change_due must not be negative"));
+        }
+        GuardOutcome { refuse, shadow }
     }
 }
 

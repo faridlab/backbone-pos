@@ -32,3 +32,49 @@ pub type PosClosingEntryService = GenericCrudService<
     PosClosingEntryRepository,
 >;
 
+/// The rules the schema declares for PosClosingEntry, checked against the row a create or update
+/// would store. The generated build attaches it to [`PosClosingEntryService`]. A refusing rule's
+/// break answers 422; a rule in shadow is logged under `backbone::write_guard` and the
+/// write goes ahead.
+pub struct PosClosingEntryRowRules;
+
+#[async_trait::async_trait]
+impl backbone_core::write_guard::WriteGuard<PosClosingEntry> for PosClosingEntryRowRules {
+    async fn check(
+        &self,
+        ctx: &backbone_core::write_guard::WriteCtx<'_, PosClosingEntry>,
+    ) -> backbone_core::write_guard::GuardOutcome {
+        use backbone_core::row_rule as r;
+        use backbone_core::violation::Violation;
+        use backbone_core::write_guard::{GuardOutcome, WriteKind};
+        let (create, update) = (ctx.kind == WriteKind::Create, ctx.kind == WriteKind::Update);
+        let Some(after) = ctx.after.filter(|_| create || update) else {
+            return GuardOutcome::allow();
+        };
+        let Ok(row) = serde_json::to_value(after) else {
+            return GuardOutcome::allow();
+        };
+        let row = &row;
+        let old = ctx.before.and_then(|b| serde_json::to_value(b).ok());
+        let mut shadow = Vec::new();
+        let mut refuse = Vec::new();
+        // `pos_profile_id_required` (@required on PosClosingEntry.pos_profile_id)
+        if (create || (update && r::changed(old.as_ref(), row, &["pos_profile_id"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "pos_profile_id")), r::not(r::is_empty(r::trim(r::field(row, "pos_profile_id")))))) {
+            refuse.push(Violation::new("pos_profile_id", "required", "pos_profile_id is required"));
+        }
+        // `opening_entry_id_required` (@required on PosClosingEntry.opening_entry_id)
+        if (create || (update && r::changed(old.as_ref(), row, &["opening_entry_id"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "opening_entry_id")), r::not(r::is_empty(r::trim(r::field(row, "opening_entry_id")))))) {
+            refuse.push(Violation::new("opening_entry_id", "required", "opening_entry_id is required"));
+        }
+        // `cashier_party_id_required` (@required on PosClosingEntry.cashier_party_id)
+        if (create || (update && r::changed(old.as_ref(), row, &["cashier_party_id"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "cashier_party_id")), r::not(r::is_empty(r::trim(r::field(row, "cashier_party_id")))))) {
+            refuse.push(Violation::new("cashier_party_id", "required", "cashier_party_id is required"));
+        }
+        // `grand_total_non_negative` (@non_negative on PosClosingEntry.grand_total)
+        if (create || (update && r::changed(old.as_ref(), row, &["grand_total"]))) && !r::holds(&r::ge(r::field(row, "grand_total"), r::Val::Num(0.0_f64))) {
+            shadow.push(Violation::new("grand_total", "non_negative", "grand_total must not be negative"));
+        }
+        GuardOutcome { refuse, shadow }
+    }
+}
+

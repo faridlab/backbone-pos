@@ -32,3 +32,53 @@ pub type PosManagerPinService = GenericCrudService<
     PosManagerPinRepository,
 >;
 
+/// The rules the schema declares for PosManagerPin, checked against the row a create or update
+/// would store. The generated build attaches it to [`PosManagerPinService`]. A refusing rule's
+/// break answers 422; a rule in shadow is logged under `backbone::write_guard` and the
+/// write goes ahead.
+pub struct PosManagerPinRowRules;
+
+#[async_trait::async_trait]
+impl backbone_core::write_guard::WriteGuard<PosManagerPin> for PosManagerPinRowRules {
+    async fn check(
+        &self,
+        ctx: &backbone_core::write_guard::WriteCtx<'_, PosManagerPin>,
+    ) -> backbone_core::write_guard::GuardOutcome {
+        use backbone_core::row_rule as r;
+        use backbone_core::violation::Violation;
+        use backbone_core::write_guard::{GuardOutcome, WriteKind};
+        let (create, update) = (ctx.kind == WriteKind::Create, ctx.kind == WriteKind::Update);
+        let Some(after) = ctx.after.filter(|_| create || update) else {
+            return GuardOutcome::allow();
+        };
+        let Ok(row) = serde_json::to_value(after) else {
+            return GuardOutcome::allow();
+        };
+        let row = &row;
+        let old = ctx.before.and_then(|b| serde_json::to_value(b).ok());
+        let mut shadow = Vec::new();
+        let mut refuse = Vec::new();
+        // `employee_party_id_required` (@required on PosManagerPin.employee_party_id)
+        if (create || (update && r::changed(old.as_ref(), row, &["employee_party_id"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "employee_party_id")), r::not(r::is_empty(r::trim(r::field(row, "employee_party_id")))))) {
+            refuse.push(Violation::new("employee_party_id", "required", "employee_party_id is required"));
+        }
+        // `pin_hash_required` (@required on PosManagerPin.pin_hash)
+        if (create || (update && r::changed(old.as_ref(), row, &["pin_hash"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "pin_hash")), r::not(r::is_empty(r::trim(r::field(row, "pin_hash")))))) {
+            refuse.push(Violation::new("pin_hash", "required", "pin_hash is required"));
+        }
+        // `pin_hash_max_length` (@max(200) on PosManagerPin.pin_hash)
+        if (create || (update && r::changed(old.as_ref(), row, &["pin_hash"]))) && !r::holds(&r::le(r::length(r::field(row, "pin_hash")), r::Val::Num(200.0_f64))) {
+            shadow.push(Violation::new("pin_hash", "max_length", "pin_hash must be at most 200 characters").with_param("max", 200_i64));
+        }
+        // `failed_attempts_non_negative` (@non_negative on PosManagerPin.failed_attempts)
+        if (create || (update && r::changed(old.as_ref(), row, &["failed_attempts"]))) && !r::holds(&r::ge(r::field(row, "failed_attempts"), r::Val::Num(0.0_f64))) {
+            shadow.push(Violation::new("failed_attempts", "non_negative", "failed_attempts must not be negative"));
+        }
+        // `last_attempt_ip_max_length` (@max(45) on PosManagerPin.last_attempt_ip)
+        if (create || (update && r::changed(old.as_ref(), row, &["last_attempt_ip"]))) && !r::holds(&r::le(r::length(r::field(row, "last_attempt_ip")), r::Val::Num(45.0_f64))) {
+            shadow.push(Violation::new("last_attempt_ip", "max_length", "last_attempt_ip must be at most 45 characters").with_param("max", 45_i64));
+        }
+        GuardOutcome { refuse, shadow }
+    }
+}
+

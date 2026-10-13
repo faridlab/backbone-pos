@@ -1,0 +1,20 @@
+# LOCAL DEV ONLY — this file is gitignored (see .gitignore) and NOT committed.
+# Recreate it from .cargo/config.toml.example.
+#
+# Redirects the four sibling git dev-deps (declared in Cargo.toml) to their local ../backbone-*
+# checkouts so uncommitted edits propagate instantly during local development. Cargo forbids
+# `path` + `git` on one dependency line, so the prod/CI git source lives in Cargo.toml and this
+# file overrides it ONLY when present. A standalone clone of backbone-pos has no .cargo/config.toml
+# and therefore builds the four siblings from their pinned git tags — exactly the "prod" path.
+
+[patch."https://github.com/faridlab/backbone-accounting"]
+backbone-accounting = { path = "../backbone-accounting" }
+
+[patch."https://github.com/faridlab/backbone-billing"]
+backbone-billing = { path = "../backbone-billing" }
+
+[patch."https://github.com/faridlab/backbone-payment"]
+backbone-payment = { path = "../backbone-payment" }
+
+[patch."https://github.com/faridlab/backbone-inventory"]
+backbone-inventory = { path = "../backbone-inventory" }
