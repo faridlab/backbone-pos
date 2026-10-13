@@ -68,19 +68,19 @@ impl backbone_core::write_guard::WriteGuard<PosProfile> for PosProfileRowRules {
         }
         // `name_max_length` (@max(140) on PosProfile.name)
         if (create || (update && r::changed(old.as_ref(), row, &["name"]))) && !r::holds(&r::le(r::length(r::field(row, "name")), r::Val::Num(140.0_f64))) {
-            shadow.push(Violation::new("name", "max_length", "name must be at most 140 characters").with_param("max", 140_i64));
+            refuse.push(Violation::new("name", "max_length", "name must be at most 140 characters").with_param("max", 140_i64));
         }
         // `currency_max_length` (@max(3) on PosProfile.currency)
         if (create || (update && r::changed(old.as_ref(), row, &["currency"]))) && !r::holds(&r::le(r::length(r::field(row, "currency")), r::Val::Num(3.0_f64))) {
-            shadow.push(Violation::new("currency", "max_length", "currency must be at most 3 characters").with_param("max", 3_i64));
+            refuse.push(Violation::new("currency", "max_length", "currency must be at most 3 characters").with_param("max", 3_i64));
         }
         // `tax_rate_non_negative` (@non_negative on PosProfile.tax_rate)
         if (create || (update && r::changed(old.as_ref(), row, &["tax_rate"]))) && !r::holds(&r::ge(r::field(row, "tax_rate"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("tax_rate", "non_negative", "tax_rate must not be negative"));
+            refuse.push(Violation::new("tax_rate", "non_negative", "tax_rate must not be negative"));
         }
         // `cash_rounding_unit_non_negative` (@non_negative on PosProfile.cash_rounding_unit)
         if (create || (update && r::changed(old.as_ref(), row, &["cash_rounding_unit"]))) && !r::holds(&r::ge(r::field(row, "cash_rounding_unit"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("cash_rounding_unit", "non_negative", "cash_rounding_unit must not be negative"));
+            refuse.push(Violation::new("cash_rounding_unit", "non_negative", "cash_rounding_unit must not be negative"));
         }
         GuardOutcome { refuse, shadow }
     }

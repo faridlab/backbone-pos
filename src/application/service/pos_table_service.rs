@@ -56,7 +56,7 @@ impl backbone_core::write_guard::WriteGuard<PosTable> for PosTableRowRules {
         };
         let row = &row;
         let old = ctx.before.and_then(|b| serde_json::to_value(b).ok());
-        let mut shadow = Vec::new();
+        let shadow = Vec::new();
         let mut refuse = Vec::new();
         // `pos_floor_plan_id_required` (@required on PosTable.pos_floor_plan_id)
         if (create || (update && r::changed(old.as_ref(), row, &["pos_floor_plan_id"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "pos_floor_plan_id")), r::not(r::is_empty(r::trim(r::field(row, "pos_floor_plan_id")))))) {
@@ -64,11 +64,11 @@ impl backbone_core::write_guard::WriteGuard<PosTable> for PosTableRowRules {
         }
         // `name_max_length` (@max(140) on PosTable.name)
         if (create || (update && r::changed(old.as_ref(), row, &["name"]))) && !r::holds(&r::le(r::length(r::field(row, "name")), r::Val::Num(140.0_f64))) {
-            shadow.push(Violation::new("name", "max_length", "name must be at most 140 characters").with_param("max", 140_i64));
+            refuse.push(Violation::new("name", "max_length", "name must be at most 140 characters").with_param("max", 140_i64));
         }
         // `shape_max_length` (@max(30) on PosTable.shape)
         if (create || (update && r::changed(old.as_ref(), row, &["shape"]))) && !r::holds(&r::le(r::length(r::field(row, "shape")), r::Val::Num(30.0_f64))) {
-            shadow.push(Violation::new("shape", "max_length", "shape must be at most 30 characters").with_param("max", 30_i64));
+            refuse.push(Violation::new("shape", "max_length", "shape must be at most 30 characters").with_param("max", 30_i64));
         }
         GuardOutcome { refuse, shadow }
     }

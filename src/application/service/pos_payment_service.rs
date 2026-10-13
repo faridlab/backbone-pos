@@ -56,7 +56,7 @@ impl backbone_core::write_guard::WriteGuard<PosPayment> for PosPaymentRowRules {
         };
         let row = &row;
         let old = ctx.before.and_then(|b| serde_json::to_value(b).ok());
-        let mut shadow = Vec::new();
+        let shadow = Vec::new();
         let mut refuse = Vec::new();
         // `pos_invoice_id_required` (@required on PosPayment.pos_invoice_id)
         if (create || (update && r::changed(old.as_ref(), row, &["pos_invoice_id"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "pos_invoice_id")), r::not(r::is_empty(r::trim(r::field(row, "pos_invoice_id")))))) {
@@ -64,11 +64,11 @@ impl backbone_core::write_guard::WriteGuard<PosPayment> for PosPaymentRowRules {
         }
         // `amount_non_negative` (@non_negative on PosPayment.amount)
         if (create || (update && r::changed(old.as_ref(), row, &["amount"]))) && !r::holds(&r::ge(r::field(row, "amount"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("amount", "non_negative", "amount must not be negative"));
+            refuse.push(Violation::new("amount", "non_negative", "amount must not be negative"));
         }
         // `reference_no_max_length` (@max(140) on PosPayment.reference_no)
         if (create || (update && r::changed(old.as_ref(), row, &["reference_no"]))) && !r::holds(&r::le(r::length(r::field(row, "reference_no")), r::Val::Num(140.0_f64))) {
-            shadow.push(Violation::new("reference_no", "max_length", "reference_no must be at most 140 characters").with_param("max", 140_i64));
+            refuse.push(Violation::new("reference_no", "max_length", "reference_no must be at most 140 characters").with_param("max", 140_i64));
         }
         GuardOutcome { refuse, shadow }
     }

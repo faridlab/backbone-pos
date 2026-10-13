@@ -56,7 +56,7 @@ impl backbone_core::write_guard::WriteGuard<PosInvoiceItem> for PosInvoiceItemRo
         };
         let row = &row;
         let old = ctx.before.and_then(|b| serde_json::to_value(b).ok());
-        let mut shadow = Vec::new();
+        let shadow = Vec::new();
         let mut refuse = Vec::new();
         // `pos_invoice_id_required` (@required on PosInvoiceItem.pos_invoice_id)
         if (create || (update && r::changed(old.as_ref(), row, &["pos_invoice_id"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "pos_invoice_id")), r::not(r::is_empty(r::trim(r::field(row, "pos_invoice_id")))))) {
@@ -68,23 +68,23 @@ impl backbone_core::write_guard::WriteGuard<PosInvoiceItem> for PosInvoiceItemRo
         }
         // `description_max_length` (@max(300) on PosInvoiceItem.description)
         if (create || (update && r::changed(old.as_ref(), row, &["description"]))) && !r::holds(&r::le(r::length(r::field(row, "description")), r::Val::Num(300.0_f64))) {
-            shadow.push(Violation::new("description", "max_length", "description must be at most 300 characters").with_param("max", 300_i64));
+            refuse.push(Violation::new("description", "max_length", "description must be at most 300 characters").with_param("max", 300_i64));
         }
         // `quantity_non_negative` (@non_negative on PosInvoiceItem.quantity)
         if (create || (update && r::changed(old.as_ref(), row, &["quantity"]))) && !r::holds(&r::ge(r::field(row, "quantity"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("quantity", "non_negative", "quantity must not be negative"));
+            refuse.push(Violation::new("quantity", "non_negative", "quantity must not be negative"));
         }
         // `unit_price_non_negative` (@non_negative on PosInvoiceItem.unit_price)
         if (create || (update && r::changed(old.as_ref(), row, &["unit_price"]))) && !r::holds(&r::ge(r::field(row, "unit_price"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("unit_price", "non_negative", "unit_price must not be negative"));
+            refuse.push(Violation::new("unit_price", "non_negative", "unit_price must not be negative"));
         }
         // `discount_amount_non_negative` (@non_negative on PosInvoiceItem.discount_amount)
         if (create || (update && r::changed(old.as_ref(), row, &["discount_amount"]))) && !r::holds(&r::ge(r::field(row, "discount_amount"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("discount_amount", "non_negative", "discount_amount must not be negative"));
+            refuse.push(Violation::new("discount_amount", "non_negative", "discount_amount must not be negative"));
         }
         // `net_amount_non_negative` (@non_negative on PosInvoiceItem.net_amount)
         if (create || (update && r::changed(old.as_ref(), row, &["net_amount"]))) && !r::holds(&r::ge(r::field(row, "net_amount"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("net_amount", "non_negative", "net_amount must not be negative"));
+            refuse.push(Violation::new("net_amount", "non_negative", "net_amount must not be negative"));
         }
         GuardOutcome { refuse, shadow }
     }

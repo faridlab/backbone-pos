@@ -56,7 +56,7 @@ impl backbone_core::write_guard::WriteGuard<PosManagerPin> for PosManagerPinRowR
         };
         let row = &row;
         let old = ctx.before.and_then(|b| serde_json::to_value(b).ok());
-        let mut shadow = Vec::new();
+        let shadow = Vec::new();
         let mut refuse = Vec::new();
         // `employee_party_id_required` (@required on PosManagerPin.employee_party_id)
         if (create || (update && r::changed(old.as_ref(), row, &["employee_party_id"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "employee_party_id")), r::not(r::is_empty(r::trim(r::field(row, "employee_party_id")))))) {
@@ -68,15 +68,15 @@ impl backbone_core::write_guard::WriteGuard<PosManagerPin> for PosManagerPinRowR
         }
         // `pin_hash_max_length` (@max(200) on PosManagerPin.pin_hash)
         if (create || (update && r::changed(old.as_ref(), row, &["pin_hash"]))) && !r::holds(&r::le(r::length(r::field(row, "pin_hash")), r::Val::Num(200.0_f64))) {
-            shadow.push(Violation::new("pin_hash", "max_length", "pin_hash must be at most 200 characters").with_param("max", 200_i64));
+            refuse.push(Violation::new("pin_hash", "max_length", "pin_hash must be at most 200 characters").with_param("max", 200_i64));
         }
         // `failed_attempts_non_negative` (@non_negative on PosManagerPin.failed_attempts)
         if (create || (update && r::changed(old.as_ref(), row, &["failed_attempts"]))) && !r::holds(&r::ge(r::field(row, "failed_attempts"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("failed_attempts", "non_negative", "failed_attempts must not be negative"));
+            refuse.push(Violation::new("failed_attempts", "non_negative", "failed_attempts must not be negative"));
         }
         // `last_attempt_ip_max_length` (@max(45) on PosManagerPin.last_attempt_ip)
         if (create || (update && r::changed(old.as_ref(), row, &["last_attempt_ip"]))) && !r::holds(&r::le(r::length(r::field(row, "last_attempt_ip")), r::Val::Num(45.0_f64))) {
-            shadow.push(Violation::new("last_attempt_ip", "max_length", "last_attempt_ip must be at most 45 characters").with_param("max", 45_i64));
+            refuse.push(Violation::new("last_attempt_ip", "max_length", "last_attempt_ip must be at most 45 characters").with_param("max", 45_i64));
         }
         GuardOutcome { refuse, shadow }
     }

@@ -76,31 +76,31 @@ impl backbone_core::write_guard::WriteGuard<PosInvoice> for PosInvoiceRowRules {
         }
         // `receipt_number_max_length` (@max(40) on PosInvoice.receipt_number)
         if (create || (update && r::changed(old.as_ref(), row, &["receipt_number"]))) && !r::holds(&r::le(r::length(r::field(row, "receipt_number")), r::Val::Num(40.0_f64))) {
-            shadow.push(Violation::new("receipt_number", "max_length", "receipt_number must be at most 40 characters").with_param("max", 40_i64));
+            refuse.push(Violation::new("receipt_number", "max_length", "receipt_number must be at most 40 characters").with_param("max", 40_i64));
         }
         // `net_total_non_negative` (@non_negative on PosInvoice.net_total)
         if (create || (update && r::changed(old.as_ref(), row, &["net_total"]))) && !r::holds(&r::ge(r::field(row, "net_total"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("net_total", "non_negative", "net_total must not be negative"));
+            refuse.push(Violation::new("net_total", "non_negative", "net_total must not be negative"));
         }
         // `tax_total_non_negative` (@non_negative on PosInvoice.tax_total)
         if (create || (update && r::changed(old.as_ref(), row, &["tax_total"]))) && !r::holds(&r::ge(r::field(row, "tax_total"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("tax_total", "non_negative", "tax_total must not be negative"));
+            refuse.push(Violation::new("tax_total", "non_negative", "tax_total must not be negative"));
         }
         // `grand_total_non_negative` (@non_negative on PosInvoice.grand_total)
         if (create || (update && r::changed(old.as_ref(), row, &["grand_total"]))) && !r::holds(&r::ge(r::field(row, "grand_total"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("grand_total", "non_negative", "grand_total must not be negative"));
+            refuse.push(Violation::new("grand_total", "non_negative", "grand_total must not be negative"));
         }
         // `rounded_total_non_negative` (@non_negative on PosInvoice.rounded_total)
         if (create || (update && r::changed(old.as_ref(), row, &["rounded_total"]))) && !r::holds(&r::ge(r::field(row, "rounded_total"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("rounded_total", "non_negative", "rounded_total must not be negative"));
+            refuse.push(Violation::new("rounded_total", "non_negative", "rounded_total must not be negative"));
         }
         // `paid_total_non_negative` (@non_negative on PosInvoice.paid_total)
         if (create || (update && r::changed(old.as_ref(), row, &["paid_total"]))) && !r::holds(&r::ge(r::field(row, "paid_total"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("paid_total", "non_negative", "paid_total must not be negative"));
+            refuse.push(Violation::new("paid_total", "non_negative", "paid_total must not be negative"));
         }
         // `change_due_non_negative` (@non_negative on PosInvoice.change_due)
         if (create || (update && r::changed(old.as_ref(), row, &["change_due"]))) && !r::holds(&r::ge(r::field(row, "change_due"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("change_due", "non_negative", "change_due must not be negative"));
+            refuse.push(Violation::new("change_due", "non_negative", "change_due must not be negative"));
         }
         GuardOutcome { refuse, shadow }
     }

@@ -56,7 +56,7 @@ impl backbone_core::write_guard::WriteGuard<PosCashMovement> for PosCashMovement
         };
         let row = &row;
         let old = ctx.before.and_then(|b| serde_json::to_value(b).ok());
-        let mut shadow = Vec::new();
+        let shadow = Vec::new();
         let mut refuse = Vec::new();
         // `pos_profile_id_required` (@required on PosCashMovement.pos_profile_id)
         if (create || (update && r::changed(old.as_ref(), row, &["pos_profile_id"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "pos_profile_id")), r::not(r::is_empty(r::trim(r::field(row, "pos_profile_id")))))) {
@@ -72,11 +72,11 @@ impl backbone_core::write_guard::WriteGuard<PosCashMovement> for PosCashMovement
         }
         // `amount_non_negative` (@non_negative on PosCashMovement.amount)
         if (create || (update && r::changed(old.as_ref(), row, &["amount"]))) && !r::holds(&r::ge(r::field(row, "amount"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("amount", "non_negative", "amount must not be negative"));
+            refuse.push(Violation::new("amount", "non_negative", "amount must not be negative"));
         }
         // `reason_max_length` (@max(300) on PosCashMovement.reason)
         if (create || (update && r::changed(old.as_ref(), row, &["reason"]))) && !r::holds(&r::le(r::length(r::field(row, "reason")), r::Val::Num(300.0_f64))) {
-            shadow.push(Violation::new("reason", "max_length", "reason must be at most 300 characters").with_param("max", 300_i64));
+            refuse.push(Violation::new("reason", "max_length", "reason must be at most 300 characters").with_param("max", 300_i64));
         }
         GuardOutcome { refuse, shadow }
     }
