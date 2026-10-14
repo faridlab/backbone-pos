@@ -77,11 +77,11 @@ rules:
   - id: R2
     name: one_open_session_per_config
     entity: PosOpeningEntry
-    when: opening_session
-    assert: "no other session with status='open' exists for the same register (pos_profile_id) — the decorator's org-scoped partial unique enforces it per unit"
+    when: [create, update]
+    assert: "count(PosOpeningEntry, pos_profile_id == $this.pos_profile_id && status == 'open' && id != $this.id && metadata.deleted_at == null) == 0"
     error_code: session_already_open
     enforcement: both
-    justification: "PARTLY: open_session pre-reads for an open session without a lock and maps a unique violation on pos_profile_id, but no module index survives: the partial unique this rule names was dropped and its replacement left with tenancy (strip_tenancy). The composing service's tenancy posture installs the per-unit unique that closes the race."
+    justification: "Compiled into a partial unique index on pos_profile_id over live sessions whose status is open, so the database refuses a second open session on a register on every path and closes the race open_session's unlocked pre-read leaves; open_session maps the unique violation on pos_profile_id to session_already_open."
     note: "DB arm: partial unique index idx_pos_opening_entries_pos_profile_id WHERE status='open' AND deleted_at IS NULL; service arm maps the insert's unique violation to a friendly 422 (constraint-name discrimination on pos_profile_id)"
 
   - id: R3
@@ -98,11 +98,11 @@ rules:
   - id: R4
     name: non_negative_line_money
     entity: PosInvoiceItem
-    when: ringing
-    assert: "line.quantity >= 0 AND line.unit_price >= 0 AND line.discount_amount >= 0 AND line.net_amount >= 0"
+    when: [create, update]
+    assert: "quantity >= 0 && unit_price >= 0 && discount_amount >= 0 && net_amount >= 0"
     error_code: negative_amount
     enforcement: both
-    justification: "PARTLY: compute_ticket refuses a negative quantity, price, discount or net, but the net the tax port returns replaces the checked net unchecked, and the database arm is unnamed column CHECKs whose refusal answers 500."
+    justification: "Compiled into the generated write guard, so a create or update of a ticket line through the generated write path refuses a negative quantity, price, discount or net with negative_amount; compute_ticket refuses the request's values first, and unnamed column CHECKs hold the same bounds at the database."
     note: "DB arm: CHECK constraints on pos_invoice_items (quantity, unit_price, discount_amount, net_amount) and on the ticket totals; service arm returns a friendly 422 before any insert"
 
   - id: R5
@@ -275,16 +275,6 @@ rules:
     enforcement: both
     justification: "This rule prices the ORDER discount. A line discount still arrives in the request and is bounded only by the line's gross, whether or not the register allows discounts."
     note: "DB arm: pos_discounts.percentage CHECK (percentage >= 0) bounds the master at storage; service arm resolves the master tenant-scoped, gates on the register, re-fences the rate to [0,1] at read time, folds pro-rata by line gross (per-line money-rounded, refusing a combined discount that exceeds a line's gross), and the partial-unique/constraint rules above keep the ticket itself consistent"
-
-  - id: R21
-    name: loyalty_point_deltas_not_accepted
-    entity: PosInvoice
-    when: always
-    assert: "no POS input surface, DTO field, or table column accepts a client-authored loyalty point delta; points are out of scope for this module"
-    error_code: none
-    enforcement: service
-    justification: "The rule is about what the module's surface REFUSES to accept: no input, DTO field or column takes a client-authored point delta. That is a statement about the absence of a write path, which no constraint can make."
-    note: "trust posture by construction (the reference lets clients author point deltas — that is the seam this port closes): the earn/redeem decisions belong to the promo seam (coupon_code in, reward_lines out) or a future loyalty consumer of PosInvoicePaid; nothing in pos mutates a points balance"
 
   - id: R22
     name: stale_session_alert_once

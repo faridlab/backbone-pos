@@ -187,47 +187,47 @@ impl PosModuleBuilder {
 
         // PosClosingEntry service
         let pos_closing_entry_repository = Arc::new(PosClosingEntryRepository::new(db_pool.clone()));
-        let pos_closing_entry_service = Arc::new(PosClosingEntryService::with_repository(pos_closing_entry_repository.clone()).with_guard(Arc::new(crate::application::service::PosClosingEntryRowRules)));
+        let pos_closing_entry_service = Arc::new(crate::application::service::build_pos_closing_entry_service(pos_closing_entry_repository.clone()));
 
         // PosInvoice service
         let pos_invoice_repository = Arc::new(PosInvoiceRepository::new(db_pool.clone()));
-        let pos_invoice_service = Arc::new(PosInvoiceService::with_repository(pos_invoice_repository.clone()).with_guard(Arc::new(crate::application::service::PosInvoiceRowRules)));
+        let pos_invoice_service = Arc::new(crate::application::service::build_pos_invoice_service(pos_invoice_repository.clone()));
 
         // PosInvoiceItem service
         let pos_invoice_item_repository = Arc::new(PosInvoiceItemRepository::new(db_pool.clone()));
-        let pos_invoice_item_service = Arc::new(PosInvoiceItemService::with_repository(pos_invoice_item_repository.clone()).with_guard(Arc::new(crate::application::service::PosInvoiceItemRowRules)));
+        let pos_invoice_item_service = Arc::new(crate::application::service::build_pos_invoice_item_service(pos_invoice_item_repository.clone()));
 
         // PosPayment service
         let pos_payment_repository = Arc::new(PosPaymentRepository::new(db_pool.clone()));
-        let pos_payment_service = Arc::new(PosPaymentService::with_repository(pos_payment_repository.clone()).with_guard(Arc::new(crate::application::service::PosPaymentRowRules)));
+        let pos_payment_service = Arc::new(crate::application::service::build_pos_payment_service(pos_payment_repository.clone()));
 
         // PosProfile service
         let pos_profile_repository = Arc::new(PosProfileRepository::new(db_pool.clone()));
-        let pos_profile_service = Arc::new(PosProfileService::with_repository(pos_profile_repository.clone()).with_guard(Arc::new(crate::application::service::PosProfileRowRules)));
+        let pos_profile_service = Arc::new(crate::application::service::build_pos_profile_service(pos_profile_repository.clone()));
 
         // PosOpeningEntry service
         let pos_opening_entry_repository = Arc::new(PosOpeningEntryRepository::new(db_pool.clone()));
-        let pos_opening_entry_service = Arc::new(PosOpeningEntryService::with_repository(pos_opening_entry_repository.clone()).with_guard(Arc::new(crate::application::service::PosOpeningEntryRowRules)));
+        let pos_opening_entry_service = Arc::new(crate::application::service::build_pos_opening_entry_service(pos_opening_entry_repository.clone()));
 
         // PosCashMovement service
         let pos_cash_movement_repository = Arc::new(PosCashMovementRepository::new(db_pool.clone()));
-        let pos_cash_movement_service = Arc::new(PosCashMovementService::with_repository(pos_cash_movement_repository.clone()).with_guard(Arc::new(crate::application::service::PosCashMovementRowRules)));
+        let pos_cash_movement_service = Arc::new(crate::application::service::build_pos_cash_movement_service(pos_cash_movement_repository.clone()));
 
         // PosDiscount service
         let pos_discount_repository = Arc::new(PosDiscountRepository::new(db_pool.clone()));
-        let pos_discount_service = Arc::new(PosDiscountService::with_repository(pos_discount_repository.clone()).with_guard(Arc::new(crate::application::service::PosDiscountRowRules)));
+        let pos_discount_service = Arc::new(crate::application::service::build_pos_discount_service(pos_discount_repository.clone()));
 
         // PosManagerPin service
         let pos_manager_pin_repository = Arc::new(PosManagerPinRepository::new(db_pool.clone()));
-        let pos_manager_pin_service = Arc::new(PosManagerPinService::with_repository(pos_manager_pin_repository.clone()).with_guard(Arc::new(crate::application::service::PosManagerPinRowRules)));
+        let pos_manager_pin_service = Arc::new(crate::application::service::build_pos_manager_pin_service(pos_manager_pin_repository.clone()));
 
         // PosFloorPlan service
         let pos_floor_plan_repository = Arc::new(PosFloorPlanRepository::new(db_pool.clone()));
-        let pos_floor_plan_service = Arc::new(PosFloorPlanService::with_repository(pos_floor_plan_repository.clone()).with_guard(Arc::new(crate::application::service::PosFloorPlanRowRules)));
+        let pos_floor_plan_service = Arc::new(crate::application::service::build_pos_floor_plan_service(pos_floor_plan_repository.clone()));
 
         // PosTable service
         let pos_table_repository = Arc::new(PosTableRepository::new(db_pool.clone()));
-        let pos_table_service = Arc::new(PosTableService::with_repository(pos_table_repository.clone()).with_guard(Arc::new(crate::application::service::PosTableRowRules)));
+        let pos_table_service = Arc::new(crate::application::service::build_pos_table_service(pos_table_repository.clone()));
 
 
         Ok(PosModule {

@@ -28,14 +28,7 @@ config:
 # =============================================================================
 # Shared domain events
 # =============================================================================
-events:
-  stale_session_alerted:
-    description: >-
-      An open cashier session crossed the stale threshold (7 days by default). Emitted by the
-      old-session alert job after its once-only latch committed. A LOGICAL LINK for the mail
-      activity choreography — this module has NO Cargo edge to any mail crate; the composing
-      service subscribes and schedules the "Session open too long" activity on the cashier
-      (a party ref the event carries).
+events: {}
 
 # =============================================================================
 # Scheduled jobs

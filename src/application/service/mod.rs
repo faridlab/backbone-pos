@@ -43,5 +43,93 @@ pub use pos_manager_pin_service::PosManagerPinRowRules;
 pub use pos_floor_plan_service::PosFloorPlanRowRules;
 pub use pos_table_service::PosTableRowRules;
 
+/// A `PosClosingEntryService` over `repository` with its write guard attached: the way to build it, so its writes are
+/// served only with the rules the schema declares.
+pub fn build_pos_closing_entry_service(
+    repository: std::sync::Arc<crate::infrastructure::persistence::PosClosingEntryRepository>,
+) -> PosClosingEntryService {
+    PosClosingEntryService::with_repository(repository).with_guard(std::sync::Arc::new(PosClosingEntryRowRules))
+}
+
+/// A `PosInvoiceService` over `repository` with its write guard attached: the way to build it, so its writes are
+/// served only with the rules the schema declares.
+pub fn build_pos_invoice_service(
+    repository: std::sync::Arc<crate::infrastructure::persistence::PosInvoiceRepository>,
+) -> PosInvoiceService {
+    PosInvoiceService::with_repository(repository).with_guard(std::sync::Arc::new(PosInvoiceRowRules))
+}
+
+/// A `PosInvoiceItemService` over `repository` with its write guard attached: the way to build it, so its writes are
+/// served only with the rules the schema declares.
+pub fn build_pos_invoice_item_service(
+    repository: std::sync::Arc<crate::infrastructure::persistence::PosInvoiceItemRepository>,
+) -> PosInvoiceItemService {
+    PosInvoiceItemService::with_repository(repository).with_guard(std::sync::Arc::new(PosInvoiceItemRowRules))
+}
+
+/// A `PosPaymentService` over `repository` with its write guard attached: the way to build it, so its writes are
+/// served only with the rules the schema declares.
+pub fn build_pos_payment_service(
+    repository: std::sync::Arc<crate::infrastructure::persistence::PosPaymentRepository>,
+) -> PosPaymentService {
+    PosPaymentService::with_repository(repository).with_guard(std::sync::Arc::new(PosPaymentRowRules))
+}
+
+/// A `PosProfileService` over `repository` with its write guard attached: the way to build it, so its writes are
+/// served only with the rules the schema declares.
+pub fn build_pos_profile_service(
+    repository: std::sync::Arc<crate::infrastructure::persistence::PosProfileRepository>,
+) -> PosProfileService {
+    PosProfileService::with_repository(repository).with_guard(std::sync::Arc::new(PosProfileRowRules))
+}
+
+/// A `PosOpeningEntryService` over `repository` with its write guard attached: the way to build it, so its writes are
+/// served only with the rules the schema declares.
+pub fn build_pos_opening_entry_service(
+    repository: std::sync::Arc<crate::infrastructure::persistence::PosOpeningEntryRepository>,
+) -> PosOpeningEntryService {
+    PosOpeningEntryService::with_repository(repository).with_guard(std::sync::Arc::new(PosOpeningEntryRowRules))
+}
+
+/// A `PosCashMovementService` over `repository` with its write guard attached: the way to build it, so its writes are
+/// served only with the rules the schema declares.
+pub fn build_pos_cash_movement_service(
+    repository: std::sync::Arc<crate::infrastructure::persistence::PosCashMovementRepository>,
+) -> PosCashMovementService {
+    PosCashMovementService::with_repository(repository).with_guard(std::sync::Arc::new(PosCashMovementRowRules))
+}
+
+/// A `PosDiscountService` over `repository` with its write guard attached: the way to build it, so its writes are
+/// served only with the rules the schema declares.
+pub fn build_pos_discount_service(
+    repository: std::sync::Arc<crate::infrastructure::persistence::PosDiscountRepository>,
+) -> PosDiscountService {
+    PosDiscountService::with_repository(repository).with_guard(std::sync::Arc::new(PosDiscountRowRules))
+}
+
+/// A `PosManagerPinService` over `repository` with its write guard attached: the way to build it, so its writes are
+/// served only with the rules the schema declares.
+pub fn build_pos_manager_pin_service(
+    repository: std::sync::Arc<crate::infrastructure::persistence::PosManagerPinRepository>,
+) -> PosManagerPinService {
+    PosManagerPinService::with_repository(repository).with_guard(std::sync::Arc::new(PosManagerPinRowRules))
+}
+
+/// A `PosFloorPlanService` over `repository` with its write guard attached: the way to build it, so its writes are
+/// served only with the rules the schema declares.
+pub fn build_pos_floor_plan_service(
+    repository: std::sync::Arc<crate::infrastructure::persistence::PosFloorPlanRepository>,
+) -> PosFloorPlanService {
+    PosFloorPlanService::with_repository(repository).with_guard(std::sync::Arc::new(PosFloorPlanRowRules))
+}
+
+/// A `PosTableService` over `repository` with its write guard attached: the way to build it, so its writes are
+/// served only with the rules the schema declares.
+pub fn build_pos_table_service(
+    repository: std::sync::Arc<crate::infrastructure::persistence::PosTableRepository>,
+) -> PosTableService {
+    PosTableService::with_repository(repository).with_guard(std::sync::Arc::new(PosTableRowRules))
+}
+
 // This directory's extension (hand-written; ADR-0031).
 include!("mod.ext.rs");
