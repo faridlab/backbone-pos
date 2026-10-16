@@ -88,6 +88,7 @@ user_owned:
   # discounts) and the old-session alert scheduler handler.
   - "tests/pos_restaurant.rs"
   - "tests/pos_session_alert.rs"
+  - "tests/pos_session_close_guards.rs"
   - "tests/support/**"
   # Hand-written migration the generator cannot re-derive from the schema: the
   # company-fence (ADR-0014) strict re-statement of the live RLS policies on all
@@ -95,6 +96,8 @@ user_owned:
   # protection payment's and promo's fence migrations carry in their manifests.
   - "migrations/20260823100000_company_fence_strict.up.sql"
   - "migrations/20260823100000_company_fence_strict.down.sql"
+  # Hand-written floor under the close: one live closing entry per session.
+  - "migrations/20261017090000_one_closing_entry_per_session.*"
   # Hand-written fence for the tables added later (manager PINs, floor plans,
   # tables, discounts): the module-level RLS migration only covers the tables that
   # existed when it shipped, so tables added after it get their strict fence here.

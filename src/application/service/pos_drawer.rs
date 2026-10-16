@@ -157,8 +157,12 @@ impl PosWriteService {
         // Tenancy (ADR-0029): the guard reads ride the ambient org scope; the write transactions
         // below open their own connection and re-bind that scope onto it.
         // Guard: the session must exist and be open (this is also what makes close effectively-once —
-        // a retried close of an already-closed session refuses here).
-        let st = self.openings.fetch_status(&self.rpool(), c.opening_entry_id).await?;
+        // a retried close of an already-closed session refuses here). The row is locked first and
+        // held to the flip: a tender waits for the close, a second close waits and then refuses,
+        // and the drawer counted below is the one the session closes on.
+        let mut tx = self.rpool().begin().await?;
+        relay_ambient_scope(&mut tx).await?;
+        let st = self.openings.lock_status_on(&mut tx, c.opening_entry_id).await?;
         match st.as_deref() {
             None => return Err(PosError::SessionNotFound(c.opening_entry_id)),
             Some("open") => {}
@@ -203,8 +207,6 @@ impl PosWriteService {
         // account must be configured when the drawer did not balance.
         let mut booked: Option<super::pos_write_service::VarianceBooking> = None;
         if difference_total != Decimal::ZERO {
-            let mut tx = self.rpool().begin().await?;
-            relay_ambient_scope(&mut tx).await?;
             let (cash_account, write_off_account, currency) = self
                 .openings
                 .fetch_variance_accounts_on(&mut tx, c.opening_entry_id)
@@ -238,13 +240,12 @@ impl PosWriteService {
                 amount: difference_total.abs(),
                 direction,
             });
-            tx.commit().await?;
             // The closing entry below reuses this id so the booked journal traces to it.
-            return self.finish_close(c, closing_id, totals_json, grand_total, invoice_count, difference_total, by_method, booked).await;
+            return self.finish_close(tx, c, closing_id, totals_json, grand_total, invoice_count, difference_total, by_method, booked).await;
         }
 
         let id = Uuid::new_v4();
-        self.finish_close(c, id, totals_json, grand_total, invoice_count, difference_total, by_method, booked).await
+        self.finish_close(tx, c, id, totals_json, grand_total, invoice_count, difference_total, by_method, booked).await
     }
 
     /// The persist + emit tail of a close: closing entry + session flip in ONE transaction, then the
@@ -252,6 +253,7 @@ impl PosWriteService {
     /// closing id.
     async fn finish_close(
         &self,
+        mut tx: sqlx::Transaction<'static, sqlx::Postgres>,
         c: NewClose,
         closing_id: Uuid,
         totals_json: serde_json::Value,
@@ -261,8 +263,6 @@ impl PosWriteService {
         by_method: Vec<MethodRecon>,
         booked: Option<super::pos_write_service::VarianceBooking>,
     ) -> Result<CloseOutcome, PosError> {
-        let mut tx = self.rpool().begin().await?;
-        relay_ambient_scope(&mut tx).await?;
         let profile_id = self
             .openings
             .fetch_profile_id_on(&mut tx, c.opening_entry_id)
@@ -279,7 +279,10 @@ impl PosWriteService {
             invoice_count: invoice_count as i32,
             difference_total: money(difference_total),
         }).await?;
-        self.openings.mark_closed(&mut tx, c.opening_entry_id).await?;
+        // The lock taken at the start keeps the session open to here; the predicate is the floor.
+        if !self.openings.mark_closed(&mut tx, c.opening_entry_id).await? {
+            return Err(PosError::SessionNotOpen);
+        }
         tx.commit().await?;
 
         // The `company_id` field is the documented legacy twin (ADR-0029) — the acting unit id from

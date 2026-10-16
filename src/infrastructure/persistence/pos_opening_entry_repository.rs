@@ -124,8 +124,11 @@ impl PosOpeningEntryRepository {
         conn: &mut sqlx::PgConnection,
         opening_entry_id: Uuid,
     ) -> Result<Option<String>, sqlx::Error> {
+        // Shared-locked: every write on a session (a ticket, a tender, a cash movement, a sync)
+        // reads it here inside its own transaction, so a close that has locked the session to
+        // count its drawer waits for writes already under way and refuses the ones after it.
         sqlx::query_scalar(
-            "SELECT status::text FROM pos.pos_opening_entries WHERE id=$1 AND (metadata->>'deleted_at') IS NULL",
+            "SELECT status::text FROM pos.pos_opening_entries WHERE id=$1 AND (metadata->>'deleted_at') IS NULL FOR SHARE",
         )
         .bind(opening_entry_id)
         .fetch_optional(conn)
@@ -226,18 +229,53 @@ impl PosOpeningEntryRepository {
         .await
     }
 
-    /// Flip the session to `closed`. Takes the CALLER'S connection so this and the closing-entry insert
-    /// commit as one unit; the caller has already relayed the ambient scope onto it.
+    /// Flip an OPEN session to `closed`; `false` when it was not open. Takes the CALLER'S connection
+    /// so this and the closing-entry insert commit as one unit; the caller has already relayed the
+    /// ambient scope onto it.
     pub async fn mark_closed(
         &self,
         conn: &mut sqlx::PgConnection,
         opening_entry_id: Uuid,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE pos.pos_opening_entries SET status='closed'::pos_session_status WHERE id=$1")
-            .bind(opening_entry_id)
-            .execute(conn)
-            .await?;
-        Ok(())
+    ) -> Result<bool, sqlx::Error> {
+        let done = sqlx::query(
+            "UPDATE pos.pos_opening_entries SET status='closed'::pos_session_status WHERE id=$1 AND status='open'::pos_session_status",
+        )
+        .bind(opening_entry_id)
+        .execute(conn)
+        .await?;
+        Ok(done.rows_affected() == 1)
+    }
+
+    /// The session's status, its row locked for the caller's transaction: a close holds it from
+    /// the drawer count to the flip, so no tender can land on the session in between.
+    pub async fn lock_status_on(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        opening_entry_id: Uuid,
+    ) -> Result<Option<String>, sqlx::Error> {
+        sqlx::query_scalar(
+            "SELECT status::text FROM pos.pos_opening_entries WHERE id=$1 AND (metadata->>'deleted_at') IS NULL FOR UPDATE",
+        )
+        .bind(opening_entry_id)
+        .fetch_optional(conn)
+        .await
+    }
+
+    /// The status of the session a ticket belongs to, shared-locked for the caller's transaction:
+    /// a tender holds it while it writes, so a close waits for the tender, and a tender waits for a
+    /// close that has begun counting.
+    pub async fn share_status_of_ticket_on(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        pos_invoice_id: Uuid,
+    ) -> Result<Option<String>, sqlx::Error> {
+        sqlx::query_scalar(
+            "SELECT o.status::text FROM pos.pos_opening_entries o JOIN pos.pos_invoices i ON i.opening_entry_id = o.id \
+             WHERE i.id=$1 FOR SHARE OF o",
+        )
+        .bind(pos_invoice_id)
+        .fetch_optional(conn)
+        .await
     }
 
     /// Claim the caller's scope's stale open sessions — the intake half of the old-session alert

@@ -71,7 +71,8 @@ rules:
     assert: "the opening entry exists, belongs to the caller's scope, and status == 'open'"
     error_code: session_not_open
     enforcement: service
-    justification: "PARTLY: ringing, cash movements, the X report, close and sync read the session and refuse unless it is open, but add_tender never reads the session, the reads take no lock, and close_session reads status outside its transaction while mark_closed flips without an open predicate. Scope rides the composing service's fence alone."
+    enforced_by: "src/infrastructure/persistence/pos_opening_entry_repository.rs::fetch_status_on, src/infrastructure/persistence/pos_opening_entry_repository.rs::share_status_of_ticket_on, src/application/service/pos_drawer.rs::close_session"
+    justification: "Every write on a session (ringing, sync, cash movements, tenders) reads its status inside the write's transaction with FOR SHARE and refuses unless open; a tender reads it through its ticket. close_session locks the session FOR UPDATE before it counts the drawer and holds it to the flip, and mark_closed flips only an open session, so no write lands on a session between its count and its close (tests/pos_session_close_guards.rs). Scope rides the composing service's fence."
     note: "every write path reads the session status through the org-scoped helpers (the composing service's tenancy decorator fences the lookup so an out-of-scope session is simply not found) and refuses unless open; close_session flips status inside the closing transaction so a counted drawer always closes the session"
 
   - id: R2
@@ -230,7 +231,8 @@ rules:
     assert: "the closing entry (per-method expected vs counted + difference_total) and the session's flip to closed commit in ONE transaction"
     error_code: none
     enforcement: service
-    justification: "PARTLY: the closing entry and the flip commit together, but the drawer is computed and the variance booked outside that transaction, mark_closed has no open predicate, and no unique index stops a second closing entry for the same session."
+    enforced_by: "src/application/service/pos_drawer.rs::close_session, migrations/20261017090000_one_closing_entry_per_session.up.sql::uq_pos_closing_entries_opening_entry"
+    justification: "close_session takes the session's row lock first and commits the closing entry and the flip on that same transaction; the drawer is counted while the lock keeps writes off the session, the variance books through the port keyed by the session (a retry re-books nothing), mark_closed flips only an open session, and the unique index uq_pos_closing_entries_opening_entry allows one live closing entry per session (tests/pos_session_close_guards.rs)."
     note: "a drawer is never counted without the session closing; the expected-drawer computation is shared with the mid-shift x_report (compute_drawer) so the two reads cannot drift"
 
   - id: R17

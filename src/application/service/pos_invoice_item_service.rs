@@ -86,7 +86,7 @@ impl backbone_core::write_guard::WriteGuard<PosInvoiceItem> for PosInvoiceItemRo
         if (create || (update && r::changed(old.as_ref(), row, &["net_amount"]))) && !r::holds(&r::ge(r::field(row, "net_amount"), r::Val::Num(0.0_f64))) {
             refuse.push(Violation::new("net_amount", "non_negative", "net_amount must not be negative"));
         }
-        // `non_negative_line_money` (pos.hook.yaml:98)
+        // `non_negative_line_money` (pos.hook.yaml:99)
         if (create || update) && !r::holds(&r::and(r::and(r::and(r::ge(r::field(row, "quantity"), r::Val::Num(0.0_f64)), r::ge(r::field(row, "unit_price"), r::Val::Num(0.0_f64))), r::ge(r::field(row, "discount_amount"), r::Val::Num(0.0_f64))), r::ge(r::field(row, "net_amount"), r::Val::Num(0.0_f64)))) {
             refuse.push(Violation::new("quantity", "negative_amount", "breaks the rule `non_negative_line_money`: quantity >= 0 && unit_price >= 0 && discount_amount >= 0 && net_amount >= 0"));
         }

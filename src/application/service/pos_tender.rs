@@ -31,6 +31,9 @@ impl PosWriteService {
             .fetch_tender_header(&mut *tx, pos_invoice_id).await?
             .ok_or(PosError::InvoiceNotFound(pos_invoice_id))?;
         if hdr.status != "draft" { return Err(PosError::NotDraft); }
+        // The session must be open, and stays so until this tender commits: a close waits for it.
+        let session = self.openings.share_status_of_ticket_on(&mut tx, pos_invoice_id).await?;
+        if session.as_deref() != Some("open") { return Err(PosError::SessionNotOpen); }
         let rounded_total = hdr.rounded_total;
         // Change is only ever given in cash: any other method may cover at most what is still due.
         // The header lock above makes this sum the one the tender lands on.
