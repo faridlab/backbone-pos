@@ -42,7 +42,6 @@ pub struct CreatePosOpeningEntryDto {
     pub opened_at: DateTime<Utc>,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "opening_balances")]
     pub opening_balances: Option<serde_json::Value>,
-    pub status: PosSessionStatus,
 }
 
 // =============================================================================
@@ -236,7 +235,7 @@ impl From<CreatePosOpeningEntryDto> for PosOpeningEntry {
             cashier_party_id: dto.cashier_party_id,
             opened_at: dto.opened_at,
             opening_balances: dto.opening_balances,
-            status: dto.status,
+            status: PosSessionStatus::Open,
             metadata: AuditMetadata::default(),
         }
     }

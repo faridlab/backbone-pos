@@ -66,7 +66,6 @@ pub struct CreatePosProfileDto {
     pub cash_rounding_strategy: PosCashRoundingStrategy,
     #[serde(alias = "cash_rounding_unit")]
     pub cash_rounding_unit: Decimal,
-    pub status: PosProfileStatus,
 }
 
 // =============================================================================
@@ -342,7 +341,7 @@ impl From<CreatePosProfileDto> for PosProfile {
             allow_discount: dto.allow_discount,
             cash_rounding_strategy: dto.cash_rounding_strategy,
             cash_rounding_unit: dto.cash_rounding_unit,
-            status: dto.status,
+            status: PosProfileStatus::Active,
             metadata: AuditMetadata::default(),
         }
     }

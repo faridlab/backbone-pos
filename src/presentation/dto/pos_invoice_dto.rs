@@ -75,7 +75,6 @@ pub struct CreatePosInvoiceDto {
     pub is_return: bool,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "return_against")]
     pub return_against: Option<Uuid>,
-    pub status: PosInvoiceStatus,
 }
 
 // =============================================================================
@@ -323,7 +322,7 @@ impl From<CreatePosInvoiceDto> for PosInvoice {
             stock_delivery_note_id: dto.stock_delivery_note_id,
             is_return: dto.is_return,
             return_against: dto.return_against,
-            status: dto.status,
+            status: PosInvoiceStatus::Draft,
             metadata: AuditMetadata::default(),
         }
     }
