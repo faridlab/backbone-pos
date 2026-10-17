@@ -210,7 +210,8 @@ rules:
     assert: "the return ticket + event are gated on the original's paid->returned flip; both downstream reversals (refund, credit note) are idempotent; a repeat return reuses the existing return ticket"
     error_code: none
     enforcement: service
-    justification: "PARTLY: the flip to returned and the return ticket's insert are separate statements outside a transaction, so a crash between them leaves a returned original with no return ticket, and the replay then answers with the original's own id."
+    enforced_by: "src/application/service/pos_recognition.rs::return_sale"
+    justification: "return_sale flips the original paid to returned and inserts the return ticket on one transaction, so a failure between them leaves the original paid and a retry returns it (tests/retail_sale_seam.rs a_return_that_fails_to_record_its_ticket_leaves_the_sale_returnable); the ticket and event follow only the flip that changed a row, and the refund and credit note are idempotent downstream."
     note: "partial returns are a declared forward seam: the line-subset input is accepted but refused (partial_returns_not_implemented) until billing's credit note honors a line subset"
 
   - id: R15

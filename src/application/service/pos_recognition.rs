@@ -26,7 +26,7 @@ use super::pos_ports::{
     BillingPort, CreditNoteRequest, InventoryPort, PartialCredit, PaymentPort, RefundRequest,
     SaleInvoiceRequest, SaleLine, SettlementRequest, StockIssueLine, StockIssueRequest,
 };
-use super::pos_write_service::{legacy_company_echo, PosError, PosWriteService, RecognizeOutcome, ReturnOutcome};
+use super::pos_write_service::{legacy_company_echo, relay_ambient_scope, PosError, PosWriteService, RecognizeOutcome, ReturnOutcome};
 
 impl PosWriteService {
     /// Recognise a fully-tendered sale: drive billing (raise + post the Sales Invoice → revenue) then
@@ -224,10 +224,14 @@ impl PosWriteService {
             .await.map_err(|e| PosError::BillingRejected { code: e.code, message: e.message })?;
 
         // Gate the return ticket + event on the original's paid→returned transition (exactly-once).
-        let rows_affected = self.invoices.mark_returned(&self.rpool(), original_pos_invoice_id).await?;
+        // The flip and the ticket commit together: a failure between them leaves the original paid,
+        // so a retry returns it again instead of finding it returned with no ticket.
+        let mut tx = self.rpool().begin().await?;
+        relay_ambient_scope(&mut tx).await?;
+        let rows_affected = self.invoices.mark_returned_on(&mut tx, original_pos_invoice_id).await?;
         let return_ticket_id = if rows_affected == 1 {
             let rt = Uuid::new_v4();
-            self.invoices.insert_return_ticket(&self.rpool(), &NewReturnInvoiceRow {
+            self.invoices.insert_return_ticket_on(&mut tx, &NewReturnInvoiceRow {
                 id: rt,
                 pos_profile_id: o.pos_profile_id,
                 opening_entry_id: o.opening_entry_id,
@@ -242,6 +246,7 @@ impl PosWriteService {
                 billing_invoice_id,
                 return_against: original_pos_invoice_id,
             }).await?;
+            tx.commit().await?;
             self.sink.publish(PosEvent::PosInvoiceReturned(PosInvoiceReturned {
                 pos_invoice_id: original_pos_invoice_id, return_ticket_id: rt, company_id: company_echo,
                 billing_invoice_id, amount: rounded_total,
@@ -249,6 +254,7 @@ impl PosWriteService {
             rt
         } else {
             // Already returned — reuse the existing return ticket (idempotent replay).
+            tx.rollback().await?;
             self.invoices
                 .find_return_ticket(&self.rpool(), original_pos_invoice_id).await?
                 .unwrap_or(original_pos_invoice_id)

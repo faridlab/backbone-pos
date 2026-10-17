@@ -406,6 +406,64 @@ async fn retail_return_reverses_both_legs_and_is_idempotent() {
     ).await.unwrap();
 }
 
+/// A return whose ticket cannot be written leaves the original paid, so a retry returns it: the
+/// flip to returned and the return ticket commit together or not at all.
+#[tokio::test]
+async fn a_return_that_fails_to_record_its_ticket_leaves_the_sale_returnable() {
+    let pool = pool().await;
+    let company = Uuid::new_v4();
+    backbone_orm::org_scope::with_org_request_scope(
+        &pool,
+        backbone_orm::org_scope::OrgScope::for_company_unit(company),
+        async {
+    let coa = seed_coa(&pool).await;
+    let customer = Uuid::new_v4();
+    let item = Uuid::new_v4();
+
+    let pos = PosWriteService::new(pool.clone());
+    let gl = Arc::new(GlAdapter { svc: PostingService::new(Arc::new(SqlxPostingRepository::new(pool.clone()))) });
+    let billing_port = BillingAdapter { billing: BillingWriteService::new(pool.clone()), gl: gl.clone() };
+    let reconcile = Arc::new(reconcile_sink(&pool));
+    let payment_port = PaymentAdapter { payment: PaymentWriteService::new(pool.clone()), billing: BillingWriteService::new(pool.clone()), gl: gl.clone(), reconcile };
+    let (prof, tax) = {
+        let template = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        sqlx::query(r#"INSERT INTO pos.pos_profiles (id, name, currency, tax_template_ids, receivable_account_id, income_account_id, cash_account_id, default_customer_id, allow_discount, status)
+            VALUES ($1,'R','IDR',$2,$3,$4,$5,$6,true,'active')"#)
+            .bind(id).bind(serde_json::json!([template.to_string()])).bind(coa["1200"]).bind(coa["4000"]).bind(coa["1110"]).bind(customer).execute(&pool).await.unwrap();
+        (id, support::TestTax::with_rate(template, "0"))
+    };
+    let session = pos.open_session(NewSession { pos_profile_id: prof, branch_id: None, cashier_party_id: Uuid::new_v4(), opened_at: at(), opening_balances: vec![] }).await.unwrap();
+    let ring = |receipt: String| NewSale {
+        pos_profile_id: prof, opening_entry_id: session, branch_id: None, customer_id: None,
+        pos_table_id: None, discount_id: None,
+        receipt_number: receipt, posting_at: at(),
+        lines: vec![NewSaleLine { item_id: item, revenue_account_id: None, description: None, quantity: d("1"), unit_price: d("100000"), course: None, discount_amount: Decimal::ZERO }],
+    };
+    let sale = pos.ring_sale(ring(uq("R")), &tax).await.unwrap();
+    pos.add_tender(sale, "cash", d("100000"), None).await.unwrap();
+    pos.recognize_sale(sale, &billing_port, &payment_port, None).await.unwrap();
+
+    // Another ticket already holds the receipt number the return ticket would take.
+    let blocker = pos.ring_sale(ring(uq("B")), &tax).await.unwrap();
+    let taken = format!("RET-{}", &sale.simple().to_string()[..12]);
+    sqlx::query("UPDATE pos.pos_invoices SET receipt_number = $2 WHERE id = $1").bind(blocker).bind(&taken).execute(&pool).await.unwrap();
+
+    assert!(pos.return_sale(sale, &billing_port, &payment_port, None).await.is_err(), "the ticket cannot be written");
+    let status: String = sqlx::query_scalar("SELECT status::text FROM pos.pos_invoices WHERE id=$1").bind(sale).fetch_one(&pool).await.unwrap();
+    assert_eq!(status, "paid", "the original is not left returned without a ticket");
+
+    // Free the number: the retry returns the sale and records its one ticket.
+    sqlx::query("UPDATE pos.pos_invoices SET receipt_number = $2 WHERE id = $1").bind(blocker).bind(uq("B")).execute(&pool).await.unwrap();
+    let ret = pos.return_sale(sale, &billing_port, &payment_port, None).await.unwrap();
+    assert_ne!(ret.return_ticket_id, sale, "a real return ticket, not the original's id");
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pos.pos_invoices WHERE return_against=$1 AND is_return=true").bind(sale).fetch_one(&pool).await.unwrap();
+    assert_eq!(n, 1, "exactly one return ticket");
+    assert_eq!(balance(&pool, coa["1110"]).await, d("0.00"), "cash refunded once");
+    },
+    ).await.unwrap();
+}
+
 /// RSSEAM-3 (PPN, 2026-07-14): a PKP register charges 11% output tax, computed SERVER-side from the
 /// profile (the client sends no tax). Billing books `Dr A/R 111,000 · Cr Revenue 100,000 · Cr PPN
 /// Output 11,000`; payment settles the grand in cash. A/R nets to zero, revenue holds the net, cash

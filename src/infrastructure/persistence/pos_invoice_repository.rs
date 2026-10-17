@@ -649,42 +649,39 @@ impl PosInvoiceRepository {
 
     /// Flip the original ticket paid→returned. Returns the rows affected: the caller gates the return
     /// ticket and the `PosInvoiceReturned` event on this being 1, so a repeat return records at most
-    /// once. Rides the ambient org scope.
-    pub async fn mark_returned(
+    /// once. Takes the caller's transaction, which carries the ambient org scope, so the flip commits
+    /// with the return ticket or not at all.
+    pub async fn mark_returned_on(
         &self,
-        pool: &PgPool,
+        conn: &mut sqlx::PgConnection,
         pos_invoice_id: Uuid,
     ) -> Result<u64, sqlx::Error> {
-        let res = org_scope::execute_scoped(
-            pool,
-            sqlx::query("UPDATE pos.pos_invoices SET status='returned'::pos_invoice_status WHERE id=$1 AND status='paid'::pos_invoice_status")
-                .bind(pos_invoice_id),
-        )
-        .await?;
+        let res = sqlx::query("UPDATE pos.pos_invoices SET status='returned'::pos_invoice_status WHERE id=$1 AND status='paid'::pos_invoice_status")
+            .bind(pos_invoice_id)
+            .execute(conn)
+            .await?;
         Ok(res.rows_affected())
     }
 
-    /// Insert the mirror return ticket, linked to the original via `return_against`. Rides the ambient
-    /// org scope.
-    pub async fn insert_return_ticket(
+    /// Insert the mirror return ticket, linked to the original via `return_against`, on the
+    /// caller's transaction (which carries the ambient org scope).
+    pub async fn insert_return_ticket_on(
         &self,
-        pool: &PgPool,
+        conn: &mut sqlx::PgConnection,
         r: &NewReturnInvoiceRow,
     ) -> Result<(), sqlx::Error> {
-        org_scope::execute_scoped(
-            pool,
-            sqlx::query(
-                r#"INSERT INTO pos.pos_invoices
-                    (id, pos_profile_id, opening_entry_id, branch_id, customer_id, receipt_number,
-                     posting_at, net_total, tax_total, grand_total, rounding_adjustment, rounded_total,
-                     paid_total, change_due, billing_invoice_id, is_return, return_against, status)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,0,$11,$11,0,$12,true,$13,'returned'::pos_invoice_status)"#,
-            )
-            .bind(r.id).bind(r.pos_profile_id).bind(r.opening_entry_id)
-            .bind(r.branch_id).bind(r.customer_id).bind(&r.receipt_number)
-            .bind(r.posting_at).bind(r.net_total).bind(r.tax_total).bind(r.grand_total).bind(r.rounded_total)
-            .bind(r.billing_invoice_id).bind(r.return_against),
+        sqlx::query(
+            r#"INSERT INTO pos.pos_invoices
+                (id, pos_profile_id, opening_entry_id, branch_id, customer_id, receipt_number,
+                 posting_at, net_total, tax_total, grand_total, rounding_adjustment, rounded_total,
+                 paid_total, change_due, billing_invoice_id, is_return, return_against, status)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,0,$11,$11,0,$12,true,$13,'returned'::pos_invoice_status)"#,
         )
+        .bind(r.id).bind(r.pos_profile_id).bind(r.opening_entry_id)
+        .bind(r.branch_id).bind(r.customer_id).bind(&r.receipt_number)
+        .bind(r.posting_at).bind(r.net_total).bind(r.tax_total).bind(r.grand_total).bind(r.rounded_total)
+        .bind(r.billing_invoice_id).bind(r.return_against)
+        .execute(conn)
         .await?;
         Ok(())
     }
