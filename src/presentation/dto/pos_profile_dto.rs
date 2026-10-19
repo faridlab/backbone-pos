@@ -38,6 +38,7 @@ pub struct CreatePosProfileDto {
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "default_customer_id")]
     pub default_customer_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
+    #[serde(default = "default_create_pos_profile_currency")]
     pub currency: String,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "income_account_id")]
     pub income_account_id: Option<Uuid>,
@@ -49,7 +50,7 @@ pub struct CreatePosProfileDto {
     pub write_off_account_id: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "tax_account_id")]
     pub tax_account_id: Option<Uuid>,
-    #[serde(alias = "tax_rate")]
+    #[serde(default, alias = "tax_rate")]
     pub tax_rate: Decimal,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "tax_template_ids")]
     pub tax_template_ids: Option<serde_json::Value>,
@@ -60,12 +61,24 @@ pub struct CreatePosProfileDto {
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "inventory_account_id")]
     pub inventory_account_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = true))]
-    #[serde(alias = "allow_discount")]
+    #[serde(default = "default_create_pos_profile_allow_discount", alias = "allow_discount")]
     pub allow_discount: bool,
-    #[serde(alias = "cash_rounding_strategy")]
+    #[serde(default = "default_create_pos_profile_cash_rounding_strategy", alias = "cash_rounding_strategy")]
     pub cash_rounding_strategy: PosCashRoundingStrategy,
-    #[serde(alias = "cash_rounding_unit")]
+    #[serde(default, alias = "cash_rounding_unit")]
     pub cash_rounding_unit: Decimal,
+}
+
+fn default_create_pos_profile_currency() -> String {
+    "IDR".to_string()
+}
+
+fn default_create_pos_profile_allow_discount() -> bool {
+    true
+}
+
+fn default_create_pos_profile_cash_rounding_strategy() -> PosCashRoundingStrategy {
+    PosCashRoundingStrategy::None
 }
 
 // =============================================================================
@@ -130,36 +143,36 @@ pub struct UpdatePosProfileDto {
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct PatchPosProfileDto {
-    #[serde(skip_serializing_if = "Option::is_none", alias = "branch_id")]
-    pub branch_id: Option<Uuid>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "branch_id")]
+    pub branch_id: Option<Option<Uuid>>,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "default_customer_id")]
-    pub default_customer_id: Option<Uuid>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "default_customer_id")]
+    pub default_customer_id: Option<Option<Uuid>>,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub currency: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "income_account_id")]
-    pub income_account_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "receivable_account_id")]
-    pub receivable_account_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "cash_account_id")]
-    pub cash_account_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "write_off_account_id")]
-    pub write_off_account_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "tax_account_id")]
-    pub tax_account_id: Option<Uuid>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "income_account_id")]
+    pub income_account_id: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "receivable_account_id")]
+    pub receivable_account_id: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "cash_account_id")]
+    pub cash_account_id: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "write_off_account_id")]
+    pub write_off_account_id: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "tax_account_id")]
+    pub tax_account_id: Option<Option<Uuid>>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "tax_rate")]
     pub tax_rate: Option<Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "tax_template_ids")]
-    pub tax_template_ids: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "warehouse_id")]
-    pub warehouse_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "cogs_account_id")]
-    pub cogs_account_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "inventory_account_id")]
-    pub inventory_account_id: Option<Uuid>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "tax_template_ids")]
+    pub tax_template_ids: Option<Option<serde_json::Value>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "warehouse_id")]
+    pub warehouse_id: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "cogs_account_id")]
+    pub cogs_account_id: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "inventory_account_id")]
+    pub inventory_account_id: Option<Option<Uuid>>,
     #[cfg_attr(feature = "openapi", schema(example = true))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "allow_discount")]
     pub allow_discount: Option<bool>,
@@ -403,12 +416,4 @@ impl backbone_core::ApplyUpdateDto<UpdatePosProfileDto> for PosProfile {
         Ok(self)
     }
 }
-
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to PosProfile here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
 

@@ -50,19 +50,19 @@ pub struct CreatePosInvoiceDto {
     #[cfg_attr(feature = "openapi", schema(example = "2024-01-01T00:00:00Z"))]
     #[serde(alias = "posting_at")]
     pub posting_at: DateTime<Utc>,
-    #[serde(alias = "net_total")]
+    #[serde(default, alias = "net_total")]
     pub net_total: Decimal,
-    #[serde(alias = "tax_total")]
+    #[serde(default, alias = "tax_total")]
     pub tax_total: Decimal,
-    #[serde(alias = "grand_total")]
+    #[serde(default, alias = "grand_total")]
     pub grand_total: Decimal,
-    #[serde(alias = "rounding_adjustment")]
+    #[serde(default, alias = "rounding_adjustment")]
     pub rounding_adjustment: Decimal,
-    #[serde(alias = "rounded_total")]
+    #[serde(default, alias = "rounded_total")]
     pub rounded_total: Decimal,
-    #[serde(alias = "paid_total")]
+    #[serde(default, alias = "paid_total")]
     pub paid_total: Decimal,
-    #[serde(alias = "change_due")]
+    #[serde(default, alias = "change_due")]
     pub change_due: Decimal,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "billing_invoice_id")]
     pub billing_invoice_id: Option<Uuid>,
@@ -71,7 +71,7 @@ pub struct CreatePosInvoiceDto {
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "stock_delivery_note_id")]
     pub stock_delivery_note_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = true))]
-    #[serde(alias = "is_return")]
+    #[serde(default, alias = "is_return")]
     pub is_return: bool,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "return_against")]
     pub return_against: Option<Uuid>,
@@ -127,12 +127,12 @@ pub struct PatchPosInvoiceDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "opening_entry_id")]
     pub opening_entry_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "branch_id")]
-    pub branch_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "customer_id")]
-    pub customer_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "pos_table_id")]
-    pub pos_table_id: Option<Uuid>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "branch_id")]
+    pub branch_id: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "customer_id")]
+    pub customer_id: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "pos_table_id")]
+    pub pos_table_id: Option<Option<Uuid>>,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "receipt_number")]
     pub receipt_number: Option<String>,
@@ -376,12 +376,4 @@ impl backbone_core::ApplyUpdateDto<UpdatePosInvoiceDto> for PosInvoice {
         Ok(self)
     }
 }
-
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to PosInvoice here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
 

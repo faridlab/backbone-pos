@@ -81,6 +81,13 @@ impl axum::response::IntoResponse for PosOpeningEntryError {
 // Route Configuration
 // =============================================================================
 
+/// The permissions this entity's generic routes require: `pos_opening_entry:<action>` for `read`, `create`,
+/// `update`, `delete`, `restore` and `purge`, with any rename the schema's `requires:` declares.
+pub fn pos_opening_entry_permissions() -> backbone_core::http::CrudPermissions {
+    backbone_core::http::CrudPermissions::new("pos_opening_entry")
+        .in_module("pos")
+}
+
 /// Create Axum router with all 16 Backbone endpoints for PosOpeningEntry.
 ///
 /// # Routes
@@ -110,21 +117,23 @@ impl axum::response::IntoResponse for PosOpeningEntryError {
 /// let router = create_pos_opening_entry_routes(service);
 /// ```
 pub fn create_pos_opening_entry_routes(service: Arc<PosOpeningEntryService>) -> Router {
-    BackboneCrudHandler::<PosOpeningEntryService, PosOpeningEntry, CreatePosOpeningEntryDto, UpdatePosOpeningEntryDto, PosOpeningEntryResponseDto>::routes(
+    BackboneCrudHandler::<PosOpeningEntryService, PosOpeningEntry, CreatePosOpeningEntryDto, UpdatePosOpeningEntryDto, PosOpeningEntryResponseDto>::routes_guarded(
         service,
         "/pos_opening_entries",
+        pos_opening_entry_permissions(),
     )
 }
 
 /// Create Axum router with only the read (GET) endpoints for PosOpeningEntry.
 ///
-/// Safe for public, unauthenticated exposure (e.g., reference data).
+/// Each route requires the entity's `read` permission, so it needs an authenticated caller.
 /// Mutations must be served separately via `create_pos_opening_entry_write_routes`,
 /// typically wrapped in an auth middleware layer.
 pub fn create_pos_opening_entry_read_routes(service: Arc<PosOpeningEntryService>) -> Router {
-    BackboneCrudHandler::<PosOpeningEntryService, PosOpeningEntry, CreatePosOpeningEntryDto, UpdatePosOpeningEntryDto, PosOpeningEntryResponseDto>::read_routes(
+    BackboneCrudHandler::<PosOpeningEntryService, PosOpeningEntry, CreatePosOpeningEntryDto, UpdatePosOpeningEntryDto, PosOpeningEntryResponseDto>::read_routes_guarded(
         service,
         "/pos_opening_entries",
+        pos_opening_entry_permissions(),
     )
 }
 
@@ -140,9 +149,10 @@ pub fn create_pos_opening_entry_read_routes(service: Arc<PosOpeningEntryService>
 /// service (e.g. a command router over its domain engine), serve THAT instead
 /// for any mutation that must respect domain rules.
 pub fn create_pos_opening_entry_write_routes(service: Arc<PosOpeningEntryService>) -> Router {
-    BackboneCrudHandler::<PosOpeningEntryService, PosOpeningEntry, CreatePosOpeningEntryDto, UpdatePosOpeningEntryDto, PosOpeningEntryResponseDto>::write_routes(
+    BackboneCrudHandler::<PosOpeningEntryService, PosOpeningEntry, CreatePosOpeningEntryDto, UpdatePosOpeningEntryDto, PosOpeningEntryResponseDto>::write_routes_guarded(
         service,
         "/pos_opening_entries",
+        pos_opening_entry_permissions(),
     )
 }
 

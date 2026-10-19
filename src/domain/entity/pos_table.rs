@@ -199,6 +199,13 @@ impl super::Entity for PosTable {
 }
 
 impl backbone_core::PersistentEntity for PosTable {
+    fn references() -> &'static [backbone_core::Reference] {
+        const REFERENCES: &[backbone_core::Reference] = &[
+            backbone_core::Reference::new("pos_floor_plan_id", "pos.pos_floor_plans", "id"),
+            backbone_core::Reference::new("pos_floor_plan_id", "pos.pos_floor_plans", "id"),
+        ];
+        REFERENCES
+    }
     fn entity_id(&self) -> String {
         self.id.to_string()
     }

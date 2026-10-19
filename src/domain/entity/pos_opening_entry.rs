@@ -199,6 +199,15 @@ impl super::Entity for PosOpeningEntry {
 }
 
 impl backbone_core::PersistentEntity for PosOpeningEntry {
+    fn state_fields() -> &'static [&'static str] {
+        &["status"]
+    }
+    fn references() -> &'static [backbone_core::Reference] {
+        const REFERENCES: &[backbone_core::Reference] = &[
+            backbone_core::Reference::new("pos_profile_id", "pos.pos_profiles", "id"),
+        ];
+        REFERENCES
+    }
     fn entity_id(&self) -> String {
         self.id.to_string()
     }

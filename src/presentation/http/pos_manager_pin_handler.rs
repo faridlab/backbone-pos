@@ -81,6 +81,13 @@ impl axum::response::IntoResponse for PosManagerPinError {
 // Route Configuration
 // =============================================================================
 
+/// The permissions this entity's generic routes require: `pos_manager_pin:<action>` for `read`, `create`,
+/// `update`, `delete`, `restore` and `purge`, with any rename the schema's `requires:` declares.
+pub fn pos_manager_pin_permissions() -> backbone_core::http::CrudPermissions {
+    backbone_core::http::CrudPermissions::new("pos_manager_pin")
+        .in_module("pos")
+}
+
 /// Create Axum router with all 16 Backbone endpoints for PosManagerPin.
 ///
 /// # Routes
@@ -110,21 +117,23 @@ impl axum::response::IntoResponse for PosManagerPinError {
 /// let router = create_pos_manager_pin_routes(service);
 /// ```
 pub fn create_pos_manager_pin_routes(service: Arc<PosManagerPinService>) -> Router {
-    BackboneCrudHandler::<PosManagerPinService, PosManagerPin, CreatePosManagerPinDto, UpdatePosManagerPinDto, PosManagerPinResponseDto>::routes(
+    BackboneCrudHandler::<PosManagerPinService, PosManagerPin, CreatePosManagerPinDto, UpdatePosManagerPinDto, PosManagerPinResponseDto>::routes_guarded(
         service,
         "/pos_manager_pins",
+        pos_manager_pin_permissions(),
     )
 }
 
 /// Create Axum router with only the read (GET) endpoints for PosManagerPin.
 ///
-/// Safe for public, unauthenticated exposure (e.g., reference data).
+/// Each route requires the entity's `read` permission, so it needs an authenticated caller.
 /// Mutations must be served separately via `create_pos_manager_pin_write_routes`,
 /// typically wrapped in an auth middleware layer.
 pub fn create_pos_manager_pin_read_routes(service: Arc<PosManagerPinService>) -> Router {
-    BackboneCrudHandler::<PosManagerPinService, PosManagerPin, CreatePosManagerPinDto, UpdatePosManagerPinDto, PosManagerPinResponseDto>::read_routes(
+    BackboneCrudHandler::<PosManagerPinService, PosManagerPin, CreatePosManagerPinDto, UpdatePosManagerPinDto, PosManagerPinResponseDto>::read_routes_guarded(
         service,
         "/pos_manager_pins",
+        pos_manager_pin_permissions(),
     )
 }
 
@@ -140,9 +149,10 @@ pub fn create_pos_manager_pin_read_routes(service: Arc<PosManagerPinService>) ->
 /// service (e.g. a command router over its domain engine), serve THAT instead
 /// for any mutation that must respect domain rules.
 pub fn create_pos_manager_pin_write_routes(service: Arc<PosManagerPinService>) -> Router {
-    BackboneCrudHandler::<PosManagerPinService, PosManagerPin, CreatePosManagerPinDto, UpdatePosManagerPinDto, PosManagerPinResponseDto>::write_routes(
+    BackboneCrudHandler::<PosManagerPinService, PosManagerPin, CreatePosManagerPinDto, UpdatePosManagerPinDto, PosManagerPinResponseDto>::write_routes_guarded(
         service,
         "/pos_manager_pins",
+        pos_manager_pin_permissions(),
     )
 }
 

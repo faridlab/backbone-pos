@@ -81,14 +81,14 @@ pub struct PatchPosTableDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "pos_floor_plan_id")]
     pub pos_floor_plan_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub seats: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub shape: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub position: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option")]
+    pub name: Option<Option<String>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option")]
+    pub seats: Option<Option<i32>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option")]
+    pub shape: Option<Option<String>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option")]
+    pub position: Option<Option<serde_json::Value>>,
 }
 
 impl PatchPosTableDto {
@@ -256,12 +256,4 @@ impl backbone_core::ApplyUpdateDto<UpdatePosTableDto> for PosTable {
         Ok(self)
     }
 }
-
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to PosTable here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
 

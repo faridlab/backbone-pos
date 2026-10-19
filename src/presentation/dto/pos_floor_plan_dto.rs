@@ -68,13 +68,13 @@ pub struct UpdatePosFloorPlanDto {
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct PatchPosFloorPlanDto {
-    #[serde(skip_serializing_if = "Option::is_none", alias = "branch_id")]
-    pub branch_id: Option<Uuid>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "branch_id")]
+    pub branch_id: Option<Option<Uuid>>,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub position: Option<i32>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option")]
+    pub position: Option<Option<i32>>,
 }
 
 impl PatchPosFloorPlanDto {
@@ -232,12 +232,4 @@ impl backbone_core::ApplyUpdateDto<UpdatePosFloorPlanDto> for PosFloorPlan {
         Ok(self)
     }
 }
-
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to PosFloorPlan here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
 

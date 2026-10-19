@@ -204,6 +204,13 @@ impl backbone_core::PersistentEntity for PosPayment {
     fn write_protected_fields() -> &'static [&'static str] {
         &["client_uuid", "payment_entry_id"]
     }
+    fn references() -> &'static [backbone_core::Reference] {
+        const REFERENCES: &[backbone_core::Reference] = &[
+            backbone_core::Reference::new("pos_invoice_id", "pos.pos_invoices", "id"),
+            backbone_core::Reference::new("pos_invoice_id", "pos.pos_invoices", "id"),
+        ];
+        REFERENCES
+    }
     fn entity_id(&self) -> String {
         self.id.to_string()
     }

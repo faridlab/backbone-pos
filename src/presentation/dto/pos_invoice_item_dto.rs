@@ -44,9 +44,9 @@ pub struct CreatePosInvoiceItemDto {
     pub quantity: Decimal,
     #[serde(alias = "unit_price")]
     pub unit_price: Decimal,
-    #[serde(alias = "discount_amount")]
+    #[serde(default, alias = "discount_amount")]
     pub discount_amount: Decimal,
-    #[serde(alias = "net_amount")]
+    #[serde(default, alias = "net_amount")]
     pub net_amount: Decimal,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "revenue_account_id")]
     pub revenue_account_id: Option<Uuid>,
@@ -101,18 +101,18 @@ pub struct PatchPosInvoiceItemDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "item_id")]
     pub item_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub course: Option<i32>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option")]
+    pub description: Option<Option<String>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option")]
+    pub course: Option<Option<i32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quantity: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "unit_price")]
     pub unit_price: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "discount_amount")]
     pub discount_amount: Option<Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "revenue_account_id")]
-    pub revenue_account_id: Option<Uuid>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "revenue_account_id")]
+    pub revenue_account_id: Option<Option<Uuid>>,
 }
 
 impl PatchPosInvoiceItemDto {
@@ -304,12 +304,4 @@ impl backbone_core::ApplyUpdateDto<UpdatePosInvoiceItemDto> for PosInvoiceItem {
         Ok(self)
     }
 }
-
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to PosInvoiceItem here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
 

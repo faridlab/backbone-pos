@@ -314,6 +314,15 @@ impl backbone_core::PersistentEntity for PosInvoice {
     fn write_protected_fields() -> &'static [&'static str] {
         &["client_uuid", "net_total", "tax_total", "grand_total", "rounding_adjustment", "rounded_total", "paid_total", "change_due", "billing_invoice_id", "payment_entry_id", "stock_delivery_note_id", "is_return", "return_against", "status"]
     }
+    fn state_fields() -> &'static [&'static str] {
+        &["status"]
+    }
+    fn references() -> &'static [backbone_core::Reference] {
+        const REFERENCES: &[backbone_core::Reference] = &[
+            backbone_core::Reference::new("opening_entry_id", "pos.pos_opening_entries", "id"),
+        ];
+        REFERENCES
+    }
     fn entity_id(&self) -> String {
         self.id.to_string()
     }

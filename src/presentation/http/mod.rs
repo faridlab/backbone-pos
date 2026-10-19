@@ -19,17 +19,17 @@ pub mod pos_table_handler;
 
 
 // Re-exports
-pub use pos_closing_entry_handler::{create_pos_closing_entry_routes, create_pos_closing_entry_read_routes, create_pos_closing_entry_write_routes};
-pub use pos_invoice_handler::{create_pos_invoice_routes, create_pos_invoice_read_routes, create_pos_invoice_write_routes};
-pub use pos_invoice_item_handler::{create_pos_invoice_item_routes, create_pos_invoice_item_read_routes, create_pos_invoice_item_write_routes};
-pub use pos_payment_handler::{create_pos_payment_routes, create_pos_payment_read_routes, create_pos_payment_write_routes};
-pub use pos_profile_handler::{create_pos_profile_routes, create_pos_profile_read_routes, create_pos_profile_write_routes};
-pub use pos_opening_entry_handler::{create_pos_opening_entry_routes, create_pos_opening_entry_read_routes, create_pos_opening_entry_write_routes};
-pub use pos_cash_movement_handler::{create_pos_cash_movement_routes, create_pos_cash_movement_read_routes, create_pos_cash_movement_write_routes};
-pub use pos_discount_handler::{create_pos_discount_routes, create_pos_discount_read_routes, create_pos_discount_write_routes};
-pub use pos_manager_pin_handler::{create_pos_manager_pin_routes, create_pos_manager_pin_read_routes, create_pos_manager_pin_write_routes};
-pub use pos_floor_plan_handler::{create_pos_floor_plan_routes, create_pos_floor_plan_read_routes, create_pos_floor_plan_write_routes};
-pub use pos_table_handler::{create_pos_table_routes, create_pos_table_read_routes, create_pos_table_write_routes};
+pub use pos_closing_entry_handler::{create_pos_closing_entry_routes, create_pos_closing_entry_read_routes, create_pos_closing_entry_write_routes, pos_closing_entry_permissions};
+pub use pos_invoice_handler::{create_pos_invoice_routes, create_pos_invoice_read_routes, create_pos_invoice_write_routes, pos_invoice_permissions};
+pub use pos_invoice_item_handler::{create_pos_invoice_item_routes, create_pos_invoice_item_read_routes, create_pos_invoice_item_write_routes, pos_invoice_item_permissions};
+pub use pos_payment_handler::{create_pos_payment_routes, create_pos_payment_read_routes, create_pos_payment_write_routes, pos_payment_permissions};
+pub use pos_profile_handler::{create_pos_profile_routes, create_pos_profile_read_routes, create_pos_profile_write_routes, pos_profile_permissions};
+pub use pos_opening_entry_handler::{create_pos_opening_entry_routes, create_pos_opening_entry_read_routes, create_pos_opening_entry_write_routes, pos_opening_entry_permissions};
+pub use pos_cash_movement_handler::{create_pos_cash_movement_routes, create_pos_cash_movement_read_routes, create_pos_cash_movement_write_routes, pos_cash_movement_permissions};
+pub use pos_discount_handler::{create_pos_discount_routes, create_pos_discount_read_routes, create_pos_discount_write_routes, pos_discount_permissions};
+pub use pos_manager_pin_handler::{create_pos_manager_pin_routes, create_pos_manager_pin_read_routes, create_pos_manager_pin_write_routes, pos_manager_pin_permissions};
+pub use pos_floor_plan_handler::{create_pos_floor_plan_routes, create_pos_floor_plan_read_routes, create_pos_floor_plan_write_routes, pos_floor_plan_permissions};
+pub use pos_table_handler::{create_pos_table_routes, create_pos_table_read_routes, create_pos_table_write_routes, pos_table_permissions};
 
 // This directory's extension (hand-written; ADR-0031).
 include!("mod.ext.rs");

@@ -48,3 +48,5 @@ pub use pos_floor_plan_event_handlers::PosFloorPlanEventHandler;
 pub use pos_table_events::{PosTableEvent, PosTableEventPublisher, NoopPosTableEventPublisher};
 pub use pos_table_event_handlers::PosTableEventHandler;
 
+pub mod declared;
+

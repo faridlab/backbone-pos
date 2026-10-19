@@ -87,16 +87,16 @@ pub struct PatchPosOpeningEntryDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "pos_profile_id")]
     pub pos_profile_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "branch_id")]
-    pub branch_id: Option<Uuid>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "branch_id")]
+    pub branch_id: Option<Option<Uuid>>,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "cashier_party_id")]
     pub cashier_party_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = "2024-01-01T00:00:00Z"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "opened_at")]
     pub opened_at: Option<DateTime<Utc>>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "opening_balances")]
-    pub opening_balances: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "opening_balances")]
+    pub opening_balances: Option<Option<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<PosSessionStatus>,
 }
@@ -273,12 +273,4 @@ impl backbone_core::ApplyUpdateDto<UpdatePosOpeningEntryDto> for PosOpeningEntry
         Ok(self)
     }
 }
-
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to PosOpeningEntry here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
 

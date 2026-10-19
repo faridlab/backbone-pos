@@ -85,8 +85,8 @@ pub struct PatchPosPaymentDto {
     pub payment_method: Option<PosPaymentMethod>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub amount: Option<Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "reference_no")]
-    pub reference_no: Option<String>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "reference_no")]
+    pub reference_no: Option<Option<String>>,
 }
 
 impl PatchPosPaymentDto {
@@ -257,12 +257,4 @@ impl backbone_core::ApplyUpdateDto<UpdatePosPaymentDto> for PosPayment {
         Ok(self)
     }
 }
-
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to PosPayment here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
 

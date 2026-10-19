@@ -1,0 +1,67 @@
+-- Down: drop the declared rule constraints for pos module
+ALTER TABLE IF EXISTS pos.pos_tables DROP CONSTRAINT IF EXISTS ck_pos_tables_shape_max_length__max_length;
+ALTER TABLE IF EXISTS pos.pos_tables DROP CONSTRAINT IF EXISTS ck_pos_tables_name_max_length__max_length;
+ALTER TABLE IF EXISTS pos.pos_tables DROP CONSTRAINT IF EXISTS ck_pos_tables_pos_floor_plan_id_required__required;
+ALTER TABLE IF EXISTS pos.pos_floor_plans DROP CONSTRAINT IF EXISTS ck_pos_floor_plans_name_max_length__max_length;
+ALTER TABLE IF EXISTS pos.pos_floor_plans DROP CONSTRAINT IF EXISTS ck_pos_floor_plans_name_required__required;
+ALTER TABLE IF EXISTS pos.pos_manager_pins DROP CONSTRAINT IF EXISTS ck_pos_manager_pins_last_attempt_ip_max_length__max_length;
+ALTER TABLE IF EXISTS pos.pos_manager_pins DROP CONSTRAINT IF EXISTS ck_pos_manager_pins_failed_attempts_non_negative__non_negative;
+ALTER TABLE IF EXISTS pos.pos_manager_pins DROP CONSTRAINT IF EXISTS ck_pos_manager_pins_pin_hash_max_length__max_length;
+ALTER TABLE IF EXISTS pos.pos_manager_pins DROP CONSTRAINT IF EXISTS ck_pos_manager_pins_pin_hash_required__required;
+ALTER TABLE IF EXISTS pos.pos_manager_pins DROP CONSTRAINT IF EXISTS ck_pos_manager_pins_employee_party_id_required__required;
+ALTER TABLE IF EXISTS pos.pos_discounts DROP CONSTRAINT IF EXISTS ck_pos_discounts_description_max_length__max_length;
+ALTER TABLE IF EXISTS pos.pos_discounts DROP CONSTRAINT IF EXISTS ck_pos_discounts_percentage_non_negative__non_negative;
+ALTER TABLE IF EXISTS pos.pos_discounts DROP CONSTRAINT IF EXISTS ck_pos_discounts_name_max_length__max_length;
+ALTER TABLE IF EXISTS pos.pos_discounts DROP CONSTRAINT IF EXISTS ck_pos_discounts_name_required__required;
+ALTER TABLE IF EXISTS pos.pos_cash_movements DROP CONSTRAINT IF EXISTS ck_pos_cash_movements_reason_max_length__max_length;
+ALTER TABLE IF EXISTS pos.pos_cash_movements DROP CONSTRAINT IF EXISTS ck_pos_cash_movements_amount_non_negative__non_negative;
+ALTER TABLE IF EXISTS pos.pos_cash_movements DROP CONSTRAINT IF EXISTS ck_pos_cash_movements_cashier_party_id_required__required;
+ALTER TABLE IF EXISTS pos.pos_cash_movements DROP CONSTRAINT IF EXISTS ck_pos_cash_movements_opening_entry_id_required__required;
+ALTER TABLE IF EXISTS pos.pos_cash_movements DROP CONSTRAINT IF EXISTS ck_pos_cash_movements_pos_profile_id_required__required;
+DROP INDEX IF EXISTS pos.uq_pos_opening_entries_pos_profile_id__session_already_open;
+ALTER TABLE IF EXISTS pos.pos_opening_entries DROP CONSTRAINT IF EXISTS ck_pos_opening_entries_cashier_party_id_required__required;
+ALTER TABLE IF EXISTS pos.pos_opening_entries DROP CONSTRAINT IF EXISTS ck_pos_opening_entries_pos_profile_id_required__required;
+ALTER TABLE IF EXISTS pos.pos_profiles DROP CONSTRAINT IF EXISTS ck_pos_profiles_cash_rounding_unit_non_negative__non_negative;
+ALTER TABLE IF EXISTS pos.pos_profiles DROP CONSTRAINT IF EXISTS ck_pos_profiles_tax_rate_non_negative__non_negative;
+ALTER TABLE IF EXISTS pos.pos_profiles DROP CONSTRAINT IF EXISTS ck_pos_profiles_currency_max_length__max_length;
+ALTER TABLE IF EXISTS pos.pos_profiles DROP CONSTRAINT IF EXISTS ck_pos_profiles_name_max_length__max_length;
+ALTER TABLE IF EXISTS pos.pos_profiles DROP CONSTRAINT IF EXISTS ck_pos_profiles_name_required__required;
+ALTER TABLE IF EXISTS pos.pos_payments DROP CONSTRAINT IF EXISTS ck_pos_payments_reference_no_max_length__max_length;
+ALTER TABLE IF EXISTS pos.pos_payments DROP CONSTRAINT IF EXISTS ck_pos_payments_amount_non_negative__non_negative;
+ALTER TABLE IF EXISTS pos.pos_payments DROP CONSTRAINT IF EXISTS ck_pos_payments_pos_invoice_id_required__required;
+ALTER TABLE IF EXISTS pos.pos_invoice_items DROP CONSTRAINT IF EXISTS ck_pos_invoice_items_quantity__negative_amount;
+ALTER TABLE IF EXISTS pos.pos_invoice_items DROP CONSTRAINT IF EXISTS ck_pos_invoice_items_net_amount_non_negative__non_negative;
+ALTER TABLE IF EXISTS pos.pos_invoice_items DROP CONSTRAINT IF EXISTS ck_pos_invoice_items_discount_amount_non_negative__non_negative;
+ALTER TABLE IF EXISTS pos.pos_invoice_items DROP CONSTRAINT IF EXISTS ck_pos_invoice_items_unit_price_non_negative__non_negative;
+ALTER TABLE IF EXISTS pos.pos_invoice_items DROP CONSTRAINT IF EXISTS ck_pos_invoice_items_quantity_non_negative__non_negative;
+ALTER TABLE IF EXISTS pos.pos_invoice_items DROP CONSTRAINT IF EXISTS ck_pos_invoice_items_description_max_length__max_length;
+ALTER TABLE IF EXISTS pos.pos_invoice_items DROP CONSTRAINT IF EXISTS ck_pos_invoice_items_item_id_required__required;
+ALTER TABLE IF EXISTS pos.pos_invoice_items DROP CONSTRAINT IF EXISTS ck_pos_invoice_items_pos_invoice_id_required__required;
+ALTER TABLE IF EXISTS pos.pos_invoices DROP CONSTRAINT IF EXISTS ck_pos_invoices_change_due_non_negative__non_negative;
+ALTER TABLE IF EXISTS pos.pos_invoices DROP CONSTRAINT IF EXISTS ck_pos_invoices_paid_total_non_negative__non_negative;
+ALTER TABLE IF EXISTS pos.pos_invoices DROP CONSTRAINT IF EXISTS ck_pos_invoices_rounded_total_non_negative__non_negative;
+ALTER TABLE IF EXISTS pos.pos_invoices DROP CONSTRAINT IF EXISTS ck_pos_invoices_grand_total_non_negative__non_negative;
+ALTER TABLE IF EXISTS pos.pos_invoices DROP CONSTRAINT IF EXISTS ck_pos_invoices_tax_total_non_negative__non_negative;
+ALTER TABLE IF EXISTS pos.pos_invoices DROP CONSTRAINT IF EXISTS ck_pos_invoices_net_total_non_negative__non_negative;
+ALTER TABLE IF EXISTS pos.pos_invoices DROP CONSTRAINT IF EXISTS ck_pos_invoices_receipt_number_max_length__max_length;
+ALTER TABLE IF EXISTS pos.pos_invoices DROP CONSTRAINT IF EXISTS ck_pos_invoices_receipt_number_required__required;
+ALTER TABLE IF EXISTS pos.pos_invoices DROP CONSTRAINT IF EXISTS ck_pos_invoices_opening_entry_id_required__required;
+ALTER TABLE IF EXISTS pos.pos_invoices DROP CONSTRAINT IF EXISTS ck_pos_invoices_pos_profile_id_required__required;
+DO $$
+BEGIN
+    IF to_regclass('pos.uq_pos_invoices_pos_table_id__unique') IS NOT NULL AND to_regclass('pos.idx_pos_invoices_pos_table_id') IS NULL THEN
+        ALTER INDEX pos.uq_pos_invoices_pos_table_id__unique RENAME TO idx_pos_invoices_pos_table_id;
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF to_regclass('pos.uq_pos_invoices_receipt_number__unique') IS NOT NULL AND to_regclass('pos.idx_pos_invoices_receipt_number') IS NULL THEN
+        ALTER INDEX pos.uq_pos_invoices_receipt_number__unique RENAME TO idx_pos_invoices_receipt_number;
+    END IF;
+END $$;
+
+ALTER TABLE IF EXISTS pos.pos_closing_entries DROP CONSTRAINT IF EXISTS ck_pos_closing_entries_grand_total_non_negative__non_negative;
+ALTER TABLE IF EXISTS pos.pos_closing_entries DROP CONSTRAINT IF EXISTS ck_pos_closing_entries_cashier_party_id_required__required;
+ALTER TABLE IF EXISTS pos.pos_closing_entries DROP CONSTRAINT IF EXISTS ck_pos_closing_entries_opening_entry_id_required__required;
+ALTER TABLE IF EXISTS pos.pos_closing_entries DROP CONSTRAINT IF EXISTS ck_pos_closing_entries_pos_profile_id_required__required;

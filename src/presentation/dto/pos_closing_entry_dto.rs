@@ -44,14 +44,19 @@ pub struct CreatePosClosingEntryDto {
     pub cashier_party_id: Uuid,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "totals_by_method")]
     pub totals_by_method: Option<serde_json::Value>,
-    #[serde(alias = "grand_total")]
+    #[serde(default, alias = "grand_total")]
     pub grand_total: Decimal,
     #[cfg_attr(feature = "openapi", schema(example = 42))]
-    #[serde(alias = "invoice_count")]
+    #[serde(default, alias = "invoice_count")]
     pub invoice_count: i32,
-    #[serde(alias = "difference_total")]
+    #[serde(default, alias = "difference_total")]
     pub difference_total: Decimal,
+    #[serde(default = "default_create_pos_closing_entry_status")]
     pub status: PosClosingStatus,
+}
+
+fn default_create_pos_closing_entry_status() -> PosClosingStatus {
+    PosClosingStatus::Draft
 }
 
 // =============================================================================
@@ -114,8 +119,8 @@ pub struct PatchPosClosingEntryDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "cashier_party_id")]
     pub cashier_party_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "totals_by_method")]
-    pub totals_by_method: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "totals_by_method")]
+    pub totals_by_method: Option<Option<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "grand_total")]
     pub grand_total: Option<Decimal>,
     #[cfg_attr(feature = "openapi", schema(example = 42))]
@@ -316,12 +321,4 @@ impl backbone_core::ApplyUpdateDto<UpdatePosClosingEntryDto> for PosClosingEntry
         Ok(self)
     }
 }
-
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to PosClosingEntry here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
 

@@ -4127,11 +4127,6 @@ components:
         - opening_entry_id
         - closed_at
         - cashier_party_id
-        - grand_total
-        - invoice_count
-        - difference_total
-        - status
-        - metadata
       properties:
         pos_profile_id:
           type: string
@@ -4157,8 +4152,6 @@ components:
           type: string
         status:
           type: string
-        metadata:
-          type: object
 
     UpdatePosClosingEntryRequest:
       type: object
@@ -4171,7 +4164,6 @@ components:
         - invoice_count
         - difference_total
         - status
-        - metadata
       properties:
         pos_profile_id:
           type: string
@@ -4197,8 +4189,6 @@ components:
           type: string
         status:
           type: string
-        metadata:
-          type: object
 
     PatchPosClosingEntryRequest:
       type: object
@@ -4227,8 +4217,6 @@ components:
           type: string
         status:
           type: string
-        metadata:
-          type: object
 
     PosClosingEntryList:
       type: object
@@ -4347,16 +4335,6 @@ components:
         - opening_entry_id
         - receipt_number
         - posting_at
-        - net_total
-        - tax_total
-        - grand_total
-        - rounding_adjustment
-        - rounded_total
-        - paid_total
-        - change_due
-        - is_return
-        - status
-        - metadata
       properties:
         pos_profile_id:
           type: string
@@ -4418,10 +4396,6 @@ components:
           nullable: true
           type: string
           format: uuid
-        status:
-          type: string
-        metadata:
-          type: object
 
     UpdatePosInvoiceRequest:
       type: object
@@ -4430,16 +4404,6 @@ components:
         - opening_entry_id
         - receipt_number
         - posting_at
-        - net_total
-        - tax_total
-        - grand_total
-        - rounding_adjustment
-        - rounded_total
-        - paid_total
-        - change_due
-        - is_return
-        - status
-        - metadata
       properties:
         pos_profile_id:
           type: string
@@ -4462,49 +4426,9 @@ components:
         receipt_number:
           type: string
           maxLength: 40
-        client_uuid:
-          nullable: true
-          type: string
-          format: uuid
         posting_at:
           type: string
           format: date-time
-        net_total:
-          type: string
-        tax_total:
-          type: string
-        grand_total:
-          type: string
-        rounding_adjustment:
-          type: string
-        rounded_total:
-          type: string
-        paid_total:
-          type: string
-        change_due:
-          type: string
-        billing_invoice_id:
-          nullable: true
-          type: string
-          format: uuid
-        payment_entry_id:
-          nullable: true
-          type: string
-          format: uuid
-        stock_delivery_note_id:
-          nullable: true
-          type: string
-          format: uuid
-        is_return:
-          type: boolean
-        return_against:
-          nullable: true
-          type: string
-          format: uuid
-        status:
-          type: string
-        metadata:
-          type: object
 
     PatchPosInvoiceRequest:
       type: object
@@ -4530,49 +4454,9 @@ components:
         receipt_number:
           type: string
           maxLength: 40
-        client_uuid:
-          nullable: true
-          type: string
-          format: uuid
         posting_at:
           type: string
           format: date-time
-        net_total:
-          type: string
-        tax_total:
-          type: string
-        grand_total:
-          type: string
-        rounding_adjustment:
-          type: string
-        rounded_total:
-          type: string
-        paid_total:
-          type: string
-        change_due:
-          type: string
-        billing_invoice_id:
-          nullable: true
-          type: string
-          format: uuid
-        payment_entry_id:
-          nullable: true
-          type: string
-          format: uuid
-        stock_delivery_note_id:
-          nullable: true
-          type: string
-          format: uuid
-        is_return:
-          type: boolean
-        return_against:
-          nullable: true
-          type: string
-          format: uuid
-        status:
-          type: string
-        metadata:
-          type: object
 
     PosInvoiceList:
       type: object
@@ -4652,9 +4536,6 @@ components:
         - item_id
         - quantity
         - unit_price
-        - discount_amount
-        - net_amount
-        - metadata
       properties:
         pos_invoice_id:
           type: string
@@ -4686,8 +4567,6 @@ components:
           nullable: true
           type: string
           format: uuid
-        metadata:
-          type: object
 
     UpdatePosInvoiceItemRequest:
       type: object
@@ -4697,8 +4576,6 @@ components:
         - quantity
         - unit_price
         - discount_amount
-        - net_amount
-        - metadata
       properties:
         pos_invoice_id:
           type: string
@@ -4710,10 +4587,6 @@ components:
           nullable: true
           type: string
           maxLength: 300
-        client_uuid:
-          nullable: true
-          type: string
-          format: uuid
         course:
           nullable: true
           type: integer
@@ -4724,14 +4597,10 @@ components:
           type: string
         discount_amount:
           type: string
-        net_amount:
-          type: string
         revenue_account_id:
           nullable: true
           type: string
           format: uuid
-        metadata:
-          type: object
 
     PatchPosInvoiceItemRequest:
       type: object
@@ -4746,10 +4615,6 @@ components:
           nullable: true
           type: string
           maxLength: 300
-        client_uuid:
-          nullable: true
-          type: string
-          format: uuid
         course:
           nullable: true
           type: integer
@@ -4760,14 +4625,10 @@ components:
           type: string
         discount_amount:
           type: string
-        net_amount:
-          type: string
         revenue_account_id:
           nullable: true
           type: string
           format: uuid
-        metadata:
-          type: object
 
     PosInvoiceItemList:
       type: object
@@ -4832,7 +4693,6 @@ components:
         - pos_invoice_id
         - payment_method
         - amount
-        - metadata
       properties:
         pos_invoice_id:
           type: string
@@ -4853,8 +4713,6 @@ components:
           nullable: true
           type: string
           format: uuid
-        metadata:
-          type: object
 
     UpdatePosPaymentRequest:
       type: object
@@ -4862,7 +4720,6 @@ components:
         - pos_invoice_id
         - payment_method
         - amount
-        - metadata
       properties:
         pos_invoice_id:
           type: string
@@ -4875,16 +4732,6 @@ components:
           nullable: true
           type: string
           maxLength: 140
-        client_uuid:
-          nullable: true
-          type: string
-          format: uuid
-        payment_entry_id:
-          nullable: true
-          type: string
-          format: uuid
-        metadata:
-          type: object
 
     PatchPosPaymentRequest:
       type: object
@@ -4900,16 +4747,6 @@ components:
           nullable: true
           type: string
           maxLength: 140
-        client_uuid:
-          nullable: true
-          type: string
-          format: uuid
-        payment_entry_id:
-          nullable: true
-          type: string
-          format: uuid
-        metadata:
-          type: object
 
     PosPaymentList:
       type: object
@@ -5016,13 +4853,6 @@ components:
       type: object
       required:
         - name
-        - currency
-        - tax_rate
-        - allow_discount
-        - cash_rounding_strategy
-        - cash_rounding_unit
-        - status
-        - metadata
       properties:
         branch_id:
           nullable: true
@@ -5081,10 +4911,6 @@ components:
           type: string
         cash_rounding_unit:
           type: string
-        status:
-          type: string
-        metadata:
-          type: object
 
     UpdatePosProfileRequest:
       type: object
@@ -5096,7 +4922,6 @@ components:
         - cash_rounding_strategy
         - cash_rounding_unit
         - status
-        - metadata
       properties:
         branch_id:
           nullable: true
@@ -5157,8 +4982,6 @@ components:
           type: string
         status:
           type: string
-        metadata:
-          type: object
 
     PatchPosProfileRequest:
       type: object
@@ -5222,8 +5045,6 @@ components:
           type: string
         status:
           type: string
-        metadata:
-          type: object
 
     PosProfileList:
       type: object
@@ -5288,8 +5109,6 @@ components:
         - pos_profile_id
         - cashier_party_id
         - opened_at
-        - status
-        - metadata
       properties:
         pos_profile_id:
           type: string
@@ -5306,10 +5125,6 @@ components:
           format: date-time
         opening_balances:
           nullable: true
-          type: object
-        status:
-          type: string
-        metadata:
           type: object
 
     UpdatePosOpeningEntryRequest:
@@ -5319,7 +5134,6 @@ components:
         - cashier_party_id
         - opened_at
         - status
-        - metadata
       properties:
         pos_profile_id:
           type: string
@@ -5339,8 +5153,6 @@ components:
           type: object
         status:
           type: string
-        metadata:
-          type: object
 
     PatchPosOpeningEntryRequest:
       type: object
@@ -5363,8 +5175,6 @@ components:
           type: object
         status:
           type: string
-        metadata:
-          type: object
 
     PosOpeningEntryList:
       type: object
@@ -5434,9 +5244,7 @@ components:
         - opening_entry_id
         - cashier_party_id
         - movement_type
-        - amount
         - moved_at
-        - metadata
       properties:
         pos_profile_id:
           type: string
@@ -5458,8 +5266,6 @@ components:
         moved_at:
           type: string
           format: date-time
-        metadata:
-          type: object
 
     UpdatePosCashMovementRequest:
       type: object
@@ -5470,7 +5276,6 @@ components:
         - movement_type
         - amount
         - moved_at
-        - metadata
       properties:
         pos_profile_id:
           type: string
@@ -5492,8 +5297,6 @@ components:
         moved_at:
           type: string
           format: date-time
-        metadata:
-          type: object
 
     PatchPosCashMovementRequest:
       type: object
@@ -5518,8 +5321,6 @@ components:
         moved_at:
           type: string
           format: date-time
-        metadata:
-          type: object
 
     PosCashMovementList:
       type: object
@@ -5572,7 +5373,6 @@ components:
       required:
         - name
         - percentage
-        - metadata
       properties:
         name:
           type: string
@@ -5583,15 +5383,12 @@ components:
           nullable: true
           type: string
           maxLength: 300
-        metadata:
-          type: object
 
     UpdatePosDiscountRequest:
       type: object
       required:
         - name
         - percentage
-        - metadata
       properties:
         name:
           type: string
@@ -5602,8 +5399,6 @@ components:
           nullable: true
           type: string
           maxLength: 300
-        metadata:
-          type: object
 
     PatchPosDiscountRequest:
       type: object
@@ -5617,8 +5412,6 @@ components:
           nullable: true
           type: string
           maxLength: 300
-        metadata:
-          type: object
 
     PosDiscountList:
       type: object
@@ -5684,8 +5477,6 @@ components:
       required:
         - employee_party_id
         - pin_hash
-        - failed_attempts
-        - metadata
       properties:
         employee_party_id:
           type: string
@@ -5708,23 +5499,16 @@ components:
           nullable: true
           type: string
           maxLength: 45
-        metadata:
-          type: object
 
     UpdatePosManagerPinRequest:
       type: object
       required:
         - employee_party_id
-        - pin_hash
         - failed_attempts
-        - metadata
       properties:
         employee_party_id:
           type: string
           format: uuid
-        pin_hash:
-          type: string
-          maxLength: 200
         failed_attempts:
           type: integer
           format: int32
@@ -5740,8 +5524,6 @@ components:
           nullable: true
           type: string
           maxLength: 45
-        metadata:
-          type: object
 
     PatchPosManagerPinRequest:
       type: object
@@ -5749,9 +5531,6 @@ components:
         employee_party_id:
           type: string
           format: uuid
-        pin_hash:
-          type: string
-          maxLength: 200
         failed_attempts:
           type: integer
           format: int32
@@ -5767,8 +5546,6 @@ components:
           nullable: true
           type: string
           maxLength: 45
-        metadata:
-          type: object
 
     PosManagerPinList:
       type: object
@@ -5821,7 +5598,6 @@ components:
       type: object
       required:
         - name
-        - metadata
       properties:
         branch_id:
           nullable: true
@@ -5834,14 +5610,11 @@ components:
           nullable: true
           type: integer
           format: int32
-        metadata:
-          type: object
 
     UpdatePosFloorPlanRequest:
       type: object
       required:
         - name
-        - metadata
       properties:
         branch_id:
           nullable: true
@@ -5854,8 +5627,6 @@ components:
           nullable: true
           type: integer
           format: int32
-        metadata:
-          type: object
 
     PatchPosFloorPlanRequest:
       type: object
@@ -5871,8 +5642,6 @@ components:
           nullable: true
           type: integer
           format: int32
-        metadata:
-          type: object
 
     PosFloorPlanList:
       type: object
@@ -5932,7 +5701,6 @@ components:
       type: object
       required:
         - pos_floor_plan_id
-        - metadata
       properties:
         pos_floor_plan_id:
           type: string
@@ -5951,15 +5719,12 @@ components:
           maxLength: 30
         position:
           nullable: true
-          type: object
-        metadata:
           type: object
 
     UpdatePosTableRequest:
       type: object
       required:
         - pos_floor_plan_id
-        - metadata
       properties:
         pos_floor_plan_id:
           type: string
@@ -5978,8 +5743,6 @@ components:
           maxLength: 30
         position:
           nullable: true
-          type: object
-        metadata:
           type: object
 
     PatchPosTableRequest:
@@ -6002,8 +5765,6 @@ components:
           maxLength: 30
         position:
           nullable: true
-          type: object
-        metadata:
           type: object
 
     PosTableList:

@@ -72,8 +72,8 @@ pub struct PatchPosDiscountDto {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub percentage: Option<Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option")]
+    pub description: Option<Option<String>>,
 }
 
 impl PatchPosDiscountDto {
@@ -231,12 +231,4 @@ impl backbone_core::ApplyUpdateDto<UpdatePosDiscountDto> for PosDiscount {
         Ok(self)
     }
 }
-
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to PosDiscount here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
 

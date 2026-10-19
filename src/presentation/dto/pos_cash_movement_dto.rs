@@ -41,6 +41,7 @@ pub struct CreatePosCashMovementDto {
     pub cashier_party_id: Uuid,
     #[serde(alias = "movement_type")]
     pub movement_type: PosCashMovementType,
+    #[serde(default)]
     pub amount: Decimal,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
@@ -105,8 +106,8 @@ pub struct PatchPosCashMovementDto {
     pub movement_type: Option<PosCashMovementType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub amount: Option<Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option")]
+    pub reason: Option<Option<String>>,
     #[cfg_attr(feature = "openapi", schema(example = "2024-01-01T00:00:00Z"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "moved_at")]
     pub moved_at: Option<DateTime<Utc>>,
@@ -290,12 +291,4 @@ impl backbone_core::ApplyUpdateDto<UpdatePosCashMovementDto> for PosCashMovement
         Ok(self)
     }
 }
-
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to PosCashMovement here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
 
